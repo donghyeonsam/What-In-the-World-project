@@ -1,0 +1,76 @@
+### IntelliJ IDEA ###
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# .idea 전체를 무시하는 대신 팀 공통 설정만 공유하고 싶다면:
+# .idea/*
+# !.idea/codeStyles/
+# !.idea/inspectionProfiles/
+# !.idea/encodings.xml
+
+### Build output ###
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# Maven
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### Java ###
+*.class
+*.jar
+*.war
+*.ear
+*.log
+hs_err_pid*
+replay_pid*
+
+### 민감 정보 / 환경 설정 ###
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.jks
+src/main/resources/application-local.yml
+src/main/resources/application-secret.yml
+src/main/resources/application-prod.yml
+
+### DB / 로컬 데이터 ###
+*.db
+*.sqlite
+*.sqlite3
+/data/
+/logs/
+
+### OS ###
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+Desktop.ini
+
+### 기타 IDE (팀원 대응) ###
+.vscode/
+.settings/
+.classpath
+.project
+.metadata/
+bin/
+
+### Claude 개인 파일 ###
+# .claude/ 전체를 무시하되, 팀 공유용 skills 만 예외.
+# 주의: '.claude/' 가 아니라 '.claude/*' 여야 하위 항목 재포함(!)이 동작함.
+.claude/*
+!.claude/skills/
+CLAUDE.local.md
+.mcp.json
