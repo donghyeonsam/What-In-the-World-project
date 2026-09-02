@@ -1,24 +1,93 @@
 # S15P21D203
 
-SSAFY 15기 빅데이터 분산 트랙 · sub1 · D203팀
+- **커밋 메시지 형식**
+    - 타입:   커밋 유형에 따라 타입을 명시합니다.
+    - 제목:   제목만 보고도 무슨 변경사항이 발생했는지 알 수 있도록 짧고 명확히!
+    - 설명:   ?? (파일의 변경사항, 사유, 추가 설명 등 명시할 내용 작성)
+    
+    ```smalltalk
+    [타입]: [제목]
+    
+    - [간단한 설명]
+    ```
+    
+- 예시
+    
+    ```smalltalk
+    feat: 회원 관리 기능 추가
+    ```
+    
+- **타입**
+    
+    
+    | **type** | **description** |
+    | --- | --- |
+    | feature | 주요 기능 관련 (추가, 변경) |
+    | fix | 버그 수정 |
+    | refact | 기능 변화를 제외한 코드 리팩토링 / 코드 스타일 변경 등 |
+    | docs | 문서/주석의 변경사항 |
+    | config | 환경 설정 관련(의존성, ci/cd 등) |
+    | chore | 기타등등 (파일 디렉토리 변경, 패키지 변경) |
+    | test | 테스트 코드 관련 |
 
-| | |
-|---|---|
-| GitLab | https://lab.ssafy.com/s15-bigdata-dist-sub1/S15P21D203 |
-| Jira | https://ssafy.atlassian.net/jira/software/c/projects/S15P21D203/boards/15137 |
+# Branch
 
-## 커밋과 MR
+---
 
-규칙: [CONTRIBUTING.md](CONTRIBUTING.md)
+- **하나의 작업단위**마다 브랜치 생성
+    
+    ex) 기능 개발  → feature/login
+           문제 수정 → hotfix/login-api-error
+    
+    | **Branch** | **description** |
+    | --- | --- |
+    | master | 라이브 서버에 제품으로 출시되는 브랜치 |
+    | develop | 개발 브랜치 |
+    | feature | 추가 기능 개발 브랜치 |
+    | release | 다음 버전 출시 준비 브랜치 |
+    | hotfix | master 브랜치 버그 수정 브랜치 |
 
-- 커밋: `<type>: <Subject>`
-- MR 설명의 `Resolves: S15P21D203-<번호>` 가 Jira 연동 트리거. 템플릿이 채워주므로 번호만 입력
-- master 직접 push 시 미반영. 모든 작업 MR 경유
+---
 
-## 설정 관리
+- **PR 단위**
+    - 기능 단위로 이루어질 것
 
-프로필별 설정·비밀값은 git 제외. 상세는 `.gitignore`.
+- **Merge 규칙**
+    - 최소 1명에게 승인 받고 머지(권장)
+    - 코드 리뷰를 원하는 부분이 있다면 어떤 부분에 대해 어떤 고민, 리뷰를 받고 싶은지 PR 메세지에 포함
 
-- `src/main/resources/application-{local,secret,prod}.yml`
-- `.env`, `.env.*`, `*.pem`, `*.key`, `*.p12`, `*.jks`
-- 로컬 데이터는 `/data/`, `/logs/` (`src/` 밖)
+- **PR 형식**
+    - **제목**
+        
+        feat: ~한 기능 추가
+        fix: ~ 문제 수정
+        
+    - **PR 메세지 형식**
+        
+        ```smalltalk
+        - 제목 : feat(지라 코드): 기능명
+        
+        ## 🔎 작업 내용
+        
+        - 기능에서 어떤 부분이
+        
+        - 구현되었는지 설명해주세요
+        
+          <br/>
+        
+        ## 이미지 첨부
+        
+        <img src="파일주소" width="30%" height="30%"/>
+        
+        <br/>
+        
+        ## ➕ 지라 링크
+        
+        Resolves: S15P21D203-
+        
+        <!-- 번호만 입력. 머지 시 이슈 완료 처리 -->
+        <!-- 완료 처리 없이 링크만 남기려면 See also: 로 변경 -->
+        
+        <br/>
+        
+        ```
