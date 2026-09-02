@@ -37,6 +37,7 @@ replay_pid*
 ### 민감 정보 / 환경 설정 ###
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 *.p12
