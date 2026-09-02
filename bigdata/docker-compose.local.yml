@@ -33,6 +33,11 @@ services:
 
     networks:
       - news-network
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+volumes:
+  kafka-data:
 
 networks:
   news-network:
