@@ -41,9 +41,6 @@ replay_pid*
 *.key
 *.p12
 *.jks
-src/main/resources/application-local.yml
-src/main/resources/application-secret.yml
-src/main/resources/application-prod.yml
 
 ### DB / 로컬 데이터 ###
 *.db
