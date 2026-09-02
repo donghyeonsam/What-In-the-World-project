@@ -1,5 +1,7 @@
 services:
+  # Kafka에 대한 설정
   kafka:
+    # Apache Kafka 4.3.1 이미지로 컨테이너 생성. 이름은 news-kafka
     image: apache/kafka:4.3.1
     container_name: news-kafka
     hostname: kafka
@@ -10,6 +12,8 @@ services:
     environment:
       # KRaft
       KAFKA_NODE_ID: 1
+      # broker: 메시지를 받고 전달하는 역할.
+      # controller: Kafka 클러스터를 관리하는 역할
       KAFKA_PROCESS_ROLES: broker,controller
 
       # Listener
