@@ -1,39 +1,274 @@
 services:
+
+  # =========================================================
+  # Kafka
+  # =========================================================
   kafka:
+    # 사용할 Kafka Docker 이미지
     image: apache/kafka:4.3.1
+
+    # Docker에서 보이는 컨테이너 이름
     container_name: news-kafka
+
+    # Docker 네트워크 내부에서 사용할 hostname
+    # 다른 컨테이너는 kafka:29092 로 접근 가능
     hostname: kafka
 
+    # 컨테이너 내부 프로세스를 root 권한으로 실행
+    user: root
+
     ports:
+      # 내 PC(Host)의 9092 포트
+      #        ↓
+      # Kafka 컨테이너의 9092 포트
+      #
+      # 즉 로컬 PC의 프로그램에서는
+      # localhost:9092 로 Kafka에 접근 가능
       - "9092:9092"
 
     environment:
-      # KRaft
+
+      # ---------------------------------------------------------
+      # KRaft 설정
+      # ---------------------------------------------------------
+      # Kafka 4.x에서는 ZooKeeper 없이
+      # Kafka 자체가 메타데이터를 관리하는 KRaft 방식을 사용
+
+      # 이 Kafka 노드의 고유 ID
       KAFKA_NODE_ID: 1
+<<<<<<< HEAD
+      # broker: 메시지를 받고 전달하는 역할.
+      # controller: Kafka 클러스터를 관리하는 역할
+=======
+
+      # 이 Kafka 인스턴스가
+      # broker + controller 역할을 동시에 수행
+      #
+      # broker:
+      #   실제 메시지를 저장하고 Producer/Consumer 요청 처리
+      #
+      # controller:
+      #   Kafka 클러스터의 메타데이터 관리
+      #   (토픽, 파티션, 브로커 상태 등)
+>>>>>>> 97f9dea7789cd3b1e64ac37c4d80022d2b2249d8
       KAFKA_PROCESS_ROLES: broker,controller
 
-      # Listener
+
+      # ---------------------------------------------------------
+      # Listener 설정
+      # ---------------------------------------------------------
+
+      # Kafka가 실제로 열어둘 통신 포트
+      #
+      # INTERNAL   : Docker 내부 통신
+      # EXTERNAL   : Docker 외부(내 PC 등) 통신
+      # CONTROLLER : Kafka Controller 통신
       KAFKA_LISTENERS: INTERNAL://:29092,EXTERNAL://:9092,CONTROLLER://:9093
 
+      # 클라이언트에게
+      # "나한테 접속하려면 이 주소를 써"
+      # 라고 알려주는 주소
+      #
+      # Docker 내부:
+      #   kafka:29092
+      #
+      # Docker 외부:
+      #   localhost:9092
       KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
 
+      # 각각의 Listener에서 사용할 통신 방식
+      #
+      # 현재는 모두 PLAINTEXT
+      # → SSL/TLS 인증 없이 통신
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
 
+      # Kafka 브로커끼리 통신할 때 INTERNAL Listener 사용
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+
+      # Controller 통신에는 CONTROLLER Listener 사용
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
 
+      # KRaft Controller 구성
+      #
+      # 형식:
+      # 노드ID@호스트명:포트
+      #
+      # 현재 Controller는 1번 Kafka 하나뿐
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
 
-      # Single Broker 환경
+
+      # ---------------------------------------------------------
+      # Single Broker 환경 설정
+      # ---------------------------------------------------------
+      # 현재 Kafka Broker가 1대뿐이기 때문에
+      # Kafka 내부 토픽의 replication factor도 1로 설정해야 함
+
+      # Consumer Group offset을 저장하는 내부 토픽의 복제 수
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+      # Transaction 정보를 저장하는 내부 토픽 복제 수
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+
+      # Transaction 로그에서 필요한 최소 replica 수
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
 
+      # Consumer Group 생성 시 rebalance 대기시간
+      # 로컬 개발환경에서는 바로 시작하도록 0ms
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+
+    # Kafka도 Hadoop과 같은 Docker 네트워크 사용
+    networks:
+      - news-network
+
+    volumes:
+      # Kafka 데이터를 Docker Volume에 저장
+      #
+      # 컨테이너를 삭제했다가 다시 만들어도
+      # Kafka 로그/메시지가 유지될 수 있음
+      - kafka-data:/var/lib/kafka/data
+
+
+  # =========================================================
+  # HDFS NameNode
+  # =========================================================
+  namenode:
+    image: apache/hadoop:3.4.3
+
+    container_name: news-hdfs-namenode
+
+    # Docker 네트워크 내부에서
+    # namenode라는 이름으로 접근 가능
+    hostname: namenode
+
+    user: root
+
+    ports:
+      # HDFS NameNode 웹 관리 화면
+      #
+      # 브라우저:
+      # http://localhost:9870
+      - "9870:9870"
+
+      # HDFS Client가 NameNode와 통신하는 RPC 포트
+      #
+      # Host 환경에서는 localhost:9000
+      # Docker 내부에서는 namenode:9000
+      - "9000:9000"
+
+    volumes:
+
+      # NameNode 메타데이터 저장
+      #
+      # 어떤 파일이 있고,
+      # 어떤 Block으로 나뉘었으며,
+      # 어떤 DataNode에 저장되어 있는지 등의 정보
+      - namenode-data:/data/name
+
+      # 로컬에 작성한 Hadoop 설정 파일을
+      # 컨테이너 내부 Hadoop 설정 경로에 연결
+      #
+      # :ro
+      # → read-only
+      # → 컨테이너가 파일을 수정하지 못하도록 설정
+      - ./hadoop/config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./hadoop/config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+
+    command: >
+      bash -c "
+
+      # 최초 실행인지 확인
+      #
+      # /data/name/current 디렉터리가 없다면
+      # 아직 NameNode가 포맷되지 않은 상태
+      if [ ! -d /data/name/current ]; then
+
+        # HDFS NameNode 초기화
+        # 쉽게 말하면 HDFS 파일 시스템을 처음 생성
+        hdfs namenode -format -force -nonInteractive;
+
+      fi &&
+
+      # NameNode 서버 실행
+      hdfs namenode
+      "
 
     networks:
       - news-network
 
+
+  # =========================================================
+  # HDFS DataNode
+  # =========================================================
+  datanode:
+    image: apache/hadoop:3.4.3
+
+    container_name: news-hdfs-datanode
+
+    # Docker 내부에서는
+    # datanode라는 이름으로 접근 가능
+    hostname: datanode
+
+    user: root
+
+    ports:
+      # DataNode 상태 확인 Web UI
+      #
+      # http://localhost:9864
+      - "9864:9864"
+
+    volumes:
+
+      # 실제 HDFS 파일 Block 저장 위치
+      #
+      # NameNode는 파일의 "정보"를 저장하고
+      # DataNode는 실제 데이터를 저장함
+      - datanode-data:/data/data
+
+      # NameNode와 동일한 Hadoop 설정 사용
+      - ./hadoop/config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./hadoop/config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+
+    # DataNode 프로세스 실행
+    command: hdfs datanode
+
+    # NameNode 컨테이너를 먼저 시작
+    #
+    # 주의:
+    # NameNode가 "완전히 준비될 때까지" 기다린다는 의미는 아니고
+    # 컨테이너 시작 순서만 보장
+    depends_on:
+      - namenode
+
+    networks:
+      - news-network
+
+
+# =========================================================
+# Docker Volume
+# =========================================================
+#
+# 컨테이너를 삭제해도 데이터를 유지하기 위한 저장공간
+volumes:
+
+  # Kafka 메시지/로그 저장
+  kafka-data:
+
+  # HDFS NameNode 메타데이터 저장
+  namenode-data:
+
+  # HDFS 실제 데이터 Block 저장
+  datanode-data:
+
+
+# =========================================================
+# Docker Network
+# =========================================================
 networks:
+
+  # Kafka / NameNode / DataNode가
+  # 서로 hostname으로 통신하기 위한 공통 네트워크
   news-network:
+
+    # Docker에 실제 생성되는 네트워크 이름을
+    # news-network로 고정
     name: news-network
