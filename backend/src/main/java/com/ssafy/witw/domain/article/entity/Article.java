@@ -19,9 +19,8 @@ import java.util.UUID;
 @Table(name = "article")
 public class Article {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id", nullable = false)
-    private Long id;
+    private String id;
 
     @NotNull
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
@@ -36,10 +35,6 @@ public class Article {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "issue_id")
     private Issue issue;
-
-    @NotNull
-    @Column(name = "uuid", nullable = false)
-    private UUID uuid;
 
     @Size(max = 255)
     @NotNull
