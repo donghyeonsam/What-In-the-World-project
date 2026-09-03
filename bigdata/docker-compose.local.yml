@@ -36,10 +36,6 @@ services:
 
       # 이 Kafka 노드의 고유 ID
       KAFKA_NODE_ID: 1
-<<<<<<< HEAD
-      # broker: 메시지를 받고 전달하는 역할.
-      # controller: Kafka 클러스터를 관리하는 역할
-=======
 
       # 이 Kafka 인스턴스가
       # broker + controller 역할을 동시에 수행
@@ -50,7 +46,6 @@ services:
       # controller:
       #   Kafka 클러스터의 메타데이터 관리
       #   (토픽, 파티션, 브로커 상태 등)
->>>>>>> 97f9dea7789cd3b1e64ac37c4d80022d2b2249d8
       KAFKA_PROCESS_ROLES: broker,controller
 
 
