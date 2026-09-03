@@ -67,6 +67,7 @@ MediaCloud에서 확보한 전체 언론사 목록을 기반으로, 프로젝트
 
 ```json
 {
+	"article_id":"SHA-256 방식의 고유 암호",
 	"source_id":"622913",
 	"source_name":"Hankook Ilbo - South Korea (Korean)",
 	"country":"South Korea",
@@ -95,7 +96,7 @@ news.raw.v1<br>
  │<br>
  └──► HDFS 저장 처리
 
-### 2-1. Topic 정보
+### 2-1. Topic 정보<hr>
 | 항목 | 내용 |
 | --- | --- |
 | Topic | `news.raw.v1` |
@@ -104,7 +105,6 @@ news.raw.v1<br>
 | Partition | 6 |
 
 `news.raw`에는 기사 원문과 수집 단계에서 생성된 메타데이터가 저장된다.
-
 
 ## 3. NLP worker
 
