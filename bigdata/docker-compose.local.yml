@@ -241,7 +241,73 @@ services:
 
     networks:
       - news-network
+  spark-master:
+    image: apache/spark:4.2.0-python3
+    container_name: news-spark-master
+    hostname: spark-master
 
+    ports:
+      # Spark Master Web UI
+      - "8080:8080"
+
+      # Spark Master 통신 포트
+      - "7077:7077"
+
+    environment:
+      SPARK_LOCAL_HOSTNAME: spark-master
+      HADOOP_CONF_DIR: /opt/hadoop-conf
+
+    volumes:
+      - ./hadoop/config:/opt/hadoop-conf:ro
+      - ./spark/apps:/opt/spark/apps:ro
+
+    command:
+      - /opt/spark/bin/spark-class
+      - org.apache.spark.deploy.master.Master
+      - --host
+      - spark-master
+      - --port
+      - "7077"
+      - --webui-port
+      - "8080"
+
+    networks:
+      - news-network
+
+
+  spark-worker:
+    image: apache/spark:4.2.0-python3
+    container_name: news-spark-worker
+    hostname: spark-worker
+
+    ports:
+      # Spark Worker Web UI
+      - "8081:8081"
+
+    environment:
+      SPARK_LOCAL_HOSTNAME: spark-worker
+      HADOOP_CONF_DIR: /opt/hadoop-conf
+
+    volumes:
+      - ./hadoop/config:/opt/hadoop-conf:ro
+      - ./spark/apps:/opt/spark/apps:ro
+
+    command:
+      - /opt/spark/bin/spark-class
+      - org.apache.spark.deploy.worker.Worker
+      - spark://spark-master:7077
+      - --cores
+      - "2"
+      - --memory
+      - "2g"
+      - --webui-port
+      - "8081"
+
+    depends_on:
+      - spark-master
+
+    networks:
+      - news-network
 
 # =========================================================
 # Docker Volume
