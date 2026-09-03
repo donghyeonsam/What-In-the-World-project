@@ -1,4 +1,4 @@
-package com.ssafy.witw.global.exception;
+package com.ssafy.witw.common.execption;
 
 public class ApiException extends RuntimeException{
 }

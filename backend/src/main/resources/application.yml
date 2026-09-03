@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: witw
+  flyway:
+    locations: classpath:db/migration,classpath:db/vendor/{vendor}
+  profiles:
+    default: dev
+  session:
+    store-type: redis
+    redis:
+      namespace: spring:session
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+server:
+  forward-headers-strategy: framework
+  servlet:
+    session:
+      timeout: 1d
+      cookie:
+        http-only: true
+        same-site: lax
