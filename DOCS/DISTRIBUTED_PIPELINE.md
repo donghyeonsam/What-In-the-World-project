@@ -103,6 +103,8 @@ news.raw.v1<br>
 | Consumer | NLP Worker, HDFS 저장 처리 |
 | Partition | 6 |
 
+`news.raw`에는 기사 원문과 수집 단계에서 생성된 메타데이터가 저장된다.
+
 
 ## 3. NLP worker
 
