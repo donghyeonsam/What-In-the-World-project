@@ -85,6 +85,23 @@ MediaCloud에서 확보한 전체 언론사 목록을 기반으로, 프로젝트
 }
 ```
 ## 2. Kafka(news.raw)
+뉴스 수집기가 수집한 기사는 Kafka를 통해 다음 처리 단계로 전달한다.
+
+Kafka는 각 처리 컴포넌트 사이에서 메시지를 전달하는 역할을 하며, 특정 Consumer의 처리 속도가 느려지더라도 Producer와 직접적으로 결합되지 않도록 한다.
+
+news.raw.v1<br>
+ │<br>
+ ├──► NLP Worker<br>
+ │<br>
+ └──► HDFS 저장 처리
+
+### 2-1. Topic 정보
+| 항목 | 내용 |
+| --- | --- |
+| Topic | `news.raw.v1` |
+| Producer | 뉴스 수집기 |
+| Consumer | NLP Worker, HDFS 저장 처리 |
+| Partition | 6 |
 
 
 ## 3. NLP worker
