@@ -28,6 +28,24 @@ docker exec $KAFKA_CONTAINER $KAFKA_TOPICS `
     --partitions 3 `
     --replication-factor 1
 
+docker exec $KAFKA_CONTAINER $KAFKA_TOPICS `
+    --bootstrap-server $BOOTSTRAP_SERVER `
+    --create `
+    --if-not-exists `
+    --topic news.unclassified.v1 `
+    --partitions 6 `
+    --replication-factor 1
+docker exec $KAFKA_CONTAINER $KAFKA_TOPICS `
+    --bootstrap-server $BOOTSTRAP_SERVER `
+    --create `
+    --if-not-exists `
+    --topic news.event.v1 `
+    --partitions 3 `
+    --replication-factor 1
+docker exec $KAFKA_CONTAINER $KAFKA_TOPICS `
+    --bootstrap-server $BOOTSTRAP_SERVER `
+    --delete `
+    --topic news.analytics.v1
 Write-Host ""
 Write-Host "Kafka topics:"
 docker exec $KAFKA_CONTAINER $KAFKA_TOPICS `
