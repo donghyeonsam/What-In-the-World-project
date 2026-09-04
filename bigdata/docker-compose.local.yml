@@ -168,24 +168,14 @@ services:
       - ./hadoop/config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
       - ./hadoop/config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
 
-    command: >
-      bash -c "
-
-      # 최초 실행인지 확인
-      #
-      # /data/name/current 디렉터리가 없다면
-      # 아직 NameNode가 포맷되지 않은 상태
-      if [ ! -d /data/name/current ]; then
-
-        # HDFS NameNode 초기화
-        # 쉽게 말하면 HDFS 파일 시스템을 처음 생성
-        hdfs namenode -format -force -nonInteractive;
-
-      fi &&
-
-      # NameNode 서버 실행
-      hdfs namenode
-      "
+    command:
+      - bash
+      - -c
+      - |
+        if [ ! -d /data/name/current ]; then
+          hdfs namenode -format -force -nonInteractive
+        fi
+        exec hdfs namenode
 
     networks:
       - news-network
