@@ -6,16 +6,8 @@ import java.util.List;
 public record PopularThemeResponse(
         String countryCode,
         String countryName,
-        ThemeTimeStamp themeTimeStamp
-) {
-}
 
-record ThemeTimeStamp(
-        String interval,
-        List<TimeStamp> timestamp
-){}
+        List<PopularTheme> popularThemes
 
-record TimeStamp(
-        LocalDate time,
-        long articleCount
-){}
+) { }
+
