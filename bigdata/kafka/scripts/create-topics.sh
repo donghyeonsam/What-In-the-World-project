@@ -37,7 +37,8 @@ create_topic() {
 
 create_topic "news.raw.v1" 6
 create_topic "news.enriched.v1" 6
-create_topic "news.analytics.v1" 3
+create_topic "news.unclassified.v1" 6
+create_topic "news.event.v1" 3
 
 echo "Kafka topics:"
 docker exec "$KAFKA_CONTAINER" "$KAFKA_TOPICS" \
