@@ -23,7 +23,7 @@ validate-bigdata-compose:
     - cd "$CI_PROJECT_DIR/bigdata"
     # 실제 접속 없이 Compose 변수 치환과 YAML 구조만 검사합니다.
     - KAFKA_EXTERNAL_HOST=validation.invalid docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" config --quiet
-    - bash -n kafka/create-topics.sh
+    - bash -n kafka/scripts/create-topics.sh
 
   rules:
     # 운영 EC2의 Protected Runner에서는 기본 브랜치 파이프라인만 실행합니다.
@@ -59,7 +59,7 @@ deploy-bigdata:
     - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" up -d --wait --wait-timeout 180
 
     # Kafka가 준비된 후 토픽을 멱등하게 생성합니다.
-    - bash kafka/create-topics.sh
+    - bash kafka/scripts/create-topics.sh
     - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" ps
 
   rules:
