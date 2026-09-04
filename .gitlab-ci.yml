@@ -67,6 +67,4 @@ deploy-bigdata:
       changes:
         - bigdata/**/*
         - .gitlab-ci.yml
-      # 최초 배포 검증 후 이 줄을 제거하면 main 머지 시 자동 배포됩니다.
-      when: manual
       allow_failure: false
