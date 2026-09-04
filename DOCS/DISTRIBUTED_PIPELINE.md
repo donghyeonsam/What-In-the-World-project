@@ -5,7 +5,7 @@
 ### 바로가기<hr>
 
 - [1. 뉴스 수집기](#1-뉴스-수집기)
-- [2. Kafka(news.raw.v1)](#2-kafkanewsraw)
+- [2. Kafka(news.raw.v1)](#2-kafkanewsrawv1)
 - [3. NLP worker](#3-nlp-worker)
 - [4. Kafka(news.enriched.v1)](#4-kafkanewsenriched)
 - [5. Spark(기사 분석용)](#5-spark기사-분석용)
@@ -52,11 +52,13 @@ MediaCloud에서 확보한 전체 언론사 목록을 기반으로, 프로젝트
 수집기는 사전에 구성된 언론사 목록을 기준으로 각 언론사의 RSS 또는 Sitemap을 확인하며, 새롭게 발견된 기사만 수집한다.
 
 ### 1-3. 수집 방식<hr>
-언론사<br>
-  │<br>
-  ├─ RSS 지원 ───────► RSS 기반 기사 탐색<br>
-  │<br>
-  └─ Sitemap 지원 ──► Sitemap 기반 기사 탐색<br>
+```text
+언론사
+  │
+  ├─ RSS 지원 ───────► RSS 기반 기사 탐색
+  │
+  └─ Sitemap 지원 ──► Sitemap 기반 기사 탐색
+```
 
 하나의 언론사가 여러 수집 Endpoint를 제공할 수 있으며, 수집기는 각 Endpoint를 기준으로 새로운 기사 URL을 탐색한다.
 
@@ -90,11 +92,13 @@ MediaCloud에서 확보한 전체 언론사 목록을 기반으로, 프로젝트
 
 Kafka는 각 처리 컴포넌트 사이에서 메시지를 전달하는 역할을 하며, 특정 Consumer의 처리 속도가 느려지더라도 Producer와 직접적으로 결합되지 않도록 한다.
 
-news.raw.v1<br>
- │<br>
- ├──► NLP Worker<br>
- │<br>
+```text
+news.raw.v1
+ │
+ ├──► NLP Worker
+ │
  └──► HDFS 저장 처리(bronze)
+```
 
 ### 2-1. Topic 정보<hr>
 | 항목 | 내용 |
@@ -175,11 +179,13 @@ NLP Worker에서는 다음 작업을 수행한다.
 ## 4. Kafka(news.enriched.v1)
 NLP Worker의 처리가 완료된 기사는 Kafka의 news.enriched.v1 토픽에 저장된다.
 
-news.enriched.v1<br>
- │<br>
- ├──► Spark<br>
- │<br>
+```text
+news.enriched.v1
+ │
+ ├──► Spark
+ │
  └──► HDFS 저장 처리(silver)
+```
 
  ### 4-1. Topic 정보
  | 항목 | 내용 |
@@ -194,11 +200,147 @@ news.enriched.v1에는 기존 기사 원문 및 메타데이터와 함께 nlp_wo
 이 토픽의 데이터는 이후 Spark에서 이슈 매칭, 통계 집계 등에 사용된다.
 
 ## 5. Spark(기사 분석용)
-Spark는 Kafka의 news.enriched.v1 토픽을 구독하여 NLP 처리가 완료된 기사들을 분석한다.
+Spark는 Kafka의 news.enriched.v1 토픽을 구독하여 NLP 처리가 완료된 기사 데이터를 서비스에서 사용할 수 있는 형태로 가공한다.
 
+Spark에서 처리된 데이터는 이후 두 개의 흐름으로 분기된다.
 
+```text
+news.enriched.v1
+      │
+      ▼
+Spark(기사 분석용)
+      │
+      ├──► 7. Kafka(news.event)
+      │       └─ 기사 기본정보 1차 저장
+      │
+      └──► 6. 이슈 매칭
+              └─ 기사와 기존 이슈 간 유사도 비교
+```
+
+### 주요 처리 내용
+- news.enriched.v1에서 NLP 처리가 완료된 기사 수신
+- Database 저장에 필요한 형태로 기사 데이터 가공
+- 국가, 테마 등 기사 기반 통계 처리
+- 기사 기본정보 저장을 위한 이벤트 생성
+- 이슈 매칭에 필요한 기사 Embedding 및 Theme 정보 전달
+
+### 5-1. Kafka(news.event)로 전달<hr>
+Spark에서 가공이 완료된 기사 데이터는 우선 news.event 토픽으로 전달한다.
+
+이 단계의 목적은 이슈 매칭 결과와 관계없이 기사 자체를 먼저 Database에 저장하는 것이다.
+
+```text
+Spark
+  │
+  ▼
+news.event
+  │
+  ▼
+Database(DB writer)
+  │
+  ▼
+기사 기본정보 저장(물리적 저장)
+```
+
+이 시점에는 아직 이슈가 결정되지 않았을 수 있으므로 issue_id는 비어 있는 상태로 저장될 수 있다.
+
+```text
+article
+ ├─ 기본 기사 정보 저장
+ ├─ NLP 분석 결과 저장 
+ └─ issue_id = NULL 가능
+```
+
+이후 이슈 매칭이 성공하면 별도의 이벤트를 통해 기존 기사에 issue_id를 추가한다.
+
+### 5-2. 이슈 매칭 단계로 전달<hr>
+동시에 Spark에서 처리된 기사는 6. 이슈 매칭 단계로 전달된다.
+
+이 단계에서는 기사 Embedding과 기존 Issue Embedding을 비교하여 해당 기사가 기존 이슈에 포함될 수 있는지 판단한다.
+
+```text
+Spark
+  │
+  ▼
+6. 이슈 매칭
+  │
+  ├── 매칭 성공
+  │      └──► news.event
+  │             └─ 기존 기사에 issue_id 할당
+  │
+  └── 매칭 실패
+         └──► news.unclassified
+```
+
+즉, 5번 Spark 단계에서는 기사 자체의 저장 흐름과 이슈 분석 흐름을 분리한다.
+
+```text
+기사 기본정보
+    └──► news.event
+
+기사 이슈 분석
+    └──► 이슈 매칭
+```
 
 ## 6. 이슈 매칭
+Spark에서 기사 분석이 완료되면, 해당 기사가 기존에 생성된 이슈와 관련이 있는지 확인한다.
+
+기사의 `article_embedding`과 기존 이슈의 `issue_embedding`을 비교하여 유사도를 계산하고, 기준값 이상이면 기존 이슈에 연결한다.
+
+```text
+Spark(기사 분석용)
+        │
+        ▼
+6. 이슈 매칭
+        │
+        ├── 매칭 성공
+        │      └──► news.event
+        │             └─ 기존 기사에 issue_id 할당
+        │
+        └── 매칭 실패
+               └──► news.unclassified
+```
+### 주요 처리 내용
+- 기사 article_embedding과 기존 이슈의 centroid_embedding 비교
+- 기사와 이슈 간 유사도 계산
+- 기준값 이상이면 기존 이슈와 매칭
+- 매칭 성공 시 해당 issue_id를 기사에 할당
+- 매칭 실패 시 신규 이슈 후보로 분류
+
+### 매칭 성공<hr>
+기존 이슈와 충분히 유사한 경우 해당 이슈의 issue_id를 기사에 연결한다.
+
+```text
+기사
+  │
+  ▼
+기존 이슈와 유사도 비교
+  │
+  ▼
+매칭 성공
+  │
+  ▼
+news.event
+  │
+  ▼
+기존 기사에 issue_id 할당
+```
+
+### 매칭 실패<hr>
+기존 이슈와 충분히 유사한 이슈를 찾지 못한 경우 해당 기사는 신규 이슈 후보로 분류한다.
+
+이후 news.unclassified 토픽으로 전달되며, 미분류 기사들이 일정 수 이상 쌓이면 이슈 클러스터링 단계에서 새로운 이슈 생성에 사용된다.
+
+```text
+매칭 실패
+   │
+   ▼
+news.unclassified
+   │
+   ▼
+Spark(이슈 클러스터링용)
+```
+
 ## 데이터 입력
 
 NLP 처리가 완료된 기사에는 이슈 매칭에 필요한 `theme_id`와 `embedding` 정보가 포함되어 있다.
