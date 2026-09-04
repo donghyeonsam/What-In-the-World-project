@@ -1,0 +1,218 @@
+name: news-bigdata-prod
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  kafka:
+    image: apache/kafka:4.3.1
+    container_name: news-kafka
+    hostname: kafka
+    user: root
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+    ports:
+      # GPU/NLP 서버에서 접근하는 Kafka 외부 포트입니다.
+      # EC2 방화벽에서는 GPU 서버와 서비스 EC2의 IP만 허용하세요.
+      - "19092:9092"
+
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+
+      KAFKA_LISTENERS: INTERNAL://:29092,EXTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka:29092,EXTERNAL://${KAFKA_EXTERNAL_HOST:?KAFKA_EXTERNAL_HOST must be set}:19092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+
+      # 단일 브로커 구성
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list >/dev/null 2>&1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+    logging: *default-logging
+    networks:
+      - news-network
+
+  namenode:
+    image: apache/hadoop:3.4.3
+    container_name: news-hdfs-namenode
+    hostname: namenode
+    user: root
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+    ports:
+      # 관리 UI는 EC2 외부에 직접 공개하지 않고 SSH 터널로 접근합니다.
+      - "127.0.0.1:9870:9870"
+
+    volumes:
+      - namenode-data:/data/name
+      - ./hadoop/config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./hadoop/config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+
+    command: >
+      bash -c "
+      if [ ! -d /data/name/current ]; then
+        hdfs namenode -format -force -nonInteractive;
+      fi &&
+      exec hdfs namenode
+      "
+
+    healthcheck:
+      test: ["CMD-SHELL", "hdfs dfsadmin -report >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+    logging: *default-logging
+    networks:
+      - news-network
+
+  datanode:
+    image: apache/hadoop:3.4.3
+    container_name: news-hdfs-datanode
+    hostname: datanode
+    user: root
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+    ports:
+      - "127.0.0.1:9864:9864"
+
+    volumes:
+      - datanode-data:/data/data
+      - ./hadoop/config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./hadoop/config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+
+    command: hdfs datanode
+
+    depends_on:
+      namenode:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD-SHELL", "hdfs dfsadmin -report 2>/dev/null | grep -q 'Live datanodes (1)' "]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+    logging: *default-logging
+    networks:
+      - news-network
+
+  spark-master:
+    image: apache/spark:4.2.0-python3
+    container_name: news-spark-master
+    hostname: spark-master
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+    ports:
+      - "127.0.0.1:8080:8080"
+
+    environment:
+      SPARK_LOCAL_HOSTNAME: spark-master
+      HADOOP_CONF_DIR: /opt/hadoop-conf
+
+    volumes:
+      - ./hadoop/config:/opt/hadoop-conf:ro
+      - ./spark/apps:/opt/spark/apps:ro
+
+    command:
+      - /opt/spark/bin/spark-class
+      - org.apache.spark.deploy.master.Master
+      - --host
+      - spark-master
+      - --port
+      - "7077"
+      - --webui-port
+      - "8080"
+
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/7077'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+    logging: *default-logging
+    networks:
+      - news-network
+
+  spark-worker:
+    image: apache/spark:4.2.0-python3
+    container_name: news-spark-worker
+    hostname: spark-worker
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+    ports:
+      - "127.0.0.1:8081:8081"
+
+    environment:
+      SPARK_LOCAL_HOSTNAME: spark-worker
+      HADOOP_CONF_DIR: /opt/hadoop-conf
+
+    volumes:
+      - ./hadoop/config:/opt/hadoop-conf:ro
+      - ./spark/apps:/opt/spark/apps:ro
+
+    command:
+      - /opt/spark/bin/spark-class
+      - org.apache.spark.deploy.worker.Worker
+      - spark://spark-master:7077
+      - --cores
+      - "2"
+      - --memory
+      - "2g"
+      - --webui-port
+      - "8081"
+
+    depends_on:
+      spark-master:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8081'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+    logging: *default-logging
+    networks:
+      - news-network
+
+volumes:
+  kafka-data:
+    name: news-kafka-data
+  namenode-data:
+    name: news-namenode-data
+  datanode-data:
+    name: news-datanode-data
+
+networks:
+  news-network:
+    name: news-network
