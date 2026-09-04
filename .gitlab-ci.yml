@@ -67,4 +67,5 @@ deploy-bigdata:
       changes:
         - bigdata/**/*
         - .gitlab-ci.yml
-      allow_failure: false
+      when: manual
+      allow_failure: true
