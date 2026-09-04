@@ -24,7 +24,7 @@ services:
       #
       # 즉 로컬 PC의 프로그램에서는
       # localhost:9092 로 Kafka에 접근 가능
-      - "9092:9092"
+      - "19092:9092"
 
     environment:
 
@@ -69,9 +69,9 @@ services:
       #
       # Docker 외부:
       #   localhost:9092
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka:29092,EXTERNAL://${KAFKA_EXTERNAL_HOST}:19092"
 
-      # 각각의 Listener에서 사용할 통신 방식
+      # 각각의 Listener에서 사용할 통신 방식"9092:9092"
       #
       # 현재는 모두 PLAINTEXT
       # → SSL/TLS 인증 없이 통신
