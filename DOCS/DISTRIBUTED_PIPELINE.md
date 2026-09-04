@@ -5,14 +5,14 @@
 ### 바로가기<hr>
 
 - [1. 뉴스 수집기](#1-뉴스-수집기)
-- [2. Kafka(news.raw)](#2-kafkanewsraw)
+- [2. Kafka(news.raw.v1)](#2-kafkanewsraw)
 - [3. NLP worker](#3-nlp-worker)
-- [4. Kafka(news.enriched)](#4-kafkanewsenriched)
+- [4. Kafka(news.enriched.v1)](#4-kafkanewsenriched)
 - [5. Spark(기사 분석용)](#5-spark기사-분석용)
 - [6. 이슈 매칭](#6-이슈-매칭)
-  - [6-1. Kafka(news.unclassified)](#6-1-kafkanewsunclassified)
+  - [6-1. Kafka(news.unclassified.v1)](#6-1-kafkanewsunclassified)
   - [6-2. Spark(이슈 클러스터링용)](#6-2-spark이슈-클러스터링용)
-- [7. Kafka(news.event)](#7-kafkanewsevent)
+- [7. Kafka(news.event.v1)](#7-kafkanewsevent)
 - [8. Database 저장](#8-database-저장)
 - [9. 이벤트 테이블 저장](#9-이벤트-테이블-저장)
 
@@ -85,7 +85,7 @@ MediaCloud에서 확보한 전체 언론사 목록을 기반으로, 프로젝트
 	"error": null
 }
 ```
-## 2. Kafka(news.raw)
+## 2. Kafka(news.raw.v1)
 뉴스 수집기가 수집한 기사는 Kafka를 통해 다음 처리 단계로 전달한다.
 
 Kafka는 각 처리 컴포넌트 사이에서 메시지를 전달하는 역할을 하며, 특정 Consumer의 처리 속도가 느려지더라도 Producer와 직접적으로 결합되지 않도록 한다.
@@ -94,7 +94,7 @@ news.raw.v1<br>
  │<br>
  ├──► NLP Worker<br>
  │<br>
- └──► HDFS 저장 처리
+ └──► HDFS 저장 처리(bronze)
 
 ### 2-1. Topic 정보<hr>
 | 항목 | 내용 |
@@ -107,12 +107,95 @@ news.raw.v1<br>
 `news.raw`에는 기사 원문과 수집 단계에서 생성된 메타데이터가 저장된다.
 
 ## 3. NLP worker
+NLP Worker는 Kafka의 news.raw.v1 토픽을 구독하여 기사 단위 NLP 처리를 수행한다.
+
+처리가 완료되면 기존 기사 데이터에 nlp_worker_data를 추가한 뒤 다음 Kafka 토픽으로 전달한다.
+
+### 3-1. NLP worker 주요 처리 내용<hr>
+NLP Worker에서는 다음 작업을 수행한다.
+
+- 국가 코드 정규화
+- 언어 코드 정규화
+- Domain 분류
+- Theme 분류
+- 기사 내 언급 국가 추출
+- 감성 분석
+- 기사 Embedding 생성
+- NLP 처리 시각 및 버전 기록
 
 
-## 4. Kafka(news.enriched)
+### NLP worker 처리 결과<hr>
+기존 수집 데이터는 그대로 유지하고, NLP 처리 결과는 nlp_worker_data 내부에 추가한다.
 
+```json
+{
+  "source_id": "622913",
+  "source_name": "Hankook Ilbo - South Korea (Korean)",
+  "country": "South Korea",
+  "article_url": "https://www.hankooki.com/news/articleView.html?idxno=342372",
+  "published_at": "2026-09-01T08:15:03+00:00",
+  "discovered_at": "2026-09-01T08:22:28.256121+00:00",
+  "discovery_type": "SITEMAP",
+  "endpoint_url": "https://www.hankooki.com/sitemap.xml",
+  "success": true,
+  "http_status": 200,
+  "title": "국가철도공단, 정진혁 신임 이사장 취임…CEO 공백 종료",
+  "body": "...",
+  "body_length": 1036,
+  "elapsed_ms": 87,
+  "error": null,
+
+  "nlp_worker_data": {
+    "country_code": "kor",
+    "language_code": "kor",
+    "domain_id": 3,
+    "theme_id": 27,
+
+    "mentioned_countries": [
+      {
+        "country_code": "kor",
+        "count": 3
+      }
+    ],
+
+    "sentiment": {
+      "label": "neutral",
+      "score": 0.12,
+      "confidence": 0.91
+    },
+
+    "article_embedding": [...],
+
+    "processed_at": "2026-09-04T03:20:15+09:00",
+    "version": "v1"
+  }
+}
+```
+
+## 4. Kafka(news.enriched.v1)
+NLP Worker의 처리가 완료된 기사는 Kafka의 news.enriched.v1 토픽에 저장된다.
+
+news.enriched.v1<br>
+ │<br>
+ ├──► Spark<br>
+ │<br>
+ └──► HDFS 저장 처리(silver)
+
+ ### 4-1. Topic 정보
+ | 항목 | 내용 |
+| --- | --- |
+| Topic | `news.enriched.v1` |
+| Producer | NLP worker |
+| Consumer | Spark, HDFS 저장 처리 |
+| Partition | 6 |
+
+news.enriched.v1에는 기존 기사 원문 및 메타데이터와 함께 nlp_worker_data가 포함된 데이터가 저장된다.
+
+이 토픽의 데이터는 이후 Spark에서 이슈 매칭, 통계 집계 등에 사용된다.
 
 ## 5. Spark(기사 분석용)
+Spark는 Kafka의 news.enriched.v1 토픽을 구독하여 NLP 처리가 완료된 기사들을 분석한다.
+
 
 
 ## 6. 이슈 매칭
