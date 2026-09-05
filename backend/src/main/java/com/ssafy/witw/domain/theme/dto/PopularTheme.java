@@ -8,16 +8,15 @@ public record PopularTheme(
         String fieldName,
         String themeName,
         long articleCount24,
-
         ThemeTimeStamp themeTimeStamp
-) { }
+) {
+    public record ThemeTimeStamp(
+            int interval,
+            List<TimeStamp> timestamp
+    ) { }
 
-record ThemeTimeStamp(
-        int interval,
-        List<TimeStamp> timestamp
-){}
-
-record TimeStamp(
-        LocalDateTime time,
-        long articleCount
-){}
+    public record TimeStamp(
+            LocalDateTime time,
+            long articleCount
+    ) { }
+}
