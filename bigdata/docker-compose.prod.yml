@@ -201,6 +201,41 @@ services:
     networks:
       - news-network
 
+  bronze-writer:
+    build:
+      context: ./kafka-hdfs-writer
+      dockerfile: Dockerfile
+
+    container_name: news-bronze-writer
+    restart: unless-stopped
+    stop_grace_period: 60s
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      namenode:
+        condition: service_healthy
+      datanode:
+        condition: service_healthy
+
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_TOPIC: news.raw.v1
+      KAFKA_GROUP_ID: ${BRONZE_WRITER_GROUP_ID:-news-raw-hdfs-bronze-v1}
+      HDFS_URI: hdfs://namenode:9000
+      HDFS_BRONZE_PATH: ${BRONZE_HDFS_PATH:-/data/news/bronze/news.raw.v1}
+      HDFS_USER: root
+      HADOOP_CONF_DIR: /opt/hadoop-conf
+
+    volumes:
+      - ./hadoop/config:/opt/hadoop-conf:ro
+
+    logging: *default-logging
+    networks:
+      - news-network
+
   spark-master:
     image: apache/spark:4.2.0-python3
     container_name: news-spark-master

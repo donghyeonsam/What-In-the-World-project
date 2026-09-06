@@ -42,14 +42,12 @@ validate-bigdata:
     - bash -n kafka/scripts/create-topics.sh
 
     # -----------------------------------------------------
-    # Collector Docker 이미지 빌드 검증
+    # 애플리케이션 Docker 이미지 빌드 검증
     #
-    # requirements.txt 누락
-    # pandas 설치 실패
-    # Dockerfile 오류
-    # COPY 경로 오류 등을 여기서 잡음
+    # Collector 의존성과 Java consumer 컴파일/테스트,
+    # Dockerfile 및 COPY 경로 오류 등을 여기서 잡음
     # -----------------------------------------------------
-    - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" build collector
+    - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" build collector bronze-writer
     - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" run --rm --no-deps collector --help
 
   rules:
@@ -112,16 +110,16 @@ deploy-bigdata:
     # -----------------------------------------------------
     # 공식 이미지 업데이트
     #
-    # collector는 직접 build하는 서비스이므로 제외
+    # collector와 bronze-writer는 직접 build하는 서비스이므로 제외
     # -----------------------------------------------------
     - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" pull kafka namenode datanode spark-master spark-worker
 
     # -----------------------------------------------------
-    # Collector 이미지 빌드
+    # 애플리케이션 이미지 빌드
     #
-    # Python 코드 / requirements / Dockerfile 변경사항 반영
+    # Collector와 Java Kafka-HDFS consumer 변경사항 반영
     # -----------------------------------------------------
-    - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" build collector
+    - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" build collector bronze-writer
 
     # -----------------------------------------------------
     # Collector를 제외한 기반 서비스 실행
@@ -133,19 +131,21 @@ deploy-bigdata:
     # -----------------------------------------------------
     - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" run --rm kafka-init
 
-    # Topic 준비가 끝난 뒤 Collector만 시작
-    - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" up -d --no-deps --wait --wait-timeout 900 collector
+    # Topic 준비가 끝난 뒤 Collector와 Bronze writer 시작
+    - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" up -d --no-deps --wait --wait-timeout 900 collector bronze-writer
 
     # -----------------------------------------------------
     # 배포 결과 확인
     # -----------------------------------------------------
     - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" ps
 
-    # Collector heartbeat와 Kafka topic 연결까지 정상인지 확인
+    # 애플리케이션 컨테이너 health 확인
     - test "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' news-collector)" = "healthy"
+    - test "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' news-bronze-writer)" = "healthy"
 
     # 최근 Collector 로그 출력
     - docker logs --tail 50 news-collector
+    - docker logs --tail 50 news-bronze-writer
 
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
