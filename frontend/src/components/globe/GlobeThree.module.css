@@ -1,0 +1,43 @@
+.wrap { position: relative; width: 100%; height: 100%; min-height: 320px; }
+
+.canvas { position: absolute; inset: 0; cursor: grab; }
+.canvas.dragging { cursor: grabbing; }
+.canvas.pointing { cursor: pointer; }
+
+.hud { position: absolute; left: 26px; top: 24px; z-index: 3; pointer-events: none; }
+.hud .kicker {
+  font-family: var(--wtw-mono); font-size: 10.5px; color: var(--wtw-accent);
+  letter-spacing: 0.18em; text-transform: uppercase; margin-bottom: 6px;
+}
+.hud h2 {
+  font-family: var(--wtw-display); font-size: clamp(20px, 2.4vw, 30px);
+  font-weight: 700; line-height: 1.25; letter-spacing: -0.01em; color: var(--wtw-text);
+}
+.hud h2 em { font-style: normal; color: var(--wtw-accent); }
+.hud p { margin-top: 8px; font-size: 12.5px; color: var(--wtw-muted); max-width: 340px; line-height: 1.6; }
+
+.spin {
+  position: absolute; left: 26px; bottom: 24px; z-index: 4;
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(6, 9, 19, 0.58); border: 1px solid var(--wtw-line);
+  border-radius: 999px; padding: 7px; backdrop-filter: blur(8px);
+}
+.spinBtn {
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 1px solid var(--wtw-line-strong); background: rgba(15, 21, 42, 0.72);
+  color: var(--wtw-text); font-family: var(--wtw-mono); font-size: 15px;
+  display: flex; align-items: center; justify-content: center; transition: all 0.16s;
+}
+.spinBtn:hover, .spinBtn.on {
+  border-color: var(--wtw-accent); color: var(--wtw-accent); box-shadow: var(--wtw-glow);
+}
+
+.tip {
+  position: absolute; z-index: 4; pointer-events: none; opacity: 0;
+  transform: translate(-50%, -140%);
+  background: var(--wtw-surface-2); border: 1px solid var(--wtw-line-strong);
+  border-radius: 8px; padding: 6px 11px; font-size: 12px; white-space: nowrap;
+  transition: opacity 0.15s; font-family: var(--wtw-mono); color: var(--wtw-text);
+}
+.tip.show { opacity: 1; }
+.tip b { color: var(--wtw-accent); font-weight: 500; }

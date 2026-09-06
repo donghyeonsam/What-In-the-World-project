@@ -1,0 +1,70 @@
+.topbar {
+  height: 68px;
+  display: grid;
+  grid-template-columns: 270px 1fr auto;
+  align-items: center;
+  padding: 0 32px;
+  border-bottom: 1px solid var(--wtw-line);
+  background: var(--wtw-panel);
+  position: relative;
+  z-index: 20;
+}
+
+.brand {
+  color: var(--wtw-text); text-decoration: none;
+  font-size: 15px; font-weight: 750; letter-spacing: -0.02em;
+  display: flex; align-items: center; gap: 9px;
+}
+.mark {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: var(--wtw-accent);
+  display: grid; place-items: center; position: relative;
+}
+.mark i { width: 7px; height: 7px; border-radius: 50%; background: #fff; }
+
+.nav { justify-self: center; display: flex; height: 100%; gap: 28px; }
+.navItem {
+  padding: 0 3px; color: var(--wtw-muted);
+  font-weight: 600; font-size: 14px; position: relative;
+}
+.navItem::after {
+  content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+  background: var(--wtw-accent); transform: scaleX(0); transition: transform 0.2s ease;
+}
+.navItem:hover { color: var(--wtw-text-2); }
+.navItem.active { color: var(--wtw-accent); }
+.navItem.active::after { transform: scaleX(1); }
+
+.actions { display: flex; align-items: center; gap: 11px; }
+.search {
+  height: 38px; width: 180px;
+  border: 1px solid var(--wtw-line); border-radius: 10px;
+  background: var(--wtw-bg-2, #f7f9fb);
+  display: flex; align-items: center; gap: 8px;
+  color: var(--wtw-muted); padding: 0 10px;
+}
+.search:hover { border-color: var(--wtw-line-strong); }
+.search svg { width: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.search span { flex: 1; text-align: left; font-size: 13px; }
+.kbd {
+  background: var(--wtw-surface); border: 1px solid var(--wtw-line);
+  color: var(--wtw-muted); border-radius: 5px; font-size: 10px; padding: 3px 5px;
+}
+
+.status {
+  color: var(--wtw-text-2);
+  background: var(--wtw-bg-2, #f7f9fb);
+  border: 1px solid var(--wtw-line);
+  height: 38px; padding: 0 12px; border-radius: 10px;
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12px; letter-spacing: 0.04em;
+}
+.status > span {
+  width: 6px; height: 6px; border-radius: 50%; background: #2e9d68;
+}
+
+@media (max-width: 1200px) {
+  .topbar { grid-template-columns: 180px 1fr auto; }
+  .search { width: 42px; }
+  .search span, .search .kbd { display: none; }
+}
