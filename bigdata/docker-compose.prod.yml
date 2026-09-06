@@ -17,7 +17,7 @@ services:
 
     ports:
       # GPU/NLP 서버에서 접근하는 Kafka 외부 포트
-      - "19092:9092"
+      - "${KAFKA_BIND_HOST:?KAFKA_BIND_HOST must be set}:19092:9092"
 
     environment:
       KAFKA_NODE_ID: "1"
@@ -34,6 +34,7 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
 
     volumes:
       - kafka-data:/var/lib/kafka/data
@@ -51,6 +52,29 @@ services:
     networks:
       - news-network
 
+  kafka-init:
+    image: apache/kafka:4.3.1
+    restart: "no"
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+    entrypoint:
+      - /bin/bash
+      - /opt/news/scripts/create-topics.sh
+
+    environment:
+      KAFKA_BOOTSTRAP_SERVER: kafka:29092
+      KAFKA_TOPICS_COMMAND: /opt/kafka/bin/kafka-topics.sh
+
+    volumes:
+      - ./kafka/scripts/create-topics.sh:/opt/news/scripts/create-topics.sh:ro
+
+    logging: *default-logging
+    networks:
+      - news-network
+
   collector:
     build:
       context: ./collector
@@ -63,6 +87,14 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_RAW_TOPIC: news.raw.v1
+      COLLECTOR_HEALTH_FILE: /data/collector/collector.heartbeat
+      COLLECTOR_HEALTH_MAX_AGE_SECONDS: "900"
 
     command:
       - --registry
@@ -88,6 +120,13 @@ services:
     volumes:
       # SQLite state / output 유지
       - collector-data:/data/collector
+
+    healthcheck:
+      test: ["CMD", "python", "/app/healthcheck.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10m
 
     logging: *default-logging
     networks:
