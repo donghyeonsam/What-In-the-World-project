@@ -65,8 +65,6 @@ services:
         condition: service_healthy
 
     command:
-      - python
-      - collection_kafka_producer_v2.py
       - --registry
       - /app/registry.csv
       - --output-dir
