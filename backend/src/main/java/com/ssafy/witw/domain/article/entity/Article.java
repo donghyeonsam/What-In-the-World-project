@@ -10,7 +10,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.math.BigDecimal;
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Getter
@@ -55,7 +55,7 @@ public class Article {
 
     @NotNull
     @Column(name = "crawled_at", nullable = false)
-    private Instant crawledAt;
+    private LocalDateTime crawledAt;
 
     @NotNull
     @Column(name = "theme_relevance_score", nullable = false)
@@ -77,17 +77,17 @@ public class Article {
 
     @NotNull
     @Column(name = "created_at", nullable = false)
-    private Instant createdAt;
+    private LocalDateTime createdAt;
 
     @NotNull
     @Column(name = "published_at", nullable = false)
-    private Instant publishedAt;
+    private LocalDateTime publishedAt;
 
     @NotNull
     @Column(name = "issue_assigned_at", nullable = false)
-    private Instant issueAssignedAt;
+    private LocalDateTime issueAssignedAt;
 
     @Column(name = "deleted_at")
-    private Instant deletedAt;
+    private LocalDateTime deletedAt;
 
 }
