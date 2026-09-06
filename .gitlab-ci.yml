@@ -10,35 +10,68 @@ variables:
   COMPOSE_PROJECT_NAME: news-bigdata-prod
   COMPOSE_FILE: docker-compose.prod.yml
 
-validate-bigdata-compose:
+
+# =========================================================
+# Validate
+# =========================================================
+validate-bigdata:
   stage: validate
-  timeout: 10m
+  timeout: 15m
+
   tags:
     - bigdata-deploy
 
   script:
+    # -----------------------------------------------------
+    # 기본 실행환경 확인
+    # -----------------------------------------------------
     - command -v docker
     - docker compose version
     - command -v rsync
+
     - cd "$CI_PROJECT_DIR/bigdata"
-    # 실제 접속 없이 Compose 변수 치환과 YAML 구조만 검사합니다.
+
+    # -----------------------------------------------------
+    # Docker Compose 문법 / 변수 치환 검사
+    # 실제 Kafka 외부 접속은 하지 않으므로 임시 주소 사용
+    # -----------------------------------------------------
     - KAFKA_EXTERNAL_HOST=validation.invalid docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" config --quiet
+
+    # -----------------------------------------------------
+    # Kafka Topic 생성 스크립트 문법 검사
+    # -----------------------------------------------------
     - bash -n kafka/scripts/create-topics.sh
 
+    # -----------------------------------------------------
+    # Collector Docker 이미지 빌드 검증
+    #
+    # requirements.txt 누락
+    # pandas 설치 실패
+    # Dockerfile 오류
+    # COPY 경로 오류 등을 여기서 잡음
+    # -----------------------------------------------------
+    - KAFKA_EXTERNAL_HOST=validation.invalid docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" build collector
+
   rules:
-    # 운영 EC2의 Protected Runner에서는 기본 브랜치 파이프라인만 실행합니다.
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
       changes:
         - bigdata/**/*
         - .gitlab-ci.yml
 
+
+# =========================================================
+# Deploy
+# =========================================================
 deploy-bigdata:
   stage: deploy
   timeout: 30m
+
   tags:
     - bigdata-deploy
+
   needs:
-    - validate-bigdata-compose
+    - validate-bigdata
+
   resource_group: bigdata-production
   interruptible: false
 
@@ -46,21 +79,59 @@ deploy-bigdata:
     name: production-bigdata
 
   script:
+    # -----------------------------------------------------
+    # 필수 환경변수 / 배포경로 확인
+    # -----------------------------------------------------
     - test -n "${KAFKA_EXTERNAL_HOST:-}"
     - test -d "$BIGDATA_DEPLOY_DIR"
     - test -w "$BIGDATA_DEPLOY_DIR"
 
-    # Runner의 임시 체크아웃 경로 대신 운영 전용 고정 경로에 파일을 반영합니다.
+    # -----------------------------------------------------
+    # GitLab Runner checkout → 운영 고정 경로 반영
+    # -----------------------------------------------------
     - rsync -a "$CI_PROJECT_DIR/bigdata/" "$BIGDATA_DEPLOY_DIR/"
+
     - cd "$BIGDATA_DEPLOY_DIR"
 
+    # -----------------------------------------------------
+    # 운영 Compose 최종 검증
+    # -----------------------------------------------------
     - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" config --quiet
-    - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" pull
+
+    # -----------------------------------------------------
+    # 공식 이미지 업데이트
+    #
+    # collector는 직접 build하는 서비스이므로 제외
+    # -----------------------------------------------------
+    - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" pull kafka namenode datanode spark-master spark-worker
+
+    # -----------------------------------------------------
+    # Collector 이미지 빌드
+    #
+    # Python 코드 / requirements / Dockerfile 변경사항 반영
+    # -----------------------------------------------------
+    - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" build collector
+
+    # -----------------------------------------------------
+    # 전체 서비스 실행
+    # -----------------------------------------------------
     - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" up -d --wait --wait-timeout 180
 
-    # Kafka가 준비된 후 토픽을 멱등하게 생성합니다.
+    # -----------------------------------------------------
+    # Kafka Topic 멱등 생성
+    # -----------------------------------------------------
     - bash kafka/scripts/create-topics.sh
+
+    # -----------------------------------------------------
+    # 배포 결과 확인
+    # -----------------------------------------------------
     - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" ps
+
+    # Collector가 실제 실행 중인지 확인
+    - test "$(docker inspect -f '{{.State.Running}}' news-collector)" = "true"
+
+    # 최근 Collector 로그 출력
+    - docker logs --tail 50 news-collector
 
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
