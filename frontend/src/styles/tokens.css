@@ -1,0 +1,66 @@
+/* ─────────────────────────────────────────────────────────────
+   디자인 토큰
+
+   결정표 3-1: 라이트 미니멀. 화면 전체가 흰 바탕이다.
+
+   논조 축은 빨강(비판) – 회색(중립) – 초록(우호) 한 벌뿐이고,
+   표본 부족은 그 축 위에 없는 색(보라)을 쓴다. '값이 낮다'와 '값이 없다'는 다르기 때문이다.
+
+   .t-cosmos는 다크 팔레트 예비분이다. 지금은 아무 데서도 쓰지 않지만,
+   나중에 다크 모드나 다크 영역이 필요해지면 그 요소에 클래스만 붙이면 된다.
+   ───────────────────────────────────────────────────────────── */
+
+:root,
+.t-minimal {
+  --wtw-bg: #ffffff;
+  --wtw-bg-2: #f7f9fb;
+  --wtw-surface: #f1f4f8;
+  --wtw-surface-2: #e9eef5;
+  --wtw-panel: #ffffff;
+  --wtw-text: #172033;
+  --wtw-text-2: #4c5a70;
+  --wtw-muted: #68758a;
+  --wtw-faint: #94a0b2;
+  --wtw-line: #e2e7ee;
+  --wtw-line-strong: #ccd4df;
+  --wtw-rule: #e2e7ee;
+  --wtw-accent: #1769d2;
+  --wtw-accent-2: #3c82df;
+  --wtw-neg: #d94b57;   /* 비판 */
+  --wtw-neu: #9ea7b4;   /* 중립 */
+  --wtw-pos: #1f9d6b;   /* 우호 */
+  --wtw-nodata: #9a8fc4; /* 표본 부족 — 논조 스케일 밖의 색 */
+  --wtw-amber: #d9871f; /* 지구본 포커스(0xffb454)와 같은 계열 — 흰 바탕에서는 한 단 어둡게 */
+  --wtw-radius: 12px;
+  --wtw-radius-sm: 8px;
+  --wtw-display: Pretendard, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --wtw-body: Pretendard, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --wtw-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --wtw-scrim: rgba(1, 3, 8, 0.5);
+  --wtw-glow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+/* 다크 팔레트 예비분 — 현재 미사용 */
+.t-cosmos {
+  --wtw-bg: #060913;
+  --wtw-bg-2: #0c1226;
+  --wtw-surface: rgba(255, 255, 255, 0.035);
+  --wtw-surface-2: #0f152a;
+  --wtw-panel: rgba(15, 21, 42, 0.72);
+  --wtw-text: #e9f0fb;
+  --wtw-text-2: #aebbd4;
+  --wtw-muted: #8da0c4;
+  --wtw-faint: #5a6b90;
+  --wtw-line: rgba(126, 156, 224, 0.16);
+  --wtw-line-strong: rgba(126, 156, 224, 0.3);
+  --wtw-rule: rgba(126, 156, 224, 0.3);
+  --wtw-accent: #6fe7ff;
+  --wtw-accent-2: #9d8cff;
+  --wtw-neg: #ff6b7a;
+  --wtw-neu: #9ea7b4;
+  --wtw-pos: #35c98c;
+  --wtw-nodata: #a99cf0;
+  --wtw-amber: #ffb454;
+  --wtw-radius: 12px;
+  --wtw-glow: 0 0 12px rgba(111, 231, 255, 0.22);
+}

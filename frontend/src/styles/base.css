@@ -1,0 +1,34 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body, #root { height: 100%; }
+
+body {
+  font-family: var(--wtw-body);
+  font-size: 12px;              /* 결정표 3-3: 미니멀 수준의 밀도 */
+  color: var(--wtw-text);
+  background: var(--wtw-bg);
+  -webkit-font-smoothing: antialiased;
+  overflow: auto;               /* 결정표 7-3: 데스크톱 전용, 좁으면 가로 스크롤 */
+}
+
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; text-align: left; }
+input, select { font: inherit; }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--wtw-accent); outline-offset: 2px; }
+
+/* 국가 화면에서 "이 배경색이 무슨 뜻인가"를 말해 주는 자리.
+   색만 칠하고 설명이 없으면 배경이 왜 바뀌었는지 알 수 없다. */
+.wtw-tone-note {
+  margin: 4px 0 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--wtw-line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.55);
+  font-size: 9.5px;
+  line-height: 1.7;
+  color: var(--wtw-muted);
+}
+.wtw-tone-note b { color: var(--wtw-text); font-weight: 600; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
