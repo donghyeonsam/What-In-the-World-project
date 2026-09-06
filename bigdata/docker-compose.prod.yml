@@ -16,8 +16,7 @@ services:
     stop_grace_period: 30s
 
     ports:
-      # GPU/NLP 서버에서 접근하는 Kafka 외부 포트입니다.
-      # EC2 방화벽에서는 GPU 서버와 서비스 EC2의 IP만 허용하세요.
+      # GPU/NLP 서버에서 접근하는 Kafka 외부 포트
       - "19092:9092"
 
     environment:
@@ -31,7 +30,6 @@ services:
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
 
-      # 단일 브로커 구성
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
@@ -53,6 +51,50 @@ services:
     networks:
       - news-network
 
+  collector:
+    build:
+      context: ./collector
+      dockerfile: Dockerfile
+
+    container_name: news-collector
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+    command:
+      - python
+      - collection_kafka_producer_v2.py
+      - --registry
+      - /app/registry.csv
+      - --output-dir
+      - /data/collector
+      - --poll-seconds
+      - "600"
+      - --poll-workers
+      - "20"
+      - --fetch-workers
+      - "16"
+      - --timeout-seconds
+      - "12"
+      - --min-body-chars
+      - "300"
+      - --kafka-bootstrap
+      - kafka:29092
+      - --kafka-topic
+      - news.raw.v1
+      - --run-forever
+
+    volumes:
+      # SQLite state / output 유지
+      - collector-data:/data/collector
+
+    logging: *default-logging
+    networks:
+      - news-network
+
   namenode:
     image: apache/hadoop:3.4.3
     container_name: news-hdfs-namenode
@@ -62,7 +104,6 @@ services:
     stop_grace_period: 30s
 
     ports:
-      # 관리 UI는 EC2 외부에 직접 공개하지 않고 SSH 터널로 접근합니다.
       - "127.0.0.1:9870:9870"
 
     volumes:
@@ -70,13 +111,14 @@ services:
       - ./hadoop/config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
       - ./hadoop/config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
 
-    command: >
-      bash -c "
-      if [ ! -d /data/name/current ]; then
-        hdfs namenode -format -force -nonInteractive;
-      fi &&
-      exec hdfs namenode
-      "
+    command:
+      - bash
+      - -c
+      - |
+        if [ ! -d /data/name/current ]; then
+          hdfs namenode -format -force -nonInteractive
+        fi
+        exec hdfs namenode
 
     healthcheck:
       test: ["CMD-SHELL", "hdfs dfsadmin -report >/dev/null 2>&1"]
@@ -216,8 +258,13 @@ services:
 volumes:
   kafka-data:
     name: news-kafka-data
+
+  collector-data:
+    name: news-collector-data
+
   namenode-data:
     name: news-namenode-data
+
   datanode-data:
     name: news-datanode-data
 

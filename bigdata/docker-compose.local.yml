@@ -112,6 +112,14 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
 
     # Kafka도 Hadoop과 같은 Docker 네트워크 사용
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list >/dev/null 2>&1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     networks:
       - news-network
 
@@ -293,6 +301,44 @@ services:
 
     networks:
       - news-network
+  collector:
+    build:
+      context: ./collector
+      dockerfile: Dockerfile
+
+    container_name: news-collector
+    restart: unless-stopped
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+    command:
+      - --registry
+      - /app/registry.csv
+      - --output-dir
+      - /data/collector
+      - --poll-seconds
+      - "30"
+      - --poll-workers
+      - "5"
+      - --fetch-workers
+      - "5"
+      - --timeout-seconds
+      - "12"
+      - --min-body-chars
+      - "300"
+      - --kafka-bootstrap
+      - kafka:29092
+      - --kafka-topic
+      - news.raw.v1
+      - --run-forever
+
+    volumes:
+      - collector-data:/data/collector
+
+    networks:
+      - news-network
 
 # =========================================================
 # Docker Volume
@@ -309,6 +355,8 @@ volumes:
 
   # HDFS 실제 데이터 Block 저장
   datanode-data:
+
+  collector-data:
 
 
 # =========================================================
