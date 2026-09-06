@@ -35,7 +35,8 @@ validate-bigdata:
     # Docker Compose 문법 / 변수 치환 검사
     # 실제 Kafka 외부 접속은 하지 않으므로 임시 주소 사용
     # -----------------------------------------------------
-    - KAFKA_EXTERNAL_HOST=validation.invalid docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" config --quiet
+    - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" config --quiet
+    - KAFKA_EXTERNAL_HOST=localhost KAFKA_BIND_HOST=127.0.0.1 docker compose -p news-bigdata-local -f docker-compose.local.yml config --quiet
 
     # -----------------------------------------------------
     # Kafka Topic 생성 스크립트 문법 검사
@@ -50,9 +51,14 @@ validate-bigdata:
     # Dockerfile 오류
     # COPY 경로 오류 등을 여기서 잡음
     # -----------------------------------------------------
-    - KAFKA_EXTERNAL_HOST=validation.invalid docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" build collector
+    - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" build collector
+    - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" run --rm --no-deps collector --help
 
   rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - bigdata/**/*
+        - .gitlab-ci.yml
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
       changes:
         - bigdata/**/*
@@ -83,6 +89,10 @@ deploy-bigdata:
     # 필수 환경변수 / 배포경로 확인
     # -----------------------------------------------------
     - test -n "${KAFKA_EXTERNAL_HOST:-}"
+    - test -n "${KAFKA_BIND_HOST:-}"
+    - test "$KAFKA_BIND_HOST" != "0.0.0.0"
+    - test "$KAFKA_BIND_HOST" != "::"
+    - test "$KAFKA_BIND_HOST" != "[::]"
     - test -d "$BIGDATA_DEPLOY_DIR"
     - test -w "$BIGDATA_DEPLOY_DIR"
 
@@ -113,22 +123,25 @@ deploy-bigdata:
     - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" build collector
 
     # -----------------------------------------------------
-    # 전체 서비스 실행
+    # Collector를 제외한 기반 서비스 실행
     # -----------------------------------------------------
-    - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" up -d --wait --wait-timeout 180
+    - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" up -d --wait --wait-timeout 180 kafka namenode datanode spark-master spark-worker
 
     # -----------------------------------------------------
     # Kafka Topic 멱등 생성
     # -----------------------------------------------------
-    - bash kafka/scripts/create-topics.sh
+    - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" run --rm kafka-init
+
+    # Topic 준비가 끝난 뒤 Collector만 시작
+    - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" up -d --no-deps --wait --wait-timeout 900 collector
 
     # -----------------------------------------------------
     # 배포 결과 확인
     # -----------------------------------------------------
     - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" ps
 
-    # Collector가 실제 실행 중인지 확인
-    - test "$(docker inspect -f '{{.State.Running}}' news-collector)" = "true"
+    # Collector heartbeat와 Kafka topic 연결까지 정상인지 확인
+    - test "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' news-collector)" = "healthy"
 
     # 최근 Collector 로그 출력
     - docker logs --tail 50 news-collector

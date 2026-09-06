@@ -18,13 +18,13 @@ services:
     user: root
 
     ports:
-      # 내 PC(Host)의 9092 포트
+      # 내 PC(Host)의 19092 포트
       #        ↓
       # Kafka 컨테이너의 9092 포트
       #
       # 즉 로컬 PC의 프로그램에서는
-      # localhost:9092 로 Kafka에 접근 가능
-      - "19092:9092"
+      # localhost:19092 로 Kafka에 접근 가능
+      - "${KAFKA_BIND_HOST:-127.0.0.1}:19092:9092"
 
     environment:
 
@@ -68,8 +68,8 @@ services:
       #   kafka:29092
       #
       # Docker 외부:
-      #   localhost:9092
-      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka:29092,EXTERNAL://${KAFKA_EXTERNAL_HOST}:19092"
+      #   localhost:19092
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka:29092,EXTERNAL://${KAFKA_EXTERNAL_HOST:-localhost}:19092"
 
       # 각각의 Listener에서 사용할 통신 방식"9092:9092"
       #
@@ -110,6 +110,7 @@ services:
       # Consumer Group 생성 시 rebalance 대기시간
       # 로컬 개발환경에서는 바로 시작하도록 0ms
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
 
     # Kafka도 Hadoop과 같은 Docker 네트워크 사용
     healthcheck:
@@ -129,6 +130,23 @@ services:
       # 컨테이너를 삭제했다가 다시 만들어도
       # Kafka 로그/메시지가 유지될 수 있음
       - kafka-data:/var/lib/kafka/data
+
+  kafka-init:
+    image: apache/kafka:4.3.1
+    restart: "no"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint:
+      - /bin/bash
+      - /opt/news/scripts/create-topics.sh
+    environment:
+      KAFKA_BOOTSTRAP_SERVER: kafka:29092
+      KAFKA_TOPICS_COMMAND: /opt/kafka/bin/kafka-topics.sh
+    volumes:
+      - ./kafka/scripts/create-topics.sh:/opt/news/scripts/create-topics.sh:ro
+    networks:
+      - news-network
 
 
   # =========================================================
@@ -312,6 +330,14 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_RAW_TOPIC: news.raw.v1
+      COLLECTOR_HEALTH_FILE: /data/collector/collector.heartbeat
+      COLLECTOR_HEALTH_MAX_AGE_SECONDS: "180"
 
     command:
       - --registry
@@ -336,6 +362,13 @@ services:
 
     volumes:
       - collector-data:/data/collector
+
+    healthcheck:
+      test: ["CMD", "python", "/app/healthcheck.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5m
 
     networks:
       - news-network

@@ -1486,6 +1486,12 @@ def main():
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
+    health_path = Path(
+        os.getenv("COLLECTOR_HEALTH_FILE", str(out / "collector.heartbeat"))
+    )
+    health_path.parent.mkdir(parents=True, exist_ok=True)
+    health_path.unlink(missing_ok=True)
+
     db_path = out / "collection_24h_v2.db"
     summary_path = out / "summary.json"
     kafka_failed_path = out / "kafka_failed.jsonl"
@@ -1562,6 +1568,10 @@ def main():
             db.set_meta("experiment_started_at_utc", iso(started_at))
             db.set_meta("final_baseline_completed_at_utc", iso(started_at))
 
+        # Readiness is reported only after endpoint initialization and baseline
+        # preparation have completed successfully.
+        health_path.touch()
+
         if args.run_forever:
             deadline = None
         else:
@@ -1577,10 +1587,12 @@ def main():
             round_no = int(r[0]) + 1
 
         while deadline is None or utc_now() < deadline:
+            health_path.touch()
             _, elapsed = poll_round(
                 round_no, sources, db, args, started_at, kafka_producer
             )
             export_csvs(db, out)
+            health_path.touch()
             round_no += 1
 
             if deadline is None:
