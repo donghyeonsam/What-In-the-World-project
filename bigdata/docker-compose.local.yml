@@ -203,6 +203,13 @@ services:
         fi
         exec hdfs namenode
 
+    healthcheck:
+      test: ["CMD-SHELL", "hdfs dfsadmin -report >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
     networks:
       - news-network
 
@@ -248,10 +255,56 @@ services:
     # NameNode가 "완전히 준비될 때까지" 기다린다는 의미는 아니고
     # 컨테이너 시작 순서만 보장
     depends_on:
-      - namenode
+      namenode:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD-SHELL", "hdfs dfsadmin -report 2>/dev/null | grep -q 'Live datanodes (1)' "]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
     networks:
       - news-network
+
+  # =========================================================
+  # Kafka(news.raw.v1) -> HDFS bronze writer
+  # =========================================================
+  bronze-writer:
+    build:
+      context: ./kafka-hdfs-writer
+      dockerfile: Dockerfile
+
+    container_name: news-bronze-writer
+    restart: unless-stopped
+    stop_grace_period: 60s
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      namenode:
+        condition: service_healthy
+      datanode:
+        condition: service_healthy
+
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_TOPIC: news.raw.v1
+      KAFKA_GROUP_ID: ${BRONZE_WRITER_GROUP_ID:-news-raw-hdfs-bronze-v1}
+      HDFS_URI: hdfs://namenode:9000
+      HDFS_BRONZE_PATH: ${BRONZE_HDFS_PATH:-/data/news/bronze/news.raw.v1}
+      HDFS_USER: root
+      HADOOP_CONF_DIR: /opt/hadoop-conf
+
+    volumes:
+      - ./hadoop/config:/opt/hadoop-conf:ro
+
+    networks:
+      - news-network
+
   spark-master:
     image: apache/spark:4.2.0-python3
     container_name: news-spark-master
