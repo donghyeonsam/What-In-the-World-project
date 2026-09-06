@@ -1,0 +1,62 @@
+validate-backend:
+  stage: validate
+  image: eclipse-temurin:21-jdk
+  tags:
+    - backend-ci
+  timeout: 15m
+  services:
+    - name: postgres:17-alpine
+      alias: postgres
+    - name: valkey/valkey:8-alpine
+      alias: valkey
+  variables:
+    POSTGRES_DB: witw
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: test_password
+    POSTGRESQL_URL: jdbc:postgresql://postgres:5432/witw
+    POSTGRESQL_USER: postgres
+    POSTGRESQL_PASSWORD: test_password
+    VALKEY_HOST: valkey
+    VALKEY_HOST_PORT: "6379"
+  script:
+    - cd "$CI_PROJECT_DIR/backend"
+    - bash ./gradlew test --no-daemon
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - backend/**/*
+        - .gitlab-ci.yml
+        - .gitlab/ci/be.yml
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - backend/**/*
+        - .gitlab-ci.yml
+        - .gitlab/ci/be.yml
+
+deploy-backend:
+  stage: deploy
+  tags:
+    - backend-deploy
+  timeout: 20m
+  needs:
+    - validate-backend
+  resource_group: backend-production
+  interruptible: false
+  environment:
+    name: production-backend
+  variables:
+    BACKEND_ENV_FILE: /opt/witw-backend/.env
+    BACKEND_COMPOSE_PROJECT: witw-backend-prod
+  script:
+    - test -f "$BACKEND_ENV_FILE"
+    - cd "$CI_PROJECT_DIR/backend"
+    - docker compose --env-file "$BACKEND_ENV_FILE" -p "$BACKEND_COMPOSE_PROJECT" -f docker-compose.prod.yml config --quiet
+    - docker compose --env-file "$BACKEND_ENV_FILE" -p "$BACKEND_COMPOSE_PROJECT" -f docker-compose.prod.yml up -d --build --wait --wait-timeout 180
+    - docker compose --env-file "$BACKEND_ENV_FILE" -p "$BACKEND_COMPOSE_PROJECT" -f docker-compose.prod.yml ps
+    - timeout 5 bash -c '</dev/tcp/127.0.0.1/8080'
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - backend/**/*
+        - .gitlab-ci.yml
+        - .gitlab/ci/be.yml
