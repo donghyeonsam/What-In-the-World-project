@@ -55,4 +55,53 @@ public interface ArticleRepository extends JpaRepository<Article, String> {
             @Param("issueId") Long issueId, @Param("limit") int limit);
 
 
+
+    // 최근 24시간 수집 기사 수 기준 해당 국가의 세계 순위 (동률은 같은 순위, 기사 0건인 국가도 포함)
+    // FR-DSB-006이 "수집" 기준이므로 published_at이 아닌 created_at으로 자른다
+    // TODO: article (deleted_at, created_at, publisher_country_code) 복합 인덱스 검토
+    @Query(value = """
+            WITH bounds AS (
+                SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul') AS end_at
+            ),
+            country_counts AS (
+                SELECT c.country_code  AS country_code,
+                       COUNT(a.id)     AS article_count
+                FROM country c
+                CROSS JOIN bounds b
+                LEFT JOIN article a
+                       ON a.publisher_country_code = c.country_code
+                      AND a.deleted_at IS NULL
+                      AND a.created_at >= b.end_at - INTERVAL '24 hours'
+                      AND a.created_at <  b.end_at
+                GROUP BY c.country_code
+            )
+            SELECT (SELECT COUNT(*) + 1
+                    FROM country_counts cc
+                    WHERE cc.article_count > target.article_count)
+            FROM country_counts target
+            WHERE target.country_code = :countryCode
+            """, nativeQuery = true)
+    Integer getCountryRankByArticleCounts(@Param("countryCode") String countryCode);
+
+    // 최근 24시간 해당 국가 수집 기사 중 테마 적합도 상위 N건 (기사 수·순위와 같은 기준)
+    @Query(value = """
+            WITH bounds AS (
+                SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul') AS end_at
+            )
+            SELECT a.id                AS "articleId",
+                   a.translated_title  AS "articleTitle",
+                   a.tone_score        AS "articleToneScore",
+                   a.publisher         AS "articlePublisher",
+                   a.published_at      AS "publishedAt"
+            FROM article a
+            CROSS JOIN bounds b
+            WHERE a.publisher_country_code = :countryCode
+              AND a.deleted_at IS NULL
+              AND a.created_at >= b.end_at - INTERVAL '24 hours'
+              AND a.created_at <  b.end_at
+            ORDER BY a.theme_relevance_score DESC, a.id
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<RepresentArticleProjection> findRepresentArticlesByCountry(
+            @Param("countryCode") String countryCode, @Param("limit") int limit);
 }
