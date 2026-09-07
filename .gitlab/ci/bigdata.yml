@@ -1,0 +1,157 @@
+.bigdata-variables:
+  variables:
+    # GitLab Runner가 저장소 파일을 복사할 EC2의 고정 배포 경로
+    BIGDATA_DEPLOY_DIR: /opt/news-bigdata
+
+    # Runner의 체크아웃 경로와 관계없이 동일한 Compose 프로젝트를 관리
+    COMPOSE_PROJECT_NAME: news-bigdata-prod
+    COMPOSE_FILE: docker-compose.prod.yml
+
+
+# =========================================================
+# Validate
+# =========================================================
+validate-bigdata:
+  extends: .bigdata-variables
+  stage: validate
+  timeout: 15m
+
+  tags:
+    - bigdata-deploy
+
+  script:
+    # -----------------------------------------------------
+    # 기본 실행환경 확인
+    # -----------------------------------------------------
+    - command -v docker
+    - docker compose version
+    - command -v rsync
+
+    - cd "$CI_PROJECT_DIR/bigdata"
+
+    # -----------------------------------------------------
+    # Docker Compose 문법 / 변수 치환 검사
+    # 실제 Kafka 외부 접속은 하지 않으므로 임시 주소 사용
+    # -----------------------------------------------------
+    - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" config --quiet
+    - KAFKA_EXTERNAL_HOST=localhost KAFKA_BIND_HOST=127.0.0.1 docker compose -p news-bigdata-local -f docker-compose.local.yml config --quiet
+
+    # -----------------------------------------------------
+    # Kafka Topic 생성 스크립트 문법 검사
+    # -----------------------------------------------------
+    - bash -n kafka/scripts/create-topics.sh
+
+    # -----------------------------------------------------
+    # 애플리케이션 Docker 이미지 빌드 검증
+    #
+    # Collector 의존성과 Java consumer 컴파일/테스트,
+    # Dockerfile 및 COPY 경로 오류 등을 여기서 잡음
+    # -----------------------------------------------------
+    - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" build collector bronze-writer
+    - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" run --rm --no-deps collector --help
+
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - bigdata/**/*
+        - .gitlab-ci.yml
+        - .gitlab/ci/bigdata.yml
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - bigdata/**/*
+        - .gitlab-ci.yml
+        - .gitlab/ci/bigdata.yml
+
+
+# =========================================================
+# Deploy
+# =========================================================
+deploy-bigdata:
+  extends: .bigdata-variables
+  stage: deploy
+  timeout: 30m
+
+  tags:
+    - bigdata-deploy
+
+  needs:
+    - validate-bigdata
+
+  resource_group: bigdata-production
+  interruptible: false
+
+  environment:
+    name: production-bigdata
+
+  script:
+    # -----------------------------------------------------
+    # 필수 환경변수 / 배포경로 확인
+    # -----------------------------------------------------
+    - test -n "${KAFKA_EXTERNAL_HOST:-}"
+    - test -n "${KAFKA_BIND_HOST:-}"
+    - test "$KAFKA_BIND_HOST" != "0.0.0.0"
+    - test "$KAFKA_BIND_HOST" != "::"
+    - test "$KAFKA_BIND_HOST" != "[::]"
+    - test -d "$BIGDATA_DEPLOY_DIR"
+    - test -w "$BIGDATA_DEPLOY_DIR"
+
+    # -----------------------------------------------------
+    # GitLab Runner checkout → 운영 고정 경로 반영
+    # -----------------------------------------------------
+    - rsync -a "$CI_PROJECT_DIR/bigdata/" "$BIGDATA_DEPLOY_DIR/"
+
+    - cd "$BIGDATA_DEPLOY_DIR"
+
+    # -----------------------------------------------------
+    # 운영 Compose 최종 검증
+    # -----------------------------------------------------
+    - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" config --quiet
+
+    # -----------------------------------------------------
+    # 공식 이미지 업데이트
+    #
+    # collector와 bronze-writer는 직접 build하는 서비스이므로 제외
+    # -----------------------------------------------------
+    - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" pull kafka namenode datanode spark-master spark-worker
+
+    # -----------------------------------------------------
+    # 애플리케이션 이미지 빌드
+    #
+    # Collector와 Java Kafka-HDFS consumer 변경사항 반영
+    # -----------------------------------------------------
+    - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" build collector bronze-writer
+
+    # -----------------------------------------------------
+    # Collector를 제외한 기반 서비스 실행
+    # -----------------------------------------------------
+    - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" up -d --wait --wait-timeout 180 kafka namenode datanode spark-master spark-worker
+
+    # -----------------------------------------------------
+    # Kafka Topic 멱등 생성
+    # -----------------------------------------------------
+    - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" run --rm kafka-init
+
+    # Topic 준비가 끝난 뒤 Collector와 Bronze writer 시작
+    - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" up -d --no-deps --wait --wait-timeout 900 collector bronze-writer
+
+    # -----------------------------------------------------
+    # 배포 결과 확인
+    # -----------------------------------------------------
+    - docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" ps
+
+    # 애플리케이션 컨테이너 health 확인
+    - test "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' news-collector)" = "healthy"
+    - test "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' news-bronze-writer)" = "healthy"
+
+    # 최근 Collector 로그 출력
+    - docker logs --tail 50 news-collector
+    - docker logs --tail 50 news-bronze-writer
+
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - bigdata/**/*
+        - .gitlab-ci.yml
+        - .gitlab/ci/bigdata.yml
+      when: manual
+      allow_failure: true
