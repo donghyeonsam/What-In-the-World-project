@@ -11,13 +11,15 @@ validate-frontend:
     - npm run build
 
   rules:
+    # develop 대상 MR → 빌드 검증
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"'
       changes:
         - frontend/**/*
         - .gitlab-ci.yml
         - .gitlab/ci/front.yml
 
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    # master → 빌드 검증
+    - if: '$CI_COMMIT_BRANCH == "master"'
       changes:
         - frontend/**/*
         - .gitlab-ci.yml
@@ -49,12 +51,13 @@ deploy-frontend:
     - docker push jamonda1/what-in-the-world:latest
 
     - docker rm -f what-in-the-world-front || true
-    - docker run -d --name what-in-the-world-front --restart unless-stopped -p 3000:80 jamonda1/what-in-the-world:latest
+    - docker run -d --name what-in-the-world-front --restart unless-stopped -p 127.0.0.1:3000:80 jamonda1/what-in-the-world:latest
 
     - timeout 5 bash -c '</dev/tcp/127.0.0.1/3000'
 
   rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    # master에서만 배포
+    - if: '$CI_COMMIT_BRANCH == "master"'
       changes:
         - frontend/**/*
         - .gitlab-ci.yml
