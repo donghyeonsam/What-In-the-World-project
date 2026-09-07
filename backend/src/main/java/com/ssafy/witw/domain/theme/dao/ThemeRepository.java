@@ -61,16 +61,43 @@ public interface ThemeRepository extends JpaRepository<Theme, Long> {
                   AND tc.bucket_start = b.bucket_start
             ORDER BY p.article_count_24 DESC, p.theme_id, b.bucket_start
             """, nativeQuery = true)
-    List<PopularThemeRow> findPopularThemes(
+    List<PopularThemeTrendRow> findPopularThemesWithHourlyTrend(
             @Param("countryCode") String countryCode,
             @Param("limit") int limit
     );
+
+    // 시간 버킷 정렬이 필요 없으므로 다른 24시간 쿼리들과 같은 기준 시각을 사용
+    @Query(value = """
+        WITH bounds AS (
+            SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul') AS end_at
+        )
+        SELECT t.id     AS "themeId",
+               f.name   AS "fieldName",
+               t.name   AS "themeName",
+               COUNT(*) AS "articleCount24"
+        FROM article a
+        JOIN theme t ON t.id = a.theme_id
+        JOIN field f ON f.id = t.field_id
+        CROSS JOIN bounds b
+        WHERE a.publisher_country_code = :countryCode
+          AND a.published_at >= b.end_at - INTERVAL '24 hours'
+          AND a.published_at <  b.end_at
+          AND a.deleted_at IS NULL
+        GROUP BY t.id, f.name, t.name
+        ORDER BY COUNT(*) DESC, t.id
+        LIMIT :limit
+        """, nativeQuery = true)
+    List<PopularThemeRow> findPopularThemes(
+            @Param("countryCode") String countryCode, @Param("limit") int limit);
 
     interface PopularThemeRow {
         long getThemeId();
         String getFieldName();
         String getThemeName();
         long getArticleCount24();
+    }
+
+    interface PopularThemeTrendRow extends PopularThemeRow {
         LocalDateTime getBucketStart();
         long getArticleCount();
     }

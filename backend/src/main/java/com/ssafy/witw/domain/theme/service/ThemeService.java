@@ -6,14 +6,14 @@ import com.ssafy.witw.domain.article.dao.ArticleRepository;
 import com.ssafy.witw.domain.article.dao.ArticleRepository.RepresentArticleProjection;
 import com.ssafy.witw.domain.article.dto.ArticleTone;
 import com.ssafy.witw.domain.article.dto.RepresentArticle;
-import com.ssafy.witw.domain.country.dao.CountryRepository;
+import com.ssafy.witw.domain.country.service.CountryFinder;
 import com.ssafy.witw.domain.country.entity.Country;
 import com.ssafy.witw.domain.issue.dao.IssueRepository;
 import com.ssafy.witw.domain.theme.dao.ThemeRepository;
-import com.ssafy.witw.domain.theme.dao.ThemeRepository.PopularThemeRow;
-import com.ssafy.witw.domain.theme.dto.PopularTheme;
-import com.ssafy.witw.domain.theme.dto.PopularTheme.ThemeTimeStamp;
-import com.ssafy.witw.domain.theme.dto.PopularTheme.TimeStamp;
+import com.ssafy.witw.domain.theme.dao.ThemeRepository.PopularThemeTrendRow;
+import com.ssafy.witw.domain.theme.dto.PopularThemeTrend;
+import com.ssafy.witw.domain.theme.dto.PopularThemeTrend.ThemeTimeStamp;
+import com.ssafy.witw.domain.theme.dto.PopularThemeTrend.TimeStamp;
 import com.ssafy.witw.domain.theme.dto.PopularThemeResponse;
 import com.ssafy.witw.domain.theme.dto.ThemeOverviewResponse;
 import com.ssafy.witw.domain.theme.entity.Theme;
@@ -36,7 +36,7 @@ public class ThemeService {
     private static final int MAX_LIMIT = 10;
 
     private final ThemeRepository themeRepository;
-    private final CountryRepository countryRepository;
+    private final CountryFinder countryFinder;
     private final IssueRepository issueRepository;
     private final ArticleRepository articleRepository;
 
@@ -57,7 +57,7 @@ public class ThemeService {
         List<RepresentArticle> representArticles = articleRepository
                 .getRepresentArticlesByThemeId(themeId, articleLimit)
                 .stream()
-                .map(this::toRepresentArticle)
+                .map(RepresentArticle::from)
                 .toList();
 
         return new ThemeOverviewResponse(
@@ -66,16 +66,6 @@ public class ThemeService {
                 theme.getDescription(),
                 primaryIssues,
                 representArticles
-        );
-    }
-
-    private RepresentArticle toRepresentArticle(RepresentArticleProjection article) {
-        return new RepresentArticle(
-                article.getArticleId(),
-                article.getArticleTitle(),
-                ArticleTone.fromScore(article.getArticleToneScore()),
-                article.getArticlePublisher(),
-                article.getPublishedAt()
         );
     }
 
@@ -88,32 +78,28 @@ public class ThemeService {
     public PopularThemeResponse getPopularThemes(String countryCode, int limit) {
 
         // TODO: Controller @Valid로 처리 예정
-        if (limit < 1 || limit > MAX_LIMIT) {
-            throw new IllegalArgumentException("limit은 1 이상 10 이하여야 합니다.");
-        }
+        validateLimit(limit);
 
-        // TODO: 공통 예외처리 로직으로 처리 예정
-        Country country = countryRepository.findById(countryCode)
-                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 국가입니다."));
+        Country country = countryFinder.getCountry(countryCode);
 
-        List<PopularTheme> popularThemes = themeRepository.findPopularThemes(countryCode, limit)
+        List<PopularThemeTrend> popularThemes = themeRepository.findPopularThemesWithHourlyTrend(countryCode, limit)
                 .stream()
-                .collect(groupingBy(PopularThemeRow::getThemeId, LinkedHashMap::new, toList()))
+                .collect(groupingBy(PopularThemeTrendRow::getThemeId, LinkedHashMap::new, toList()))
                 .values()
                 .stream()
-                .map(this::toPopularTheme)
+                .map(this::toPopularThemeTrend)
                 .toList();
 
         return new PopularThemeResponse(countryCode, country.getNameKo(), popularThemes);
     }
 
-    private PopularTheme toPopularTheme(List<PopularThemeRow> rows) {
-        PopularThemeRow theme = rows.getFirst();
+    private PopularThemeTrend toPopularThemeTrend(List<PopularThemeTrendRow> rows) {
+        PopularThemeTrendRow theme = rows.getFirst();
         List<TimeStamp> timestamps = rows.stream()
                 .map(row -> new TimeStamp(row.getBucketStart(), row.getArticleCount()))
                 .toList();
 
-        return new PopularTheme(
+        return new PopularThemeTrend(
                 theme.getThemeId(),
                 theme.getFieldName(),
                 theme.getThemeName(),

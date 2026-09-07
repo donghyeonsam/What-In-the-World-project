@@ -3,7 +3,7 @@ package com.ssafy.witw.domain.theme.service;
 import com.ssafy.witw.domain.article.dao.ArticleRepository;
 import com.ssafy.witw.domain.article.dao.ArticleRepository.RepresentArticleProjection;
 import com.ssafy.witw.domain.article.dto.ArticleTone;
-import com.ssafy.witw.domain.country.dao.CountryRepository;
+import com.ssafy.witw.domain.country.service.CountryFinder;
 import com.ssafy.witw.domain.issue.dao.IssueRepository;
 import com.ssafy.witw.domain.theme.dao.ThemeRepository;
 import com.ssafy.witw.domain.theme.dto.ThemeOverviewResponse;
@@ -30,7 +30,7 @@ class ThemeOverviewServiceTest {
     @Mock
     private ThemeRepository themeRepository;
     @Mock
-    private CountryRepository countryRepository;
+    private CountryFinder countryFinder;
     @Mock
     private IssueRepository issueRepository;
     @Mock
@@ -81,6 +81,6 @@ class ThemeOverviewServiceTest {
     }
 
     private ThemeService service() {
-        return new ThemeService(themeRepository, countryRepository, issueRepository, articleRepository);
+        return new ThemeService(themeRepository, countryFinder, issueRepository, articleRepository);
     }
 }
