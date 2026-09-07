@@ -1,13 +1,15 @@
 package com.ssafy.witw.domain.issue.service;
 
+import com.ssafy.witw.common.exception.GlobalException;
+import com.ssafy.witw.common.response.ErrorCode;
 import com.ssafy.witw.domain.country.dto.CountryPoint;
 import com.ssafy.witw.domain.country.dto.CountryTone;
-import com.ssafy.witw.domain.country.dto.CountryToneResponse;
 import com.ssafy.witw.domain.issue.dao.IssueRepository;
 import com.ssafy.witw.domain.issue.dao.IssueRepository.CountryToneRow;
 import com.ssafy.witw.domain.issue.dao.IssueRepository.GlobalIssueRankRow;
 import com.ssafy.witw.domain.issue.dto.GlobalIssueRankResponse;
 import com.ssafy.witw.domain.issue.dto.GlobalIssueRankResponse.GlobalIssue;
+import com.ssafy.witw.domain.issue.dto.IssueInfo;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,25 +27,32 @@ public class IssueService {
 
     // 최근 24시간 기사 수 기준 이슈 랭킹
     public GlobalIssueRankResponse getGlobalIssueRank() {
-
-        List<GlobalIssue> globalIssues =
-                issueRepository.findGlobalIssueRankLast24Hours(GLOBAL_ISSUE_RANK_LIMIT)
+        List<GlobalIssue> globalIssues = issueRepository.findGlobalIssueRankLast24Hours(GLOBAL_ISSUE_RANK_LIMIT)
                         .stream()
                         .map(this::toGlobalIssue)
                         .toList();
-
         return new GlobalIssueRankResponse(globalIssues);
     }
 
-    // 목록에서 이슈를 선택했을 때의 국가별 톤
-    public CountryToneResponse getCountryTones(long issueId) {
+    // 이슈 카드 UI에 사용(이슈명, 관련 기사 개수, 관련 나라 개수)
+    public IssueInfo getIssueInfo(long issueId) {
+        if (!issueRepository.existsById(issueId)) {
+            throw new GlobalException(ErrorCode.ENTITY_NOT_FOUND);
+        }
+        return issueRepository.findIssueById(issueId);
+    }
 
-        List<CountryTone> countryTones = issueRepository.findCountryTonesLast24Hours(issueId)
-                .stream()
+    public Double getGlobalTone(long issueId) {
+        return issueRepository.findGlobalToneById(issueId);
+    }
+
+    public List<CountryTone> getCountryTones(long issueId) {
+        if (!issueRepository.existsById(issueId)) {
+            throw new GlobalException(ErrorCode.ENTITY_NOT_FOUND);
+        }
+        return issueRepository.findCountryTonesLast24Hours(issueId).stream()
                 .map(this::toCountryTone)
                 .toList();
-
-        return new CountryToneResponse(countryTones);
     }
 
     private GlobalIssue toGlobalIssue(GlobalIssueRankRow row) {
