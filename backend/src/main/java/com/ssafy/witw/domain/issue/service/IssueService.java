@@ -2,7 +2,9 @@ package com.ssafy.witw.domain.issue.service;
 
 import com.ssafy.witw.domain.country.dto.CountryPoint;
 import com.ssafy.witw.domain.country.dto.CountryTone;
+import com.ssafy.witw.domain.country.dto.CountryToneResponse;
 import com.ssafy.witw.domain.issue.dao.IssueRepository;
+import com.ssafy.witw.domain.issue.dao.IssueRepository.CountryToneRow;
 import com.ssafy.witw.domain.issue.dao.IssueRepository.GlobalIssueRankRow;
 import com.ssafy.witw.domain.issue.dto.GlobalIssueRankResponse;
 import com.ssafy.witw.domain.issue.dto.GlobalIssueRankResponse.GlobalIssue;
@@ -10,11 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.LinkedHashMap;
 import java.util.List;
-
-import static java.util.stream.Collectors.groupingBy;
-import static java.util.stream.Collectors.toList;
 
 @Service
 @RequiredArgsConstructor
@@ -27,11 +25,9 @@ public class IssueService {
 
     // 최근 24시간 기사 수 기준 이슈 랭킹
     public GlobalIssueRankResponse getGlobalIssueRank() {
+
         List<GlobalIssue> globalIssues =
                 issueRepository.findGlobalIssueRankLast24Hours(GLOBAL_ISSUE_RANK_LIMIT)
-                        .stream()
-                        .collect(groupingBy(GlobalIssueRankRow::getIssueId, LinkedHashMap::new, toList()))
-                        .values()
                         .stream()
                         .map(this::toGlobalIssue)
                         .toList();
@@ -39,24 +35,29 @@ public class IssueService {
         return new GlobalIssueRankResponse(globalIssues);
     }
 
-    private GlobalIssue toGlobalIssue(List<GlobalIssueRankRow> rows) {
-        GlobalIssueRankRow issue = rows.getFirst();
-        List<CountryTone> countryTones = rows.stream()
+    // 목록에서 이슈를 선택했을 때의 국가별 톤
+    public CountryToneResponse getCountryTones(long issueId) {
+
+        List<CountryTone> countryTones = issueRepository.findCountryTonesLast24Hours(issueId)
+                .stream()
                 .map(this::toCountryTone)
                 .toList();
 
+        return new CountryToneResponse(countryTones);
+    }
+
+    private GlobalIssue toGlobalIssue(GlobalIssueRankRow row) {
         return new GlobalIssue(
-                issue.getIssueId(),
-                issue.getFieldName(),
-                issue.getThemeName(),
-                issue.getIssueName(),
-                issue.getArticleCount(),
-                countryTones,
-                issue.getFirstSeenAt()
+                row.getIssueId(),
+                row.getFieldName(),
+                row.getThemeName(),
+                row.getIssueName(),
+                row.getArticleCount(),
+                row.getFirstSeenAt()
         );
     }
 
-    private CountryTone toCountryTone(GlobalIssueRankRow row) {
+    private CountryTone toCountryTone(CountryToneRow row) {
         CountryPoint country = new CountryPoint(
                 row.getCountryCode(),
                 row.getCountryName(),

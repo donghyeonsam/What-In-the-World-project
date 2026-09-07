@@ -66,7 +66,7 @@ public interface IssueRepository extends JpaRepository<Issue, Long> {
         String getCountryName();
     }
 
-    // 최근 24시간 기사 수 기준 상위 이슈 랭킹 + 이슈별 국가 톤 (이슈 x 국가 단위로 flat 하게 반환)
+    // 최근 24시간 기사 수 기준 상위 이슈 랭킹 (이슈 단위)
     // TODO: article (deleted_at, published_at, issue_id) 복합 인덱스 검토
     @Query(value = """
             WITH bounds AS (
@@ -84,43 +84,44 @@ public interface IssueRepository extends JpaRepository<Issue, Long> {
                 GROUP BY a.issue_id
                 ORDER BY article_count DESC, a.issue_id
                 LIMIT :limit
-            ),
-            country_tones AS (
-                SELECT a.issue_id                            AS issue_id,
-                       a.publisher_country_code              AS country_code,
-                       AVG(a.tone_score)::double precision   AS tone_avg,
-                       MAX(a.tone_score)::double precision   AS tone_max,
-                       MIN(a.tone_score)::double precision   AS tone_min
-                FROM article a
-                JOIN top_issues ti ON ti.issue_id = a.issue_id
-                CROSS JOIN bounds b
-                WHERE a.deleted_at IS NULL
-                  AND a.published_at >= b.end_at - INTERVAL '24 hours'
-                  AND a.published_at < b.end_at
-                GROUP BY a.issue_id, a.publisher_country_code
             )
             SELECT i.id             AS "issueId",
                    f.name           AS "fieldName",
                    t.name           AS "themeName",
                    i.name           AS "issueName",
                    ti.article_count AS "articleCount",
-                   i.first_seen_at  AS "firstSeenAt",
-                   c.country_code   AS "countryCode",
-                   c.name_ko        AS "countryName",
-                   c.longitude      AS "longitude",
-                   c.latitude       AS "latitude",
-                   ct.tone_avg      AS "toneAvg",
-                   ct.tone_max      AS "toneMax",
-                   ct.tone_min      AS "toneMin"
+                   i.first_seen_at  AS "firstSeenAt"
             FROM top_issues ti
             JOIN issue i ON i.id = ti.issue_id
             JOIN theme t ON t.id = i.theme_id
             JOIN field f ON f.id = t.field_id
-            JOIN country_tones ct ON ct.issue_id = ti.issue_id
-            JOIN country c ON c.country_code = ct.country_code
-            ORDER BY ti.article_count DESC, i.id, ct.tone_avg DESC, c.country_code
+            ORDER BY ti.article_count DESC, i.id
             """, nativeQuery = true)
     List<GlobalIssueRankRow> findGlobalIssueRankLast24Hours(@Param("limit") int limit);
+
+    // 이슈 하나의 최근 24시간 국가별 톤. 목록에서 이슈를 선택했을 때 조회한다
+    @Query(value = """
+            WITH bounds AS (
+                SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul') AS end_at
+            )
+            SELECT c.country_code                        AS "countryCode",
+                   c.name_ko                             AS "countryName",
+                   c.longitude                           AS "longitude",
+                   c.latitude                            AS "latitude",
+                   AVG(a.tone_score)::double precision   AS "toneAvg",
+                   MAX(a.tone_score)::double precision   AS "toneMax",
+                   MIN(a.tone_score)::double precision   AS "toneMin"
+            FROM article a
+            JOIN country c ON c.country_code = a.publisher_country_code
+            CROSS JOIN bounds b
+            WHERE a.issue_id = :issueId
+              AND a.deleted_at IS NULL
+              AND a.published_at >= b.end_at - INTERVAL '24 hours'
+              AND a.published_at < b.end_at
+            GROUP BY c.country_code, c.name_ko, c.longitude, c.latitude
+            ORDER BY AVG(a.tone_score) DESC, c.country_code
+            """, nativeQuery = true)
+    List<CountryToneRow> findCountryTonesLast24Hours(@Param("issueId") long issueId);
 
     interface GlobalIssueRankRow {
         long getIssueId();
@@ -129,6 +130,9 @@ public interface IssueRepository extends JpaRepository<Issue, Long> {
         String getIssueName();
         long getArticleCount();
         LocalDateTime getFirstSeenAt();
+    }
+
+    interface CountryToneRow {
         String getCountryCode();
         String getCountryName();
         double getLongitude();
