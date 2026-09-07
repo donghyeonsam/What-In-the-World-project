@@ -11,6 +11,23 @@ import java.util.Optional;
 
 public interface IssueRepository extends JpaRepository<Issue, Long> {
 
+    @Query(value = """
+            SELECT i.id AS issueId, i.name AS issueTitle
+            FROM issue i
+            JOIN article a ON a.issue_id = i.id
+            WHERE i.theme_id = :themeId
+                AND a.deleted_at IS NULL
+            GROUP BY i.id, i.name
+            ORDER BY count(*) DESC, i.id ASC
+            LIMIT :limit
+""", nativeQuery = true)
+    List<PrimaryIssue> getPrimaryIssuesByThemeId(@Param("themeId") Long themeId,@Param("limit") int limit);
+
+    interface PrimaryIssue {
+        Long getIssueId();
+        String getIssueTitle();
+    }
+
     // 이슈가 속한 테마·필드 조회
     @Query(value = """
             SELECT i.id   AS "issueId",

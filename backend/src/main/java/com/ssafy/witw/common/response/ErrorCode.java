@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 public enum ErrorCode {
 
+    // COMMON
     INVALID_INPUT_VALUE(HttpStatus.BAD_REQUEST, "CO01", "유효하지 않은 입력 값입니다."),
     INVALID_TYPE_VALUE(HttpStatus.BAD_REQUEST, "CO02", "유효하지 않은 타입 값입니다."),
     ENTITY_NOT_FOUND(HttpStatus.NOT_FOUND, "CO03", "해당 엔티티를 찾을 수 없습니다."),
@@ -22,7 +23,10 @@ public enum ErrorCode {
     REQUEST_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "CO11", "요청의 크기가 너무 큽니다."),
     TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "CO12", "너무 많은 요청을 보냈습니다. 잠시 후 다시 시도해주세요."),
     RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "CO13", "요청하신 리소스를 찾을 수 없습니다."),
-    INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "CO99", "서버 내부 오류가 발생했습니다. 관리자에게 문의하세요.");
+    INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "CO99", "서버 내부 오류가 발생했습니다. 관리자에게 문의하세요."),
+
+    // THEME
+    THEME_NOT_FOUND(HttpStatus.NOT_FOUND, "TH01", "테마를 찾을 수 없습니다.");
 
     private final HttpStatus status;
     private final String code;

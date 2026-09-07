@@ -1,13 +1,22 @@
 package com.ssafy.witw.domain.theme.service;
 
+import com.ssafy.witw.common.exception.GlobalException;
+import com.ssafy.witw.common.response.ErrorCode;
+import com.ssafy.witw.domain.article.dao.ArticleRepository;
+import com.ssafy.witw.domain.article.dao.ArticleRepository.RepresentArticleProjection;
+import com.ssafy.witw.domain.article.dto.ArticleTone;
+import com.ssafy.witw.domain.article.dto.RepresentArticle;
 import com.ssafy.witw.domain.country.dao.CountryRepository;
 import com.ssafy.witw.domain.country.entity.Country;
+import com.ssafy.witw.domain.issue.dao.IssueRepository;
 import com.ssafy.witw.domain.theme.dao.ThemeRepository;
 import com.ssafy.witw.domain.theme.dao.ThemeRepository.PopularThemeRow;
 import com.ssafy.witw.domain.theme.dto.PopularTheme;
 import com.ssafy.witw.domain.theme.dto.PopularTheme.ThemeTimeStamp;
 import com.ssafy.witw.domain.theme.dto.PopularTheme.TimeStamp;
 import com.ssafy.witw.domain.theme.dto.PopularThemeResponse;
+import com.ssafy.witw.domain.theme.dto.ThemeOverviewResponse;
+import com.ssafy.witw.domain.theme.entity.Theme;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +37,53 @@ public class ThemeService {
 
     private final ThemeRepository themeRepository;
     private final CountryRepository countryRepository;
+    private final IssueRepository issueRepository;
+    private final ArticleRepository articleRepository;
+
+    public ThemeOverviewResponse getThemeOverview(Long themeId, int issueLimit, int articleLimit) {
+        validateLimit(issueLimit);
+        validateLimit(articleLimit);
+
+        Theme theme = themeRepository.findById(themeId)
+                .orElseThrow(() -> new GlobalException(ErrorCode.THEME_NOT_FOUND));
+
+        List<ThemeOverviewResponse.PrimaryIssue> primaryIssues = issueRepository
+                .getPrimaryIssuesByThemeId(themeId, issueLimit)
+                .stream()
+                .map(issue -> new ThemeOverviewResponse.PrimaryIssue(
+                        issue.getIssueId(), issue.getIssueTitle()))
+                .toList();
+
+        List<RepresentArticle> representArticles = articleRepository
+                .getRepresentArticlesByThemeId(themeId, articleLimit)
+                .stream()
+                .map(this::toRepresentArticle)
+                .toList();
+
+        return new ThemeOverviewResponse(
+                theme.getId(),
+                theme.getName(),
+                theme.getDescription(),
+                primaryIssues,
+                representArticles
+        );
+    }
+
+    private RepresentArticle toRepresentArticle(RepresentArticleProjection article) {
+        return new RepresentArticle(
+                article.getArticleId(),
+                article.getArticleTitle(),
+                ArticleTone.fromScore(article.getArticleToneScore()),
+                article.getArticlePublisher(),
+                article.getPublishedAt()
+        );
+    }
+
+    private void validateLimit(int limit) {
+        if (limit < 1 || limit > MAX_LIMIT) {
+            throw new GlobalException(ErrorCode.INVALID_INPUT_VALUE);
+        }
+    }
 
     public PopularThemeResponse getPopularThemes(String countryCode, int limit) {
 
