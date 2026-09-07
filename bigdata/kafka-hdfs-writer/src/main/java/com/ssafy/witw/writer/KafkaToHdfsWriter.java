@@ -17,8 +17,8 @@ import java.util.List;
 import java.util.Properties;
 import java.util.UUID;
 
-public final class NewsRawToHdfsConsumer {
-    private NewsRawToHdfsConsumer() {
+public final class KafkaToHdfsWriter {
+    private KafkaToHdfsWriter() {
     }
 
     public static void main(String[] args) throws Exception {
@@ -27,7 +27,10 @@ public final class NewsRawToHdfsConsumer {
         String topic = env("KAFKA_TOPIC", "news.raw.v1");
         String groupId = env("KAFKA_GROUP_ID", "news-raw-hdfs-bronze-v1");
         String hdfsUri = env("HDFS_URI", "hdfs://namenode:9000");
-        String bronzePath = env("HDFS_BRONZE_PATH", "/data/news/bronze/news.raw.v1");
+        String outputPath = env(
+                "HDFS_OUTPUT_PATH",
+                env("HDFS_BRONZE_PATH", "/data/news/bronze/news.raw.v1")
+        );
         String hdfsUser = env("HDFS_USER", "root");
         String hadoopConfDirectory = env("HADOOP_CONF_DIR", "/opt/hadoop-conf");
 
@@ -53,11 +56,11 @@ public final class NewsRawToHdfsConsumer {
                 // consumer 생성
                 KafkaConsumer<String, String> consumer = new KafkaConsumer<>(kafkaProperties)
         ) {
-            // hdfs bronze 생성
-            Path bronzeDirectory = new Path(bronzePath);
-            hdfs.mkdirs(bronzeDirectory);
+            // HDFS 출력 디렉터리 생성
+            Path outputDirectory = new Path(outputPath);
+            hdfs.mkdirs(outputDirectory);
 
-            // raw 토픽 구독
+            // 설정된 토픽 구독
             consumer.subscribe(List.of(topic));
             while (true) {
                 // 데이터를 가져올 때 최대 5초까지 기다린다 (5초 동안 최대 MAX_POLL만큼의 레코드를 받을 수 있음)
@@ -73,8 +76,8 @@ public final class NewsRawToHdfsConsumer {
                         UUID.randomUUID()
                 );
                 // 임시 파일과 최종 파일 구조 생성 (아직 실제로 만들어지진 않음)
-                Path temporaryFile = new Path(bronzeDirectory, "." + fileName + ".tmp");
-                Path finalFile = new Path(bronzeDirectory, fileName);
+                Path temporaryFile = new Path(outputDirectory, "." + fileName + ".tmp");
+                Path finalFile = new Path(outputDirectory, fileName);
 
                 // 임시 파일에 내용을 기록
                 try (FSDataOutputStream output = hdfs.create(temporaryFile, false)) {
