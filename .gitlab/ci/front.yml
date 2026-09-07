@@ -1,0 +1,24 @@
+validate-frontend:
+  stage: validate
+  image: node:20-alpine
+  tags:
+    - frontend-ci
+  timeout: 10m
+
+  script:
+    - cd "$CI_PROJECT_DIR/frontend"
+    - npm ci
+    - npm run build
+
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"'
+      changes:
+        - frontend/**/*
+        - .gitlab-ci.yml
+        - .gitlab/ci/front.yml
+
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      changes:
+        - frontend/**/*
+        - .gitlab-ci.yml
+        - .gitlab/ci/front.yml
