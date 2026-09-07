@@ -3,18 +3,18 @@ import {
   COUNTRIES, ISSUES, THEMES, FIELDS, MIN_SAMPLE, PIN_CITIES, ISO3,
   C, C_NAME, T, T_NAME, I, FIELD, FIELD_NAME,
   ARTICLES, issuesOfTheme, articlesOfTheme, themesOfField, issuesOfField,
-  countryToneOf, themeToneOf, themeSampleOf, fieldToneOf, hasSample,
+  countryToneOf, hasSample,
   attentionRows, attentionLead, toneOverlayOf, validateModel,
 } from './data/model.js';
 import {
   toIssueCard, toThemeCard, toThemeIssue, toArticleCard,
-  themeCatalog, themeIdFromCatalog, pinsOfCountry, countrySummary, countryThemeRows, fmt,
+  themeCatalog, themeIdFromCatalog, pinsOfCountry, countryThemeRows, fmt,
 } from './data/adapters.js';
 import { toneLabel3 } from './lib/tone.js';
 import { josaRo } from './lib/format.js';
 import {
   HOME, levelOf, titleOf, backOf, canGoBack, crumbsOf,
-  toIssue, toTheme, toField, toCountry, toggleScope, toDash, openAside,
+  toIssue, toTheme, toField, toCountry, toDash, openAside,
 } from './navigation.js';
 
 import HeaderMinimal from './components/header/HeaderMinimal.jsx';
@@ -24,8 +24,8 @@ import ToneLegend from './components/overlay/ToneLegend.jsx';
 import CommandPalette, { usePaletteHotkey } from './components/overlay/CommandPalette.jsx';
 import {
   PanelTopline, PanelHeading, SubHeading, SectionTitle, BackLink,
-  TaxonomyPath, CountryIdentity, Divider, KpiCards, TrendTags, FieldChips,
-  ScopeChip, PolicyNote, LiveDot,
+  TaxonomyPath, CountryIdentity, Divider, KpiCards,
+  PolicyNote, LiveDot,
 } from './components/panel/PanelChrome.jsx';
 import IssueCardList from './components/panel/IssueCardList.jsx';
 import { ThemeCardList, ThemeDetailList, ThemeIssueList } from './components/panel/ThemeLists.jsx';
@@ -68,11 +68,19 @@ export default function App() {
      시점을 풀면(토글 해제) focus가 다시 view.country로 떨어져 원래 보던 나라로 되돌아간다. */
   const [spot, setSpot] = useState(null);
 
+  /* 지구본을 한 번 누른 나라 — 지구본에 표시만 한다.
+     화면 좌표가 아니라 지구본 상태다. 패널은 어느 화면에서도 손대지 않는다.
+     국가에 대한 정보는 국가 분석 화면 하나가 맡기 때문이다(navigation.js 참고).
+     여기서 고른 나라는 헤더 '국가 분석' 탭이 들어갈 기본값이 된다. */
+  const [pick, setPick] = useState(null);
+
   const go = useCallback((next) => {
     setSpot(null);
+    setPick(null);
     setView(next);
   }, []);
   const spotCountry = useCallback((id) => setSpot((cur) => (cur === id ? null : id)), []);
+  const pickCountry = useCallback((id) => setPick((cur) => (cur === id ? null : id)), []);
   const openPalette = useCallback(() => setPaletteOpen(true), []);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   usePaletteHotkey(openPalette, closePalette);
@@ -90,29 +98,17 @@ export default function App() {
   const toneOn = toneAvailable && mapMode === 'tone';
   const globeTone = toneOn ? toneOverlayOf(view.issueId) : null;
 
-  /* 패널 배경 톤 — 코스모스 리더보드 동작.
-     "좁혀 본 나라가 지금 보는 것을 어떻게 썼는가"를 색으로 말한다.
-     표본이 모자라면 칠하지 않는다. 못 믿을 값으로 화면 전체를 물들일 수는 없다. */
-  const panelTone = useMemo(() => {
-    const band = (x) => (x > 0.18 ? 'pos' : x < -0.18 ? 'neg' : 'neu');
+  /* 패널 배경 톤 (결정표 4-1) — 국가 분석 화면에서만 칠한다.
+     그 나라의 전반 논조를 색으로 말한다. 지구본을 다시 칠하는 대신 배경으로 옮기는 이유는,
+     지도는 '어디'를 말하고 배경은 '지금 보고 있는 이 화면의 분위기'를 말하기 때문이다.
 
-    if (view.issueId && view.scope) {
-      const d = I(view.issueId)?.tone[view.scope];
-      return hasSample(d) ? band(d.s) : null;
-    }
-    if (view.themeId && view.scope) {
-      const n = themeSampleOf(view.scope, view.themeId);
-      return n >= MIN_SAMPLE ? band(themeToneOf(view.scope, view.themeId)) : null;
-    }
-    if (view.fieldId && view.scope) {
-      const { s: avg, n } = fieldToneOf(view.scope, view.fieldId);
-      return n >= MIN_SAMPLE ? band(avg) : null;
-    }
-    if (view.country) {
-      const { s: avg, n } = countryToneOf(view.country);
-      return n ? band(avg) : null;
-    }
-    return null;
+     예전에는 국가 필터(scope) × 이슈·테마·분야 조합으로도 칠했다. 필터를 없앤 뒤로
+     그 조합이 아예 없다 — 국가와 이슈를 겹쳐 보는 자리는 이슈 화면의 국가별 논조 목록이다. */
+  const panelTone = useMemo(() => {
+    if (!view.country) return null;
+    const { s: avg, n } = countryToneOf(view.country);
+    if (!n) return null;
+    return avg > 0.18 ? 'pos' : avg < -0.18 ? 'neg' : 'neu';
   }, [view]);
 
   const stage = useMemo(() => {
@@ -162,7 +158,7 @@ export default function App() {
           수집되고 있습니다
         </>
       ),
-      desc: '나라를 한 번 누르면 오른쪽 목록이 그 나라로 좁혀지고, 두 번 누르면 국가 분석으로 넘어갑니다.',
+      desc: '나라를 한 번 누르면 지구본에 그 나라가 표시되고, 두 번 누르면 국가 분석으로 넘어갑니다.',
     };
   }, [view]);
 
@@ -173,7 +169,7 @@ export default function App() {
         header={
           <HeaderMinimal
             route={view.country ? 'country' : 'global'}
-            onRoute={(r) => go(r === 'global' ? toDash(view) : toCountry(view, view.scope ?? 'kr'))}
+            onRoute={(r) => go(r === 'global' ? toDash() : toCountry(view, view.country ?? pick ?? 'kr'))}
             onSearch={openPalette}
             status={`${COUNTRIES.length}개국 수집 중`}
           />
@@ -188,11 +184,11 @@ export default function App() {
                 tone={globeTone}
                 minSample={MIN_SAMPLE}
                 focus={spot ?? view.country}
-                highlight={view.country ? null : view.scope}
+                highlight={pick}
                 pinCities={PIN_CITIES}
                 pinsOf={pinsOfCountry}
                 spinControl={false}
-                onSelectCountry={(id) => go(toggleScope(view, id))}
+                onSelectCountry={pickCountry}
                 onOpenCountry={(id) => go(toCountry(view, id))}
                 onSelectPin={(p) => go(toCountry(view, p.cid))}
               />
@@ -251,21 +247,9 @@ function Panel({ view, go, today, spot, onSpot }) {
       default: return <DashScreen view={view} go={go} today={today} />;
     }
   })();
-  /* 국가 필터는 계층 어디에 있든 계속 걸려 있으므로 모든 화면에 보인다.
-     국가 개요 화면에서는 제목이 이미 그 나라라 중복이므로 뺀다. */
-  const showChip = view.scope && level !== 'country';
-
   return (
     <>
       <PanelNav view={view} go={go} />
-      {showChip && (
-        <ScopeChip
-          country={C(view.scope)}
-          meta={countrySummary(view.scope)}
-          onOpen={() => go(toCountry(view, view.scope))}
-          onClear={() => go({ ...view, scope: null })}
-        />
-      )}
       {body}
     </>
   );
@@ -273,10 +257,7 @@ function Panel({ view, go, today, spot, onSpot }) {
 
 /* ── 글로벌 동향 ── */
 function DashScreen({ view, go, today }) {
-  const { scope } = view;
-  const list = scope ? ISSUES.filter((i) => i.tone[scope]) : ISSUES;
-  const hot = list.slice().sort((a, b) => b.delta - a.delta).slice(0, 5);
-  const rising = THEMES.slice().sort((a, b) => b.delta - a.delta).slice(0, 3);
+  const hot = ISSUES.slice().sort((a, b) => b.delta - a.delta).slice(0, 5);
 
   return (
     <>
@@ -300,31 +281,12 @@ function DashScreen({ view, go, today }) {
         ]}
       />
 
-      <SectionTitle
-        title={scope ? `${C_NAME(scope)}이 다룬 이슈 TOP 5` : '글로벌 이슈 TOP 5'}
-        note="증가율 순 · 클릭하면 논조 분석"
-      />
+      <SectionTitle title="실시간 이슈 TOP 5" note="증가율 순 · 클릭하면 논조 분석" />
       <IssueCardList issues={hot.map(toIssueCard)} onSelect={(i) => go(toIssue(view, hot[i].id))} />
 
-      <div style={{ marginTop: 24 }}>
-        <SectionTitle title="분야로 좁혀 보기" note="분야 → 테마 → 이슈" />
-        <FieldChips
-          fields={FIELDS.map((f) => ({
-            ...f,
-            themeCount: themesOfField(f.id).length,
-            issueCount: issuesOfField(f.id).length,
-          }))}
-          onSelect={(id) => go(toField(view, id))}
-        />
-      </div>
-
-      <div style={{ marginTop: 24 }}>
-        <SectionTitle
-          title="새롭게 떠오르는 테마"
-          action={{ label: '전체 보기 →', onClick: () => go(openAside(view, 'themes')) }}
-        />
-        <TrendTags tags={rising.map((t) => ({ label: t.name, value: t.rise }))} />
-      </div>
+      {/* '분야로 좁혀 보기'와 '새롭게 떠오르는 테마'는 화면에서 뺐다.
+          지우지 않고 components/panel/DashExplore.jsx로 옮겨 뒀다 — 다시 붙일 때는
+          <FieldNarrow onSelect={...} /> · <RisingThemes onAll={...} /> 두 줄이면 된다. */}
 
       <PolicyNote>
         원문은 저장하지 않습니다 — <b>요약본 + 원문 링크</b>만 제공됩니다 · GDELT · NAVER News API · RSS
@@ -357,7 +319,7 @@ function IssueScreen({ view, go, spot, onSpot }) {
       <SectionTitle title="국가별 논조" note="평균 대신 분포 · 누르면 지구본 이동" />
       {/* 나라를 누르면 화면을 옮기지 않는다 — 이슈를 계속 보면서 지구본만 그 나라로 돌린다.
           국가 분석으로 들어가는 길은 지구본 더블클릭과 필터 칩이 이미 맡고 있다(결정표 2-C). */}
-      <ToneScatter issue={iss} scope={view.scope} spot={spot} onSelectCountry={onSpot} />
+      <ToneScatter issue={iss} spot={spot} onSelectCountry={onSpot} />
 
       <SectionTitle
         title="이 테마의 대표 기사"
@@ -408,7 +370,6 @@ function FieldScreen({ view, go }) {
   const f = FIELD(view.fieldId);
   const themes = themesOfField(view.fieldId);
   const issues = issuesOfField(view.fieldId).slice().sort((a, b) => b.delta - a.delta);
-  const scoped = view.scope ? issues.filter((i) => i.tone[view.scope]) : issues;
   const sample = themes.reduce((sum, t) => sum + t.n, 0);
 
   return (
@@ -431,13 +392,10 @@ function FieldScreen({ view, go }) {
       />
 
       <div style={{ marginTop: 24 }}>
-        <SectionTitle
-          title={view.scope ? `${C_NAME(view.scope)}이 다룬 ${f.name} 이슈` : `${f.name} 분야의 이슈`}
-          note="증가율 순"
-        />
+        <SectionTitle title={`${f.name} 분야의 이슈`} note="증가율 순" />
         <IssueCardList
-          issues={scoped.map(toIssueCard)}
-          onSelect={(i) => go(toIssue(view, scoped[i].id))}
+          issues={issues.map(toIssueCard)}
+          onSelect={(i) => go(toIssue(view, issues[i].id))}
         />
       </div>
     </>
@@ -510,30 +468,16 @@ function CountryScreen({ view, go }) {
 /* ── 곁가지: 테마 전체 ──
    분야별로 묶어서 보여준다. 평평하게 늘어놓으면 분야가 또 라벨로만 남는다. */
 function ThemesScreen({ view, go }) {
-  const ranked = view.scope ? countryThemeRows(view.scope, THEMES.length) : null;
-  const rankOf = (id) => (ranked ? ranked.findIndex((r) => r.themeId === id) : -1);
-
   return (
     <>
       <PanelTopline label="테마 분석" />
       <SubHeading
         title="분야별 테마"
-        desc={
-          view.scope
-            ? `${C_NAME(view.scope)} 매체가 낸 표본을 기준으로 정렬했습니다.`
-            : '분야 아래 테마를 모두 펼쳤습니다. 분야 이름을 누르면 그 분야만 봅니다.'
-        }
+        desc="분야 아래 테마를 모두 펼쳤습니다. 분야 이름을 누르면 그 분야만 봅니다."
       />
 
       {FIELDS.map((f) => {
-        const themes = themesOfField(f.id)
-          .slice()
-          .sort((a, b) => {
-            if (!ranked) return b.delta - a.delta;
-            const ra = rankOf(a.id);
-            const rb = rankOf(b.id);
-            return (ra < 0 ? 99 : ra) - (rb < 0 ? 99 : rb);
-          });
+        const themes = themesOfField(f.id).slice().sort((a, b) => b.delta - a.delta);
         if (!themes.length) return null;
         return (
           <div key={f.id} style={{ marginBottom: 22 }}>
@@ -554,7 +498,7 @@ function ThemesScreen({ view, go }) {
 
 /* ── 곁가지: 국가 관심도 ── */
 function AttentionScreen({ view, go }) {
-  const id = view.country ?? view.scope;
+  const id = view.country; /* 국가 분석에서만 열리는 곁가지다 */
   const lead = attentionLead(id, view.direction);
   return (
     <>
@@ -577,9 +521,8 @@ function AttentionScreen({ view, go }) {
 function ArticlesScreen({ view, go }) {
   const quick = THEMES.slice().sort((a, b) => b.delta - a.delta).slice(0, 5);
 
-  /* 좌표가 곧 필터다 — 테마 칸이 차 있으면 그 테마, 국가 필터가 걸려 있으면 그 나라 */
-  let pool = view.themeId ? articlesOfTheme(view.themeId) : ARTICLES;
-  if (view.scope) pool = pool.filter((a) => a.country === view.scope);
+  /* 좌표가 곧 필터다 — 테마 칸이 차 있으면 그 테마의 기사만 */
+  const pool = view.themeId ? articlesOfTheme(view.themeId) : ARTICLES;
   const cards = pool.map(toArticleCard);
   const filtered = view.tone === 'all' ? cards : cards.filter((a) => a.tone === view.tone);
 
@@ -606,9 +549,7 @@ function ArticlesScreen({ view, go }) {
       <ArticleFilterBar tone={view.tone} onTone={(t) => go({ ...view, tone: t })} />
 
       <ResultHead
-        title={`${[view.scope && C_NAME(view.scope), view.themeId ? T_NAME(view.themeId) : '전체 테마']
-          .filter(Boolean)
-          .join(' · ')} 기사`}
+        title={`${view.themeId ? T_NAME(view.themeId) : '전체 테마'} 기사`}
         count={`${filtered.length}개 대표 기사`}
       />
       <ArticleFeed articles={filtered} />

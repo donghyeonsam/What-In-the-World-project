@@ -24,6 +24,26 @@ function ll2v(lat, lon, r = 1) {
   );
 }
 
+/* 손으로 끌 때의 피치 한계(rad). 포커스도 같은 값을 쓴다 — 두 길이 같은 자세를 만들어야 한다. */
+const PITCH_LIMIT = 0.9;
+
+/**
+ * 나라를 카메라 정면(+Z)에 세우는 목표 회전.
+ * 요(Y)로 경도를 돌리고 피치(X)로 위도를 들어 올린다. 롤(Z)은 0이다.
+ *
+ * 예전에는 최단호 회전(`setFromUnitVectors`)으로 한 번에 돌렸다. 나라는 가운데 오지만
+ * 그 회전에는 롤이 섞인다 — 한국을 누르면 지도가 시계방향으로 90°쯤 누워서
+ * 서쪽(UAE·카타르)이 위에 붙은, 세계지도와 다른 그림이 됐다.
+ * 드래그(`onMove`)도 요·피치만 건드리므로 포커스만 롤을 만들 이유가 없다.
+ *
+ * 요가 `-(lon + 90)`인 이유는 `ll2v` 때문이다 — 회전 0에서 카메라를 보는 경도가 −90°다.
+ */
+function orientTo(lat, lon) {
+  const pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, (lat * Math.PI) / 180));
+  const yaw = (-(lon + 90) * Math.PI) / 180;
+  return new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'XYZ'));
+}
+
 /** 방사형 글로우 스프라이트용 캔버스 텍스처 */
 function glowTex() {
   const c = document.createElement('canvas');
@@ -704,7 +724,7 @@ export default function GlobeThree({
         vx = (e.clientX - px) * 0.0045;
         vy = (e.clientY - py) * 0.0045;
         globe.rotation.y += vx;
-        globe.rotation.x = Math.max(-0.9, Math.min(0.9, globe.rotation.x + vy));
+        globe.rotation.x = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, globe.rotation.x + vy));
         px = e.clientX;
         py = e.clientY;
       }
@@ -739,8 +759,9 @@ export default function GlobeThree({
         wrap.classList.remove(s.pointing);
       }
     };
-    /* 결정표 2-C: 한 번 클릭 = 목록 좁히기(필터), 더블클릭 = 국가 분석으로 전환.
-       한 번 클릭을 240ms 미뤄 두 번째 클릭을 기다린다. */
+    /* 결정표 2-C: 한 번 클릭과 더블클릭을 나눈다. 한 번 클릭을 240ms 미뤄 두 번째를 기다린다.
+       각 클릭이 무슨 뜻인지는 부르는 쪽이 정한다 — 지구본은 onSelectCountry / onOpenCountry만 쏜다.
+       (지금 App은 글로벌에서 한 번 클릭 = 지구본 표시, 그 아래에서는 = 국가 필터로 쓴다) */
     let clickTimer = null;
     const onClick = () => {
       if (Math.abs(vx) > 0.004 || Math.abs(vy) > 0.004) {
@@ -837,9 +858,8 @@ export default function GlobeThree({
         if (!c) return;
         focusedId = id;
         clearCountryFx();
-        /* 국가가 카메라(+Z)를 향하도록 하는 목표 쿼터니언 */
-        const local = ll2v(c.lat, c.lon).normalize();
-        focusQ = new THREE.Quaternion().setFromUnitVectors(local, new THREE.Vector3(0, 0, 1));
+        /* 나라를 정면에 세우되 북쪽은 위로 — 세계지도와 같은 자세다 */
+        focusQ = orientTo(c.lat, c.lon);
         targetZ = 3.9;
         spin = false;
         setAutoSpin(false);

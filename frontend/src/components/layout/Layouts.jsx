@@ -79,7 +79,13 @@ export function GlobeSlot({ children }) {
  * 스테이지 바닥 — 톤 색 축과 표본 부족 표시를 같이 둔다.
  * 색만 칠하고 축을 안 주면 무슨 색이 무슨 뜻인지 알 수 없다.
  */
-export function StageFoot({ toneOn, minSample, updated = '10분 전 갱신', right }) {
+export function StageFoot({
+  toneOn,
+  minSample,
+  hint = '지구본의 빛나는 지점이 수집 대상 국가입니다 · 클릭 = 지구본에 표시 · 더블클릭 = 국가 분석',
+  updated = '10분 전 갱신',
+  right,
+}) {
   return (
     <div className={s.stageFoot}>
       {toneOn ? (
@@ -93,7 +99,7 @@ export function StageFoot({ toneOn, minSample, updated = '10분 전 갱신', rig
           </span>
         </>
       ) : (
-        <span>지구본의 빛나는 지점이 수집 대상 국가입니다 · 클릭 = 목록 좁히기 · 더블클릭 = 국가 분석</span>
+        <span>{hint}</span>
       )}
       <span className={s.spacer} />
       <span>{updated}</span>

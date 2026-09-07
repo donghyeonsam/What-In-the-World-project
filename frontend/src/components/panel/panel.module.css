@@ -404,10 +404,8 @@
 }
 .toneRow:last-child { border-bottom: 0; }
 .toneRow:hover { background: var(--wtw-bg-2, #f7f9fb); }
-.toneRow.toneRowOn { background: rgba(23, 105, 210, 0.06); }
 
 /* 지구본이 지금 바라보는 나라.
-   국가 필터(toneRowOn)와 뜻이 달라 색도 다르게 쓴다 — 필터는 파랑 배경, 시점은 호박색 막대.
    막대 색을 지구본 포커스(AMBER 0xffb454)와 맞춰야 "이 줄과 저 지구본이 같은 나라"로 읽힌다.
    막대는 절대 배치다. 줄의 그리드는 6칸으로 고정이라 칸을 늘리면 수치들이 밀린다. */
 .toneRow { position: relative; }
@@ -452,23 +450,6 @@
   font-size: 9px; line-height: 1.7; color: var(--wtw-muted);
 }
 .method b { color: var(--wtw-text-2); font-weight: 600; }
-
-/* ── 필터 칩 (지구본 한 번 클릭 결과) ── */
-.scope {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 10px; margin-bottom: 14px;
-  border: 1px solid var(--wtw-accent);
-  border-radius: 9px;
-  background: rgba(23, 105, 210, 0.05);
-  font-size: 10px;
-}
-.scope .flag { font-size: 15px; }
-.scope b { font-size: 11px; }
-.scope .meta { color: var(--wtw-muted); margin-right: auto; }
-.scope button { font-size: 9px; color: var(--wtw-accent); padding: 4px 7px; border: 1px solid var(--wtw-line); border-radius: 6px; }
-.scope button:hover { border-color: var(--wtw-accent); }
-.scope button.ghost { border: 0; color: var(--wtw-muted); }
-.scope button.ghost:hover { color: var(--wtw-text); }
 
 /* ── 원문 미저장 고지 ── */
 .policy {

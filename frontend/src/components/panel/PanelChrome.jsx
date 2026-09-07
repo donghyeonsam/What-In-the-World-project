@@ -158,31 +158,6 @@ export function TrendTags({ tags }) {
   );
 }
 
-/**
- * 필터 칩 — 지구본을 한 번 클릭했을 때 "목록이 이 나라로 좁혀졌다"를 알린다.
- * 결정표 2-C에서 한 번 클릭을 필터로 정했으므로, 그 상태가 보이는 자리가 필요하다.
- * 상세로 넘어가는 길과 해제하는 길을 같은 줄에 둔다.
- */
-export function ScopeChip({ country, meta, onOpen, onClear }) {
-  return (
-    <div className={s.scope}>
-      <span className={s.flag}>{country.flag}</span>
-      <b>{country.name}</b>
-      <span className={s.meta}>{meta}</span>
-      {onOpen && (
-        <button type="button" onClick={onOpen}>
-          국가 분석 →
-        </button>
-      )}
-      {onClear && (
-        <button type="button" className={s.ghost} onClick={onClear}>
-          해제 ×
-        </button>
-      )}
-    </div>
-  );
-}
-
 /** 원문 미저장 고지 — 결정표 6번에서 가져가기로 한 태도 */
 export function PolicyNote({ children }) {
   return <p className={s.policy}>{children}</p>;

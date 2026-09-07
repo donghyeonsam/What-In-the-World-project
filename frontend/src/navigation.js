@@ -10,29 +10,30 @@
 
    그래서 화면을 이름 대신 좌표로 표현한다.
 
-   축이 둘이다. 섞으면 안 된다.
+   축은 하나다.
 
-     [분류 축]  전체 ─ 분야 ─ 테마 ─ 이슈     ← 깊이가 있다. 브레드크럼은 이 축만 그린다.
-     [국가 축]  전체 │ 특정 국가              ← 깊이가 아니라 on/off. 필터 칩이 맡는다.
+     [분류 축]  전체 ─ 분야 ─ 테마 ─ 이슈     ← 깊이가 있다. 브레드크럼이 이 축을 그린다.
 
-     scope    국가 필터 — 직교축이다. 계층 이동으로는 풀리지 않는다.
-     country  국가 개요로 들어갔는가 (지구본 더블클릭)
+     country  국가 분석으로 들어갔는가 (지구본 더블클릭)
      fieldId  분류 1단
      themeId  분류 2단
      issueId  분류 3단
      aside    계층 밖 곁가지. 열었던 자리로 그대로 되돌아온다.
 
-   scope와 country를 나눠 둔 이유는 결정표 2-C 때문이다.
-   한 번 클릭은 "목록만 좁히기"(scope)라 화면을 옮기지 않고,
-   더블클릭은 "국가 개요로 들어가기"(country)라 화면을 옮긴다.
-   들어간 상태에서 뒤로 가면 country만 풀리고 scope는 남는다 —
-   보던 나라를 계속 보고 있다는 사실은 유지되어야 하기 때문이다.
+   예전에는 국가 축(scope)이 하나 더 있었다. 지구본을 한 번 누르면 목록이 그 나라로 좁혀지고,
+   그 필터는 계층 이동으로 풀리지 않았다(결정표 2-C). 그걸 뺐다. 이유는 둘이다.
+
+     · 국가 분석에 들어갔다 뒤로 나오면 필터만 남아, 글로벌 동향이
+       "한국이 다룬 이슈 TOP 5"가 됐다. 세계 전체를 보는 화면에 한 나라 목록이 놓인 셈이다.
+     · 같은 목록이 어떤 때는 전체, 어떤 때는 한 나라 기준이라, 지금 무엇을 보는지 읽기 어려웠다.
+
+   국가에 대한 정보는 국가 분석 화면 하나가 맡는다.
+   지구본 한 번 클릭은 화면을 두고 지구본만 표시한다(App의 pick) — 좌표를 건드리지 않는다.
    ───────────────────────────────────────────────────────────── */
 
 import { I, T, C_NAME, T_NAME, FIELD_NAME } from './data/model.js';
 
 export const HOME = {
-  scope: null,
   country: null,
   fieldId: null,
   themeId: null,
@@ -77,13 +78,11 @@ export function backOf(v) {
   if (v.issueId) return { ...v, issueId: null }; /* themeId는 toIssue가 이미 채워 뒀다 */
   if (v.themeId) return { ...v, themeId: null }; /* fieldId는 toTheme이 이미 채워 뒀다 */
   if (v.fieldId) return { ...v, fieldId: null };
-  if (v.country) return { ...v, country: null }; /* 국가 필터(scope)는 남긴다 */
-  return { ...v, scope: null };
+  if (v.country) return { ...v, country: null };
+  return v; /* 대시보드 — 올라갈 곳이 없다. canGoBack이 여기까지 오지 못하게 막는다. */
 }
 
-/** 이 화면 위에 올라갈 화면이 있는가.
-    대시보드에서는 없다 — 국가 필터만 남은 상태는 화면 이동이 아니라 필터라서,
-    해제는 뒤로가기가 아니라 필터 칩의 '해제 ×'가 맡는다. */
+/** 이 화면 위에 올라갈 화면이 있는가. 대시보드가 바닥이다. */
 export const canGoBack = (v) => levelOf(v) !== 'dash';
 
 /* ── 이동 ──
@@ -108,10 +107,9 @@ export const toIssue = (v, issueId) => {
   return { ...v, issueId, themeId, fieldId: T(themeId)?.field ?? v.fieldId, aside: null };
 };
 
-/** 국가 개요로 들어가기 — 필터도 같이 걸린다 */
+/** 국가 분석으로 들어가기. 국가 정보는 이 화면 안에서만 산다 — 나올 때 아무것도 남기지 않는다. */
 export const toCountry = (v, id) => ({
   ...v,
-  scope: id,
   country: id,
   fieldId: null,
   themeId: null,
@@ -119,11 +117,7 @@ export const toCountry = (v, id) => ({
   aside: null,
 });
 
-/** 지구본 한 번 클릭 — 목록만 좁힌다. 같은 나라를 다시 누르면 해제. */
-export const toggleScope = (v, id) =>
-  v.scope === id ? { ...v, scope: null, country: null } : { ...v, scope: id };
-
-export const toDash = (v) => ({ ...HOME, scope: v.scope });
+export const toDash = () => HOME;
 
 /** 곁가지 열기 — 닫으면 열었던 자리로 그대로 돌아온다 */
 export const openAside = (v, aside, extra = {}) => ({ ...v, aside, ...extra });
@@ -140,7 +134,7 @@ export function crumbsOf(v, go) {
   const at = levelOf(v);
   if (at === 'dash' || at === 'country') return [];
 
-  const items = [{ label: '전체', value: '모든 분야', onClick: () => go(toDash(v)) }];
+  const items = [{ label: '전체', value: '모든 분야', onClick: () => go(toDash()) }];
 
   if (v.fieldId) {
     items.push({

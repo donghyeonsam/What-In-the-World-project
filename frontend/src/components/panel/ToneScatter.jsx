@@ -14,21 +14,14 @@ import s from './panel.module.css';
  * 왜 평균이 아닌가: 국가 평균은 그 나라 내부의 분열을 지우고
  * "이 나라는 이렇게 생각한다"는 결론을 만든다. 여기서는 결론 대신 분포를 준다.
  *
- * @param {{issue: object, scope?: string|null, spot?: string|null,
+ * @param {{issue: object, spot?: string|null,
  *          onSelectCountry?: (id: string) => void, showMethod?: boolean}} props
- *   scope  이 국가 코드의 점만 크게, 나머지는 흐리게 그린다
- *   spot   지구본이 지금 바라보는 나라 — 그 줄에 표시만 한다
+ *   spot   지구본이 지금 바라보는 나라. 그 점만 크게, 나머지는 흐리게 그리고 줄에도 표시한다
  *
  * 줄을 누르면 화면이 바뀌지 않는다. 지구본만 그 나라로 돈다(같은 줄을 다시 누르면 해제).
  * 논조를 읽다가 "그게 어디였지"를 확인하는 동작이라, 보던 이슈를 빼앗을 이유가 없다.
  */
-export default function ToneScatter({
-  issue,
-  scope = null,
-  spot = null,
-  onSelectCountry,
-  showMethod = true,
-}) {
+export default function ToneScatter({ issue, spot = null, onSelectCountry, showMethod = true }) {
   const rows = Object.entries(issue.tone)
     .map(([cid, d]) => ({ cid, d }))
     .sort((a, b) => b.d.n - a.d.n);
@@ -57,11 +50,11 @@ export default function ToneScatter({
         {reliable.map(({ cid, d }) => (
           <i
             key={cid}
-            className={`${s.sparkDot} ${scope === cid ? s.sparkMe : ''}`}
+            className={`${s.sparkDot} ${spot === cid ? s.sparkMe : ''}`}
             style={{
               left: `${P(d.s)}%`,
               background: toneVar(d.s),
-              opacity: scope ? (scope === cid ? 1 : 0.32) : 0.66,
+              opacity: spot ? (spot === cid ? 1 : 0.32) : 0.66,
             }}
             title={`${C_NAME(cid)} ${sg(d.s)}`}
           />
@@ -101,9 +94,7 @@ export default function ToneScatter({
             <Row
               key={cid}
               type={onSelectCountry ? 'button' : undefined}
-              className={`${s.toneRow} ${scope === cid ? s.toneRowOn : ''} ${
-                spotted ? s.toneRowSpot : ''
-              }`}
+              className={`${s.toneRow} ${spotted ? s.toneRowSpot : ''}`}
               onClick={onSelectCountry ? () => onSelectCountry(cid) : undefined}
               aria-pressed={onSelectCountry ? spotted : undefined}
               title={
@@ -155,7 +146,7 @@ export default function ToneScatter({
 }
 
 /** 목록 안에 한 줄로 들어가는 축소판 — 이슈 카드 옆 등 */
-export function ToneSparkMini({ tone, scope = null }) {
+export function ToneSparkMini({ tone, spot = null }) {
   const rows = Object.entries(tone).filter(([, d]) => hasSample(d));
   return (
     <span className={`${s.spark} ${s.sparkMini}`}>
@@ -164,11 +155,11 @@ export function ToneSparkMini({ tone, scope = null }) {
       {rows.map(([cid, d]) => (
         <i
           key={cid}
-          className={`${s.sparkDot} ${scope === cid ? s.sparkMe : ''}`}
+          className={`${s.sparkDot} ${spot === cid ? s.sparkMe : ''}`}
           style={{
             left: `${P(d.s)}%`,
             background: toneVar(d.s),
-            opacity: scope ? (scope === cid ? 1 : 0.3) : 0.6,
+            opacity: spot ? (spot === cid ? 1 : 0.3) : 0.6,
           }}
         />
       ))}
