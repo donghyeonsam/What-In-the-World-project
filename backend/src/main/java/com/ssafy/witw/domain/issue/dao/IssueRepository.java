@@ -14,6 +14,27 @@ import java.util.Optional;
 public interface IssueRepository extends JpaRepository<Issue, Long> {
 
     @Query(value = """
+            SELECT 
+                i.name AS issueTitle,
+                t.name AS themeTitle,
+                COUNT(a.id) AS articleCount
+            FROM issue i
+            JOIN theme t ON i.theme_id = t.id 
+            LEFT JOIN article a 
+                ON i.id = a.issue_id
+                AND a.deleted_at IS NULL            
+            WHERE i.id = :issueId
+            GROUP BY i.id, i.name, t.name
+""", nativeQuery = true)
+    IssuePreview getIssuePreviewByIssueId(@Param("issueId") Long issueId);
+
+    interface IssuePreview{
+        String getIssueTitle();
+        Long getArticleCount();
+        String getThemeTitle();
+    }
+
+    @Query(value = """
             SELECT i.id AS issueId, i.name AS issueTitle
             FROM issue i
             JOIN article a ON a.issue_id = i.id

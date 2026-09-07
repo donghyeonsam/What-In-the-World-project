@@ -1,5 +1,6 @@
 package com.ssafy.witw.domain.issue.service;
 
+import com.ssafy.witw.domain.article.dao.ArticleRepository;
 import com.ssafy.witw.domain.country.dto.CountryTone;
 import com.ssafy.witw.domain.issue.dao.IssueRepository;
 import com.ssafy.witw.domain.issue.dto.GlobalIssueRankResponse;
@@ -37,13 +38,16 @@ class IssueServiceTest {
     private IssueRepository issueRepository;
 
     @Autowired
+    private ArticleRepository articleRepository;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     private IssueService issueService;
 
     @BeforeEach
     void setUp() {
-        issueService = new IssueService(issueRepository);
+        issueService = new IssueService(issueRepository, articleRepository);
         prepareData();
     }
 

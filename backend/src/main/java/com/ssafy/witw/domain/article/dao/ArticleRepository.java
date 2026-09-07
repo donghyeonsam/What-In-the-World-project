@@ -41,4 +41,18 @@ public interface ArticleRepository extends JpaRepository<Article, String> {
         String getArticlePublisher();
         LocalDateTime getPublishedAt();
     }
+
+    @Query(value = """
+            SELECT a.id AS "articleId", a.translated_title AS "articleTitle",
+                   a.tone_score AS "articleToneScore", a.publisher AS "articlePublisher",
+                   a.published_at AS "publishedAt"
+            FROM article a
+            WHERE a.issue_id = :issueId AND a.deleted_at IS NULL
+            ORDER BY a.issue_similarity DESC, a.id ASC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<RepresentArticleProjection> getRepresentArticlesByIssueId(
+            @Param("issueId") Long issueId, @Param("limit") int limit);
+
+
 }
