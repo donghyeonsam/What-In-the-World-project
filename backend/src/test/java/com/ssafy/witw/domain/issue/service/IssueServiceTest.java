@@ -5,13 +5,11 @@ import com.ssafy.witw.domain.country.dto.CountryToneResponse;
 import com.ssafy.witw.domain.issue.dao.IssueRepository;
 import com.ssafy.witw.domain.issue.dto.GlobalIssueRankResponse;
 import com.ssafy.witw.domain.issue.dto.GlobalIssueRankResponse.GlobalIssue;
-import com.ssafy.witw.support.PostgresTestContainer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.sql.Timestamp;
@@ -24,7 +22,6 @@ import static org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTest
 
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = NONE)
-@Import(PostgresTestContainer.class)
 class IssueServiceTest {
 
     private static final String COUNTRY_A = "ZA";
