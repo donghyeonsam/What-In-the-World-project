@@ -26,7 +26,10 @@ public enum ErrorCode {
     INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "CO99", "서버 내부 오류가 발생했습니다. 관리자에게 문의하세요."),
 
     // THEME
-    THEME_NOT_FOUND(HttpStatus.NOT_FOUND, "TH01", "테마를 찾을 수 없습니다.");
+    THEME_NOT_FOUND(HttpStatus.NOT_FOUND, "TH01", "테마를 찾을 수 없습니다."),
+
+    // COUNTRY
+    COUNTRY_NOT_FOUND(HttpStatus.NOT_FOUND, "CT01", "국가를 찾을 수 없습니다.");
 
     private final HttpStatus status;
     private final String code;

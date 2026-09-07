@@ -2,9 +2,10 @@ package com.ssafy.witw.domain.theme.service;
 
 import com.ssafy.witw.domain.article.dao.ArticleRepository;
 import com.ssafy.witw.domain.country.dao.CountryRepository;
+import com.ssafy.witw.domain.country.service.CountryFinder;
 import com.ssafy.witw.domain.issue.dao.IssueRepository;
 import com.ssafy.witw.domain.theme.dao.ThemeRepository;
-import com.ssafy.witw.domain.theme.dto.PopularTheme;
+import com.ssafy.witw.domain.theme.dto.PopularThemeTrend;
 import com.ssafy.witw.domain.theme.dto.PopularThemeResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,7 +49,7 @@ class ThemeServiceTest {
         // given
         prepareData();
         ThemeService themeService = new ThemeService(
-                themeRepository, countryRepository, issueRepository, articleRepository);
+                themeRepository, new CountryFinder(countryRepository), issueRepository, articleRepository);
 
         // when
         PopularThemeResponse response = themeService.getPopularThemes(COUNTRY_CODE, 1);
@@ -61,7 +62,7 @@ class ThemeServiceTest {
                 .as("limit에 맞춰 선정된 인기 테마")
                 .hasSize(1);
 
-        PopularTheme theme = response.popularThemes().getFirst();
+        PopularThemeTrend theme = response.popularThemes().getFirst();
         assertThat(theme.themeId())
                 .as("가장 많은 기사를 가진 테마 ID")
                 .isEqualTo(POPULAR_THEME_ID);
@@ -78,7 +79,7 @@ class ThemeServiceTest {
                 .as("기사가 없는 시간대는 0으로 채운 시간당 기사 수")
                 .allMatch(timestamp -> timestamp.articleCount() == 0 || timestamp.articleCount() == 1);
         assertThat(theme.themeTimeStamp().timestamp().stream()
-                .mapToLong(PopularTheme.TimeStamp::articleCount)
+                .mapToLong(PopularThemeTrend.TimeStamp::articleCount)
                 .sum())
                 .as("시간대별 기사 수의 합계")
                 .isEqualTo(theme.articleCount24());

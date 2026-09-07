@@ -3,8 +3,6 @@ package com.ssafy.witw.domain.issue.service;
 import com.ssafy.witw.common.exception.GlobalException;
 import com.ssafy.witw.common.response.ErrorCode;
 import com.ssafy.witw.domain.article.dao.ArticleRepository;
-import com.ssafy.witw.domain.article.dao.ArticleRepository.RepresentArticleProjection;
-import com.ssafy.witw.domain.article.dto.ArticleTone;
 import com.ssafy.witw.domain.article.dto.RepresentArticle;
 import com.ssafy.witw.domain.country.dto.CountryPoint;
 import com.ssafy.witw.domain.country.dto.CountryTone;
@@ -53,7 +51,7 @@ public class IssueService {
         List<RepresentArticle> representArticles = articleRepository
                 .getRepresentArticlesByIssueId(issueId, articleLimit)
                 .stream()
-                .map(this::toRepresentArticle)
+                .map(RepresentArticle::from)
                 .toList();
 
         return new IssueOverviewResponse(issuePreview, countryTones, representArticles);
@@ -116,13 +114,4 @@ public class IssueService {
         );
     }
 
-    private RepresentArticle toRepresentArticle(RepresentArticleProjection row) {
-        return new RepresentArticle(
-                row.getArticleId(),
-                row.getArticleTitle(),
-                ArticleTone.fromScore(row.getArticleToneScore()),
-                row.getArticlePublisher(),
-                row.getPublishedAt()
-        );
-    }
 }
