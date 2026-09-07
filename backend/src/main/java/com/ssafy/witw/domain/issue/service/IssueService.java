@@ -2,6 +2,10 @@ package com.ssafy.witw.domain.issue.service;
 
 import com.ssafy.witw.common.exception.GlobalException;
 import com.ssafy.witw.common.response.ErrorCode;
+import com.ssafy.witw.domain.article.dao.ArticleRepository;
+import com.ssafy.witw.domain.article.dao.ArticleRepository.RepresentArticleProjection;
+import com.ssafy.witw.domain.article.dto.ArticleTone;
+import com.ssafy.witw.domain.article.dto.RepresentArticle;
 import com.ssafy.witw.domain.country.dto.CountryPoint;
 import com.ssafy.witw.domain.country.dto.CountryTone;
 import com.ssafy.witw.domain.issue.dao.IssueRepository;
@@ -10,6 +14,7 @@ import com.ssafy.witw.domain.issue.dao.IssueRepository.GlobalIssueRankRow;
 import com.ssafy.witw.domain.issue.dto.GlobalIssueRankResponse;
 import com.ssafy.witw.domain.issue.dto.GlobalIssueRankResponse.GlobalIssue;
 import com.ssafy.witw.domain.issue.dto.IssueInfo;
+import com.ssafy.witw.domain.issue.dto.IssueOverviewResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,8 +27,37 @@ import java.util.List;
 public class IssueService {
 
     private static final int GLOBAL_ISSUE_RANK_LIMIT = 5;
+    private static final int REPRESENT_ARTICLE_LIMIT = 3;
 
     private final IssueRepository issueRepository;
+    private final ArticleRepository articleRepository;
+
+    public IssueOverviewResponse getIssueOverview(long issueId, int articleLimit) {
+        if (!issueRepository.existsById(issueId)) {
+            throw new GlobalException(ErrorCode.ENTITY_NOT_FOUND);
+        }
+
+        IssueRepository.IssuePreview preview = issueRepository.getIssuePreviewByIssueId(issueId);
+        if (preview == null) {
+            throw new GlobalException(ErrorCode.ENTITY_NOT_FOUND);
+        }
+
+        IssueOverviewResponse.IssuePreview issuePreview = new IssueOverviewResponse.IssuePreview(
+                preview.getIssueTitle(), preview.getThemeTitle(), preview.getArticleCount());
+
+        List<CountryTone> countryTones = issueRepository.findCountryTonesLast24Hours(issueId)
+                .stream()
+                .map(this::toCountryTone)
+                .toList();
+
+        List<RepresentArticle> representArticles = articleRepository
+                .getRepresentArticlesByIssueId(issueId, articleLimit)
+                .stream()
+                .map(this::toRepresentArticle)
+                .toList();
+
+        return new IssueOverviewResponse(issuePreview, countryTones, representArticles);
+    }
 
     // 최근 24시간 기사 수 기준 이슈 랭킹
     public GlobalIssueRankResponse getGlobalIssueRank() {
@@ -79,6 +113,16 @@ public class IssueService {
                 row.getToneAvg(),
                 row.getToneMax(),
                 row.getToneMin()
+        );
+    }
+
+    private RepresentArticle toRepresentArticle(RepresentArticleProjection row) {
+        return new RepresentArticle(
+                row.getArticleId(),
+                row.getArticleTitle(),
+                ArticleTone.fromScore(row.getArticleToneScore()),
+                row.getArticlePublisher(),
+                row.getPublishedAt()
         );
     }
 }
