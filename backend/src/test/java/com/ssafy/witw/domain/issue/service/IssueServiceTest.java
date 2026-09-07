@@ -1,10 +1,10 @@
 package com.ssafy.witw.domain.issue.service;
 
 import com.ssafy.witw.domain.country.dto.CountryTone;
-import com.ssafy.witw.domain.country.dto.CountryToneResponse;
 import com.ssafy.witw.domain.issue.dao.IssueRepository;
 import com.ssafy.witw.domain.issue.dto.GlobalIssueRankResponse;
 import com.ssafy.witw.domain.issue.dto.GlobalIssueRankResponse.GlobalIssue;
+import com.ssafy.witw.domain.issue.dto.IssueInfo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,6 +15,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
@@ -73,15 +74,15 @@ class IssueServiceTest {
     @Test
     void 선택한_이슈의_국가별_톤을_톤_평균_내림차순으로_반환한다() {
         // when
-        CountryToneResponse response = issueService.getCountryTones(HOT_ISSUE_ID);
+        List<CountryTone> countryTones = issueService.getCountryTones(HOT_ISSUE_ID);
 
         // then
-        assertThat(response.countryTone())
+        assertThat(countryTones)
                 .extracting(tone -> tone.country().countryCode())
                 .as("톤 평균이 높은 국가부터")
                 .containsExactly(COUNTRY_A, COUNTRY_B);
 
-        CountryTone countryA = response.countryTone().getFirst();
+        CountryTone countryA = countryTones.getFirst();
         assertThat(countryA.country().countryName()).isEqualTo("테스트A국");
         assertThat(countryA.country().lat()).isEqualTo(37.5);
         assertThat(countryA.country().lng()).isEqualTo(127.0);
@@ -93,19 +94,56 @@ class IssueServiceTest {
                 .isCloseTo(3.0, within(1e-9));
         assertThat(countryA.toneMin()).isCloseTo(1.0, within(1e-9));
 
-        CountryTone countryB = response.countryTone().get(1);
+        CountryTone countryB = countryTones.get(1);
         assertThat(countryB.toneAvg()).isCloseTo(-2.0, within(1e-9));
     }
 
     @Test
     void 선택한_이슈의_24시간_밖_기사는_톤_집계에서_제외한다() {
         // when
-        CountryToneResponse response = issueService.getCountryTones(OLD_ISSUE_ID);
+        List<CountryTone> countryTones = issueService.getCountryTones(OLD_ISSUE_ID);
 
         // then
-        assertThat(response.countryTone())
+        assertThat(countryTones)
                 .as("30시간, 40시간 전 기사만 가진 이슈")
                 .isEmpty();
+    }
+
+    @Test
+    void 이슈_카드에_기사_수와_관련_국가_수를_반환한다() {
+        // when
+        IssueInfo issueInfo = issueService.getIssueInfo(HOT_ISSUE_ID);
+
+        // then
+        assertThat(issueInfo.issueName()).isEqualTo("핫이슈");
+        assertThat(issueInfo.articleCount())
+                .as("삭제 기사를 제외한 기사 수")
+                .isEqualTo(3);
+        assertThat(issueInfo.countryCount())
+                .as("중복을 제거한 발행 국가 수")
+                .isEqualTo(2);
+    }
+
+    @Test
+    void 선택한_이슈의_24시간_톤_평균을_반환한다() {
+        // when
+        Double toneAvg = issueService.getGlobalTone(HOT_ISSUE_ID);
+
+        // then
+        assertThat(toneAvg)
+                .as("삭제 기사의 톤 9.0을 제외한 (1.0 + 3.0 - 2.0) / 3")
+                .isCloseTo(2.0 / 3.0, within(1e-9));
+    }
+
+    @Test
+    void 최근_24시간_기사가_없으면_톤_평균은_null_이다() {
+        // when
+        Double toneAvg = issueService.getGlobalTone(OLD_ISSUE_ID);
+
+        // then
+        assertThat(toneAvg)
+                .as("집계 대상이 없으면 AVG 는 null 을 반환한다")
+                .isNull();
     }
 
     private void prepareData() {

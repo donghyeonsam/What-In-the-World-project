@@ -1,5 +1,7 @@
 package com.ssafy.witw.domain.issue.dao;
 
+import com.ssafy.witw.domain.issue.dto.IssueInfo;
+import com.ssafy.witw.domain.issue.dto.ToneDetail;
 import com.ssafy.witw.domain.issue.entity.Issue;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -99,7 +101,20 @@ public interface IssueRepository extends JpaRepository<Issue, Long> {
             """, nativeQuery = true)
     List<GlobalIssueRankRow> findGlobalIssueRankLast24Hours(@Param("limit") int limit);
 
-    // 이슈 하나의 최근 24시간 국가별 톤. 목록에서 이슈를 선택했을 때 조회한다
+    @Query(value = """
+        SELECT  i.id AS "issueId",
+                i.name AS "issueName",
+                count(a.id) AS "articleCount",
+                count(distinct a.publisher_country_code) AS "countryCount"
+        FROM issue i
+        JOIN article a on a.issue_id = i.id
+        WHERE a.deleted_at IS NULL
+            AND i.id = :issueId
+        GROUP BY i.id
+""", nativeQuery = true)
+    IssueInfo findIssueById(@Param("issueId") long issueId);
+    // 이슈 하나의 최근 24시간 국가별 톤
+
     @Query(value = """
             WITH bounds AS (
                 SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul') AS end_at
@@ -131,7 +146,6 @@ public interface IssueRepository extends JpaRepository<Issue, Long> {
         long getArticleCount();
         LocalDateTime getFirstSeenAt();
     }
-
     interface CountryToneRow {
         String getCountryCode();
         String getCountryName();
@@ -142,4 +156,17 @@ public interface IssueRepository extends JpaRepository<Issue, Long> {
         double getToneMin();
     }
 
+    @Query(value = """
+        WITH bounds AS(
+            SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul') AS end_at
+        )
+        select AVG(a.tone_score)::double precision
+        from article a
+        cross join bounds b
+        where deleted_at is null
+            AND a.issue_id = :issueId
+            AND a.published_at >= b.end_at - INTERVAL '24 hours'
+            AND a.published_at < b.end_at
+""", nativeQuery = true)
+    Double findGlobalToneById(@Param("issueId") long issueId);
 }
