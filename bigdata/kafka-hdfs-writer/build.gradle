@@ -28,7 +28,7 @@ dependencies {
 }
 
 application {
-    mainClass = 'com.ssafy.witw.writer.NewsRawToHdfsConsumer'
+    mainClass = 'com.ssafy.witw.writer.KafkaToHdfsWriter'
 }
 
 tasks.named('test') {
