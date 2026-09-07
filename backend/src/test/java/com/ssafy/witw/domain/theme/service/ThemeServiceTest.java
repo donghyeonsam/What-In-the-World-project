@@ -1,6 +1,8 @@
 package com.ssafy.witw.domain.theme.service;
 
+import com.ssafy.witw.domain.article.dao.ArticleRepository;
 import com.ssafy.witw.domain.country.dao.CountryRepository;
+import com.ssafy.witw.domain.issue.dao.IssueRepository;
 import com.ssafy.witw.domain.theme.dao.ThemeRepository;
 import com.ssafy.witw.domain.theme.dto.PopularTheme;
 import com.ssafy.witw.domain.theme.dto.PopularThemeResponse;
@@ -33,13 +35,20 @@ class ThemeServiceTest {
     private CountryRepository countryRepository;
 
     @Autowired
+    private IssueRepository issueRepository;
+
+    @Autowired
+    private ArticleRepository articleRepository;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @Test
     void 인기_테마와_24개의_시간대를_반환한다() {
         // given
         prepareData();
-        ThemeService themeService = new ThemeService(themeRepository, countryRepository);
+        ThemeService themeService = new ThemeService(
+                themeRepository, countryRepository, issueRepository, articleRepository);
 
         // when
         PopularThemeResponse response = themeService.getPopularThemes(COUNTRY_CODE, 1);
