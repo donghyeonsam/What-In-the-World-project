@@ -1,0 +1,17 @@
+services:
+  nlp-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: news-nlp-worker
+    restart: unless-stopped
+
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS}
+
+      KAFKA_RAW_TOPIC: news.raw.v1
+      KAFKA_ENRICHED_TOPIC: news.enriched.v1
+      KAFKA_CONSUMER_GROUP: nlp-worker-v1
+
+      NLP_BATCH_SIZE: "32"

@@ -1,0 +1,64 @@
+validate-frontend:
+  stage: validate
+  image: node:20-alpine
+  tags:
+    - frontend-ci
+  timeout: 10m
+
+  script:
+    - cd "$CI_PROJECT_DIR/frontend"
+    - npm ci
+    - npm run build
+
+  rules:
+    # develop 대상 MR → 빌드 검증
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"'
+      changes:
+        - frontend/**/*
+        - .gitlab-ci.yml
+        - .gitlab/ci/front.yml
+
+    # master → 빌드 검증
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - frontend/**/*
+        - .gitlab-ci.yml
+        - .gitlab/ci/front.yml
+
+
+deploy-frontend:
+  stage: deploy
+  tags:
+    - frontend-deploy
+  timeout: 20m
+
+  needs:
+    - validate-frontend
+
+  resource_group: frontend-production
+  interruptible: false
+
+  environment:
+    name: production-frontend
+    url: https://witw.kro.kr
+
+  script:
+    - cd "$CI_PROJECT_DIR/frontend"
+
+    - echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+
+    - docker build -t jamonda1/what-in-the-world:latest .
+    - docker push jamonda1/what-in-the-world:latest
+
+    - docker rm -f what-in-the-world-front || true
+    - docker run -d --name what-in-the-world-front --restart unless-stopped -p 127.0.0.1:3000:80 jamonda1/what-in-the-world:latest
+
+    - timeout 5 bash -c '</dev/tcp/127.0.0.1/3000'
+
+  rules:
+    # master에서만 배포
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes:
+        - frontend/**/*
+        - .gitlab-ci.yml
+        - .gitlab/ci/front.yml

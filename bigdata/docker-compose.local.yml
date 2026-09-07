@@ -18,15 +18,16 @@ services:
     user: root
 
     ports:
-      # 내 PC(Host)의 9092 포트
+      # 내 PC(Host)의 19092 포트
       #        ↓
       # Kafka 컨테이너의 9092 포트
       #
       # 즉 로컬 PC의 프로그램에서는
-      # localhost:9092 로 Kafka에 접근 가능
-      - "9092:9092"
+      # localhost:19092 로 Kafka에 접근 가능
+      - "127.0.0.1:19092:9092"
 
     environment:
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
 
       # ---------------------------------------------------------
       # KRaft 설정
@@ -36,10 +37,6 @@ services:
 
       # 이 Kafka 노드의 고유 ID
       KAFKA_NODE_ID: 1
-<<<<<<< HEAD
-      # broker: 메시지를 받고 전달하는 역할.
-      # controller: Kafka 클러스터를 관리하는 역할
-=======
 
       # 이 Kafka 인스턴스가
       # broker + controller 역할을 동시에 수행
@@ -50,7 +47,6 @@ services:
       # controller:
       #   Kafka 클러스터의 메타데이터 관리
       #   (토픽, 파티션, 브로커 상태 등)
->>>>>>> 97f9dea7789cd3b1e64ac37c4d80022d2b2249d8
       KAFKA_PROCESS_ROLES: broker,controller
 
 
@@ -73,8 +69,8 @@ services:
       #   kafka:29092
       #
       # Docker 외부:
-      #   localhost:9092
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
+      #   localhost:19092
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka:29092,EXTERNAL://localhost:19092"
 
       # 각각의 Listener에서 사용할 통신 방식
       #
@@ -116,7 +112,20 @@ services:
       # 로컬 개발환경에서는 바로 시작하도록 0ms
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
 
-    # Kafka도 Hadoop과 같은 Docker 네트워크 사용
+      # 토픽 자동 생성 비활성화
+      # kafka-init에서 필요한 토픽을 명시적으로 생성
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+
+    # Kafka 상태 확인
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list >/dev/null 2>&1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
     networks:
       - news-network
 
@@ -129,6 +138,37 @@ services:
 
 
   # =========================================================
+  # Kafka Topic 초기화
+  # =========================================================
+  kafka-init:
+    image: apache/kafka:4.3.1
+
+    # 토픽 생성이 완료되면 종료되는 일회성 컨테이너
+    restart: "no"
+
+    # Kafka가 healthy 상태가 된 뒤 실행
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+    # Kafka 토픽 생성 스크립트 실행
+    entrypoint:
+      - /bin/bash
+      - /opt/news/scripts/create-topics.sh
+
+    environment:
+      KAFKA_BOOTSTRAP_SERVER: kafka:29092
+      KAFKA_TOPICS_COMMAND: /opt/kafka/bin/kafka-topics.sh
+
+    volumes:
+      # 로컬의 토픽 생성 스크립트를 컨테이너에 연결
+      - ./kafka/scripts/create-topics.sh:/opt/news/scripts/create-topics.sh:ro
+
+    networks:
+      - news-network
+
+
+  # =========================================================
   # HDFS NameNode
   # =========================================================
   namenode:
@@ -136,8 +176,7 @@ services:
 
     container_name: news-hdfs-namenode
 
-    # Docker 네트워크 내부에서
-    # namenode라는 이름으로 접근 가능
+    # Docker 내부에서는 namenode라는 이름으로 접근 가능
     hostname: namenode
 
     user: root
@@ -156,7 +195,6 @@ services:
       - "9000:9000"
 
     volumes:
-
       # NameNode 메타데이터 저장
       #
       # 어떤 파일이 있고,
@@ -173,24 +211,21 @@ services:
       - ./hadoop/config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
       - ./hadoop/config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
 
-    command: >
-      bash -c "
+    command:
+      - bash
+      - -c
+      - |
+        if [ ! -d /data/name/current ]; then
+          hdfs namenode -format -force -nonInteractive
+        fi
+        exec hdfs namenode
 
-      # 최초 실행인지 확인
-      #
-      # /data/name/current 디렉터리가 없다면
-      # 아직 NameNode가 포맷되지 않은 상태
-      if [ ! -d /data/name/current ]; then
-
-        # HDFS NameNode 초기화
-        # 쉽게 말하면 HDFS 파일 시스템을 처음 생성
-        hdfs namenode -format -force -nonInteractive;
-
-      fi &&
-
-      # NameNode 서버 실행
-      hdfs namenode
-      "
+    healthcheck:
+      test: ["CMD-SHELL", "hdfs dfsadmin -report >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
 
     networks:
       - news-network
@@ -204,8 +239,7 @@ services:
 
     container_name: news-hdfs-datanode
 
-    # Docker 내부에서는
-    # datanode라는 이름으로 접근 가능
+    # Docker 내부에서는 datanode라는 이름으로 접근 가능
     hostname: datanode
 
     user: root
@@ -217,7 +251,6 @@ services:
       - "9864:9864"
 
     volumes:
-
       # 실제 HDFS 파일 Block 저장 위치
       #
       # NameNode는 파일의 "정보"를 저장하고
@@ -231,14 +264,293 @@ services:
     # DataNode 프로세스 실행
     command: hdfs datanode
 
-    # NameNode 컨테이너를 먼저 시작
-    #
-    # 주의:
-    # NameNode가 "완전히 준비될 때까지" 기다린다는 의미는 아니고
-    # 컨테이너 시작 순서만 보장
+    # NameNode가 정상 준비된 뒤 DataNode 실행
     depends_on:
-      - namenode
+      namenode:
+        condition: service_healthy
 
+    healthcheck:
+      test: ["CMD-SHELL", "hdfs dfsadmin -report 2>/dev/null | grep -q 'Live datanodes (1)' "]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+    networks:
+      - news-network
+
+
+  # =========================================================
+  # Kafka(news.raw.v1) -> HDFS bronze writer
+  # =========================================================
+  bronze-writer:
+    build:
+      context: ./kafka-hdfs-writer
+      dockerfile: Dockerfile
+
+    container_name: news-bronze-writer
+
+    # 장애 발생 시 자동 재시작
+    restart: unless-stopped
+
+    # 종료 시 처리 중인 작업을 마무리할 시간
+    stop_grace_period: 60s
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      namenode:
+        condition: service_healthy
+      datanode:
+        condition: service_healthy
+
+    environment:
+      # Docker 내부 Kafka 주소
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+
+      # HDFS에 저장할 Kafka 토픽
+      KAFKA_TOPIC: news.raw.v1
+
+      # Bronze Writer 전용 Consumer Group
+      KAFKA_GROUP_ID: ${BRONZE_WRITER_GROUP_ID:-news-raw-hdfs-bronze-v1}
+
+      # HDFS NameNode 주소
+      HDFS_URI: hdfs://namenode:9000
+      HDFS_OUTPUT_PATH: ${BRONZE_HDFS_PATH:-/data/news/bronze/news.raw.v1}
+      HDFS_USER: root
+      HADOOP_CONF_DIR: /opt/hadoop-conf
+
+    volumes:
+      - ./hadoop/config:/opt/hadoop-conf:ro
+
+    networks:
+      - news-network
+
+  # =========================================================
+  # Kafka(news.enriched.v1) -> HDFS silver writer
+  # =========================================================
+  silver-writer:
+    build:
+      context: ./kafka-hdfs-writer
+      dockerfile: Dockerfile
+
+    container_name: news-silver-writer
+    restart: unless-stopped
+    stop_grace_period: 60s
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      namenode:
+        condition: service_healthy
+      datanode:
+        condition: service_healthy
+
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_TOPIC: news.enriched.v1
+      KAFKA_GROUP_ID: ${SILVER_WRITER_GROUP_ID:-news-enriched-hdfs-silver-v1}
+      HDFS_URI: hdfs://namenode:9000
+      HDFS_OUTPUT_PATH: ${SILVER_HDFS_PATH:-/data/news/silver/news.enriched.v1}
+      HDFS_USER: root
+      HADOOP_CONF_DIR: /opt/hadoop-conf
+
+    volumes:
+      - ./hadoop/config:/opt/hadoop-conf:ro
+
+    networks:
+      - news-network
+
+
+  # =========================================================
+  # Spark Master
+  # =========================================================
+  spark-master:
+    image: apache/spark:4.2.0-python3
+
+    container_name: news-spark-master
+    hostname: spark-master
+
+    ports:
+      # Spark Master Web UI
+      - "8080:8080"
+
+      # Spark Master 통신 포트
+      - "7077:7077"
+
+    environment:
+      SPARK_LOCAL_HOSTNAME: spark-master
+      HADOOP_CONF_DIR: /opt/hadoop-conf
+
+    volumes:
+      - ./hadoop/config:/opt/hadoop-conf:ro
+      - ./spark/apps:/opt/spark/apps:ro
+
+    command:
+      - /opt/spark/bin/spark-class
+      - org.apache.spark.deploy.master.Master
+      - --host
+      - spark-master
+      - --port
+      - "7077"
+      - --webui-port
+      - "8080"
+
+    networks:
+      - news-network
+
+
+  # =========================================================
+  # Spark Worker
+  # =========================================================
+  spark-worker:
+    image: apache/spark:4.2.0-python3
+
+    container_name: news-spark-worker
+    hostname: spark-worker
+
+    ports:
+      # Spark Worker Web UI
+      - "8081:8081"
+
+    environment:
+      SPARK_LOCAL_HOSTNAME: spark-worker
+      HADOOP_CONF_DIR: /opt/hadoop-conf
+
+    volumes:
+      - ./hadoop/config:/opt/hadoop-conf:ro
+      - ./spark/apps:/opt/spark/apps:ro
+
+    command:
+      - /opt/spark/bin/spark-class
+      - org.apache.spark.deploy.worker.Worker
+      - spark://spark-master:7077
+      - --cores
+      - "2"
+      - --memory
+      - "2g"
+      - --webui-port
+      - "8081"
+
+    depends_on:
+      - spark-master
+
+    networks:
+      - news-network
+
+
+  # =========================================================
+  # News Collector
+  # =========================================================
+  collector:
+    build:
+      context: ./collector
+      dockerfile: Dockerfile
+
+    container_name: news-collector
+
+    # 비정상 종료 시 자동 재시작
+    restart: unless-stopped
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+    environment:
+      # Docker 내부 Kafka 주소
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+
+      # 수집한 원본 기사를 저장할 Kafka 토픽
+      KAFKA_RAW_TOPIC: news.raw.v1
+
+      # Collector 상태 확인용 heartbeat 파일
+      COLLECTOR_HEALTH_FILE: /data/collector/collector.heartbeat
+      COLLECTOR_HEALTH_MAX_AGE_SECONDS: "180"
+
+    command:
+      - --registry
+      - /app/registry.csv
+      - --output-dir
+      - /data/collector
+      - --poll-seconds
+      - "30"
+      - --poll-workers
+      - "5"
+      - --fetch-workers
+      - "5"
+      - --timeout-seconds
+      - "12"
+      - --min-body-chars
+      - "300"
+      - --kafka-bootstrap
+      - kafka:29092
+      - --kafka-topic
+      - news.raw.v1
+      - --run-forever
+
+    volumes:
+      # Collector의 SQLite 및 결과 데이터 유지
+      - collector-data:/data/collector
+
+    healthcheck:
+      test: ["CMD", "python", "/app/healthcheck.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5m
+
+    networks:
+      - news-network
+
+
+  # =========================================================
+  # NLP Worker
+  # =========================================================
+  nlp-worker:
+    # nlp-worker 디렉토리의 Dockerfile을 사용하여 이미지 생성
+    build:
+      context: ./nlp-worker
+      dockerfile: Dockerfile
+
+    # Docker에서 보이는 컨테이너 이름
+    container_name: news-nlp-worker
+
+    # 비정상 종료 시 자동 재시작
+    restart: unless-stopped
+
+    # Kafka와 필요한 토픽 생성이 완료된 뒤 실행
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+    environment:
+      # Docker 내부에서는 Kafka 컨테이너 hostname으로 접근
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+
+      # NLP Worker가 원본 뉴스를 읽을 Kafka 토픽
+      KAFKA_RAW_TOPIC: news.raw.v1
+
+      # NLP 처리 결과를 전송할 Kafka 토픽
+      KAFKA_ENRICHED_TOPIC: news.enriched.v1
+
+      # NLP Worker 전용 Consumer Group
+      KAFKA_CONSUMER_GROUP: nlp-worker-v1
+
+      # 한 번의 NLP 처리에서 가져올 기사 수
+      NLP_BATCH_SIZE: "32"
+
+    # Kafka와 동일한 Docker Network 사용
+    #
+    # 따라서 localhost가 아니라
+    # kafka:29092 주소로 Kafka에 접근한다.
     networks:
       - news-network
 
@@ -259,13 +571,16 @@ volumes:
   # HDFS 실제 데이터 Block 저장
   datanode-data:
 
+  # Collector SQLite 및 결과 데이터 저장
+  collector-data:
+
 
 # =========================================================
 # Docker Network
 # =========================================================
 networks:
 
-  # Kafka / NameNode / DataNode가
+  # Kafka / Hadoop / Spark / Collector / NLP Worker가
   # 서로 hostname으로 통신하기 위한 공통 네트워크
   news-network:
 

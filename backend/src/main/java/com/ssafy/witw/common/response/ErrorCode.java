@@ -1,0 +1,38 @@
+package com.ssafy.witw.common.response;
+
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+
+@Getter
+@RequiredArgsConstructor(access = AccessLevel.PRIVATE)
+public enum ErrorCode {
+
+    // COMMON
+    INVALID_INPUT_VALUE(HttpStatus.BAD_REQUEST, "CO01", "유효하지 않은 입력 값입니다."),
+    INVALID_TYPE_VALUE(HttpStatus.BAD_REQUEST, "CO02", "유효하지 않은 타입 값입니다."),
+    ENTITY_NOT_FOUND(HttpStatus.NOT_FOUND, "CO03", "해당 엔티티를 찾을 수 없습니다."),
+    METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "CO04", "지원하지 않는 HTTP Method 입니다."),
+    METHOD_NOT_SUPPORTED(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "CO05", "지원하지 않는 Content-Type 입니다."),
+    METHOD_ARGUMENT_TYPE_MISMATCH(HttpStatus.BAD_REQUEST, "CO06", "요청 인자의 타입이 올바르지 않습니다."),
+    ACCESS_DENIED(HttpStatus.FORBIDDEN, "CO07", "접근 권한이 없습니다."),
+    UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "CO08", "인증 정보가 유효하지 않습니다."),
+    CONSTRAINT_VIOLATION(HttpStatus.CONFLICT, "CO09", "데이터베이스 제약 조건 위반입니다."),
+    BAD_SQL_GRAMMAR(HttpStatus.INTERNAL_SERVER_ERROR, "CO10", "잘못된 SQL 문법 오류가 발생했습니다."),
+    REQUEST_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "CO11", "요청의 크기가 너무 큽니다."),
+    TOO_MANY_REQUESTS(HttpStatus.TOO_MANY_REQUESTS, "CO12", "너무 많은 요청을 보냈습니다. 잠시 후 다시 시도해주세요."),
+    RESOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "CO13", "요청하신 리소스를 찾을 수 없습니다."),
+    INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "CO99", "서버 내부 오류가 발생했습니다. 관리자에게 문의하세요."),
+
+    // THEME
+    THEME_NOT_FOUND(HttpStatus.NOT_FOUND, "TH01", "테마를 찾을 수 없습니다."),
+
+    // COUNTRY
+    COUNTRY_NOT_FOUND(HttpStatus.NOT_FOUND, "CT01", "국가를 찾을 수 없습니다.");
+
+    private final HttpStatus status;
+    private final String code;
+    private final String message;
+
+}

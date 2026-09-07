@@ -1,0 +1,6 @@
+pandas
+feedparser
+requests
+trafilatura
+beautifulsoup4
+confluent-kafka

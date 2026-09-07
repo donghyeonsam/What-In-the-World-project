@@ -1,0 +1,42 @@
+/* 아카이브 시안의 커맨드 팔레트 */
+
+.palette {
+  position: fixed; inset: 0; z-index: 100;
+  display: none; align-items: flex-start; justify-content: center; padding-top: 14vh;
+}
+.palette.open { display: flex; }
+
+.backdrop {
+  position: absolute; inset: 0;
+  background: var(--wtw-scrim); backdrop-filter: blur(5px);
+}
+
+.card {
+  position: relative; z-index: 2; width: 480px; padding: 12px;
+  border: 1px solid var(--wtw-line-strong); background: var(--wtw-panel);
+  border-radius: 14px; box-shadow: 0 28px 90px rgba(15, 23, 42, 0.28);
+  color: var(--wtw-text); font-family: var(--wtw-body);
+}
+
+.inputWrap {
+  height: 47px; display: flex; align-items: center; gap: 10px; padding: 0 10px;
+  border: 1px solid var(--wtw-line-strong); border-radius: 9px;
+  background: var(--wtw-bg-2, #f7f9fb); color: var(--wtw-muted);
+}
+.inputWrap svg { width: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.inputWrap input { flex: 1; border: 0; outline: 0; background: none; color: var(--wtw-text); font-size: 12px; }
+
+.kbd {
+  background: var(--wtw-surface); border: 1px solid var(--wtw-line);
+  color: var(--wtw-muted); border-radius: 5px; font-size: 10px; padding: 3px 5px;
+}
+
+.card > p { color: var(--wtw-muted); font-size: 9px; margin: 16px 8px 7px; }
+
+.quick {
+  width: 100%; display: grid; grid-template-columns: 28px 1fr auto;
+  align-items: center; text-align: left; gap: 8px; padding: 10px; border-radius: 8px;
+}
+.quick:hover { background: var(--wtw-bg-2, #f7f9fb); }
+.quick b { font-size: 11px; }
+.quick small { font-size: 10px; color: var(--wtw-muted); }

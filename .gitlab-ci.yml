@@ -1,0 +1,8 @@
+stages:
+  - validate
+  - deploy
+
+include:
+  - local: /.gitlab/ci/bigdata.yml
+  - local: /.gitlab/ci/be.yml
+  - local: /.gitlab/ci/front.yml
