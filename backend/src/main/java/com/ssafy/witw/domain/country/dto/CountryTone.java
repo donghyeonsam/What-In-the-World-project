@@ -1,9 +1,8 @@
 package com.ssafy.witw.domain.country.dto;
 
 public record CountryTone(
-        String countryCode,
-        String countryName,
-        double lng, // 지구본 위 좌표 표시
-        double lat, // 지구본 위 좌표 표시
-        double toneAvg
-) {}
+        CountryPoint country,
+        double toneAvg,
+        double toneMax,
+        double toneMin
+) { }

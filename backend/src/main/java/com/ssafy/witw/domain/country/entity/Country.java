@@ -29,4 +29,9 @@ public class Country {
     @Column(name = "name_en", nullable = false, length = 50)
     private String nameEn;
 
+    @Column(name = "latitude", nullable = false)
+    private double latitude;
+
+    @Column(name = "longitude", nullable = false)
+    private double longitude;
 }
