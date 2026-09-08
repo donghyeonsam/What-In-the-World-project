@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import math
 import re
-from datetime import datetime
 from typing import Any
 
 
@@ -23,24 +22,6 @@ def _required_text(container: dict[str, Any], field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise InvalidEnrichedArticle(f"{field} must be a non-empty string")
     return value.strip()
-
-
-def _iso_timestamp(value: Any, field: str) -> str:
-    # Kafka 이벤트에는 문자열 형태를 유지하되 실제 ISO-8601 형식인지 검증한다.
-    if not isinstance(value, str) or not value.strip():
-        raise InvalidEnrichedArticle(f"{field} must be an ISO-8601 timestamp")
-
-    normalized = value.strip()
-    try:
-        parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise InvalidEnrichedArticle(
-            f"{field} must be an ISO-8601 timestamp"
-        ) from exc
-
-    if parsed.tzinfo is None:
-        raise InvalidEnrichedArticle(f"{field} must include a timezone")
-    return normalized
 
 
 def _normalize_country_code(value: Any, field: str) -> str:
@@ -117,12 +98,8 @@ def build_article_upsert_event(article: dict[str, Any]) -> dict[str, Any]:
         raise InvalidEnrichedArticle("nlp_worker_data must be an object")
 
     theme_id = nlp.get("theme_id")
-    if (
-        isinstance(theme_id, bool)
-        or not isinstance(theme_id, int)
-        or theme_id <= 0
-    ):
-        raise InvalidEnrichedArticle("nlp_worker_data.theme_id must be a positive integer")
+    if isinstance(theme_id, bool) or not isinstance(theme_id, int):
+        raise InvalidEnrichedArticle("nlp_worker_data.theme_id must be an integer")
 
     embedding = nlp.get("article_embedding")
     if not isinstance(embedding, list) or not embedding:
@@ -139,12 +116,9 @@ def build_article_upsert_event(article: dict[str, Any]) -> dict[str, Any]:
             "nlp_worker_data.article_embedding must contain only numbers"
         )
 
-    # 이벤트 발생 시각은 NLP 처리가 완료된 시각을 기준으로 한다.
-    processed_at = _iso_timestamp(
-        nlp.get("processed_at"), "nlp_worker_data.processed_at"
-    )
-    discovered_at = _iso_timestamp(article.get("discovered_at"), "discovered_at")
-    published_at = _iso_timestamp(article.get("published_at"), "published_at")
+    processed_at = _required_text(nlp, "processed_at")
+    discovered_at = _required_text(article, "discovered_at")
+    published_at = _required_text(article, "published_at")
 
     # 현재 단계에서 실제 기사 저장에 필요한 데이터만 이벤트에 포함한다.
     return {
@@ -174,13 +148,16 @@ def transform_kafka_message(raw_value: str) -> tuple[str, str]:
     """Return the Kafka key/value pair for one enriched Kafka value."""
 
     # Spark Kafka Source가 읽은 문자열을 JSON 객체로 역직렬화한다.
+    if not isinstance(raw_value, str):
+        raise InvalidEnrichedArticle("value는 무조건 json이어야 합니다.")
+
     try:
         article = json.loads(raw_value)
     except json.JSONDecodeError as exc:
-        raise InvalidEnrichedArticle("Kafka value must be valid JSON") from exc
+        raise InvalidEnrichedArticle("value는 무조건 json이어야 합니다.") from exc
 
     if not isinstance(article, dict):
-        raise InvalidEnrichedArticle("Kafka value must be a JSON object")
+        raise InvalidEnrichedArticle("value는 무조건 json이어야 합니다.")
 
     event = build_article_upsert_event(article)
 

@@ -226,7 +226,7 @@ Spark(기사 분석용)
 - Database 저장에 필요한 형태로 기사 데이터 가공
 - 국가, 테마 등 기사 기반 통계 처리
 - 기사 기본정보 저장을 위한 이벤트 생성
-- 이슈 매칭에 필요한 기사 Embedding 및 Theme 정보 전달
+- 같은 Micro Batch에서 기사 Embedding과 Theme 정보를 사용해 기존 이슈 매칭
 
 ### 5-1. Kafka(news.event.v1)로 전달<hr>
 Spark에서 가공이 완료된 기사 데이터는 우선 `news.event.v1` 토픽으로 전달한다.
@@ -376,7 +376,9 @@ Spark(이슈 클러스터링용)
 
 ## 데이터 입력
 
-NLP 처리가 완료된 기사에는 이슈 매칭에 필요한 `theme_id`와 `embedding` 정보가 포함되어 있다.
+NLP 처리가 완료된 기사의 `nlp_worker_data`에는 이슈 매칭에 필요한
+`theme_id`와 `article_embedding` 정보가 포함되어 있다. Spark는 앞 단계의 정합성
+검사를 통과한 뒤 아래와 같은 내부 레코드로 사용한다.
 
 ```json
 {
@@ -384,12 +386,11 @@ NLP 처리가 완료된 기사에는 이슈 매칭에 필요한 `theme_id`와 `e
   "theme_id": 12,
   "embedding": [0.031, -0.114, 0.072],
   "title": "미국, 대중국 AI 반도체 수출 규제 확대",
-  "summary": "미국이 중국 대상 AI 반도체 수출 규제를 확대했다.",
   "published_at": "2026-09-03T03:35:24Z"
 }
 ```
 
-Spark는 10분 단위 Micro Batch로 새롭게 유입된 기사들을 처리한다.
+Spark Structured Streaming은 Kafka에 새로 유입된 기사들을 Micro Batch로 처리한다.
 
 예를 들어 한 Micro Batch에 다음 테마의 기사들이 포함되어 있다고 가정한다.
 
@@ -412,12 +413,15 @@ Issue 테이블은 `id`, `theme_id`, `name`, `embedding`, `first_seen_at`,
 SELECT
     id AS issue_id,
     theme_id,
-    embedding AS issue_embedding
+    embedding
 FROM issue
-WHERE theme_id IN (12, 15, 21);
+WHERE theme_id IN (12, 15, 21)
+  AND embedding IS NOT NULL;
 ```
 
-Spark에서는 JDBC를 이용하여 이슈 정보를 조회한다.
+Spark에서는 Micro Batch에 실제로 포함된 `theme_id`만 모아 JDBC로 후보 이슈를
+조회한다. 운영 환경에서는 `issue` 테이블에 SELECT 권한만 가진 전용 계정을
+사용한다.
 
 ```python
 issues_df = (
@@ -432,7 +436,9 @@ issues_df = (
 )
 ```
 
-최종적으로 다음과 같은 형태의 DataFrame을 얻는다.
+Issue의 `embedding` TEXT 값은 JSON 숫자 배열로 변환한다. JSON 형식이 아니거나
+숫자가 아닌 값이 포함된 기존 Issue는 해당 배치의 후보에서 제외한다. 최종적으로
+다음과 같은 형태의 데이터를 얻는다.
 
 ```
 +----------+----------+-----------------+
@@ -510,7 +516,8 @@ article a-123
 
 최고 similarity를 기준으로 기존 Issue와의 매칭 여부를 판단한다.
 
-유사도가 90이상인지 판단해서, 분기처리한다.
+유사도가 기본 임계값 `0.90` 이상인지 판단해서 분기 처리한다. 운영 환경에서는
+`ISSUE_MATCH_THRESHOLD`로 임계값을 조정할 수 있다.
 
 ```
 similarity >= 0.90
@@ -569,7 +576,6 @@ key = theme_id
   "theme_id": 12,
   "embedding": [0.031, -0.114, 0.072],
   "title": "미국, 대중국 AI 반도체 수출 규제 확대",
-  "summary": "미국이 중국 대상 AI 반도체 수출 규제를 확대했다.",
   "published_at": "2026-09-03T03:35:24Z",
   "unclassified_at": "2026-09-03T04:10:01Z"
 }
@@ -615,18 +621,15 @@ Cluster centroid와 가장 가까운 대표 기사 3건을 선택한다. (3건 �
   "articles": [
     {
       "article_id": "a-101",
-      "title": "미국, 중국 대상 AI 반도체 수출 규제 확대",
-      "summary": "미국 정부가 중국으로 수출되는 AI 반도체 규제를 강화했다."
+      "title": "미국, 중국 대상 AI 반도체 수출 규제 확대"
     },
     {
       "article_id": "a-102",
-      "title": "Washington tightens semiconductor export controls",
-      "summary": "미국이 첨단 반도체에 대한 중국 수출 제한을 확대했다."
+      "title": "Washington tightens semiconductor export controls"
     },
     {
       "article_id": "a-103",
-      "title": "New US rules target AI accelerators exported to China",
-      "summary": "새로운 규제가 중국으로 수출되는 AI 가속기를 대상으로 한다."
+      "title": "New US rules target AI accelerators exported to China"
     }
   ]
 }
