@@ -15,8 +15,8 @@ export function ArticlePreviewList({ articles, limit }) {
   return (
     <>
       {list.map((a) => (
-        <article className={s.articleCard} key={a.title}>
-          <strong>{a.title}</strong>
+        <article className={s.articleCard} key={a.id ?? a.title}>
+          <strong>{a.url ? <a href={a.url} target="_blank" rel="noopener noreferrer">{a.title}</a> : a.title}</strong>
           <p>
             <span className={s.toneDot} style={{ background: TONE_COLOR[a.tone] }} />
             {a.toneLabel} · {a.source} · {a.time}
@@ -51,7 +51,7 @@ export default function ArticleFeed({
   return (
     <div className={s.feed}>
       {articles.map((a) => (
-        <article className={s.feedCard} key={a.title}>
+        <article className={s.feedCard} key={a.id ?? a.title}>
           <div>
             <span className={`${s.articleTone} ${s[a.tone]}`}>{a.toneLabel}</span>
             <span>
@@ -60,7 +60,7 @@ export default function ArticleFeed({
           </div>
           <strong>{a.title}</strong>
           <p>{a.summary}</p>
-          <button type="button">기사 원문 보기 →</button>
+          {a.url ? <a href={a.url} target="_blank" rel="noopener noreferrer">기사 원문 보기 →</a> : <span>원문 링크가 제공되지 않았습니다.</span>}
         </article>
       ))}
     </div>

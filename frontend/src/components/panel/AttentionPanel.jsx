@@ -36,7 +36,7 @@ export function AttentionList({ rows, limit = 3 }) {
  *          onDirection?: (d: string) => void,
  *          rows: [string, string, string, number, string][]}} props
  */
-export default function AttentionPanel({ country, direction, onDirection, rows }) {
+export default function AttentionPanel({ country, flag = '🌐', direction, onDirection, rows }) {
   const outgoing = direction === 'outgoing';
   return (
     <>
@@ -58,15 +58,15 @@ export default function AttentionPanel({ country, direction, onDirection, rows }
       </div>
 
       <div className={s.attentionInsight}>
-        <span className={s.attentionNode}>🇰🇷</span>
+        <span className={s.attentionNode}>{outgoing ? flag : rows[0]?.[0] || '🌐'}</span>
         <i className={s.attentionArrow} />
-        <span className={s.attentionNode}>{outgoing ? '🇺🇸' : '🌏'}</span>
+        <span className={s.attentionNode}>{outgoing ? rows[0]?.[0] || '🌐' : flag}</span>
         <div>
           <small>{outgoing ? `${country} → 해외` : `해외 → ${country}`}</small>
           <strong>
-            {outgoing ? '미국에 대한 관심이 가장 높아요' : '미국이 가장 많이 주목하고 있어요'}
+            {rows.length ? (outgoing ? `${rows[0][1]}에 대한 언급이 가장 많아요` : `${rows[0][1]}에서 가장 많이 언급했어요`) : '국가 언급 데이터가 없습니다.'}
           </strong>
-          <p>전체 국가 언급 중 {outgoing ? '31.2' : '27.8'}%를 차지합니다.</p>
+          {rows.length > 0 && <p>전체 국가 언급 중 {rows[0][2]}를 차지합니다.</p>}
         </div>
       </div>
 

@@ -44,7 +44,7 @@ export default function ThemeFilterPanel({
       <div className={s.filterTitle}>
         <div>
           <strong>테마 선택</strong>
-          <span>분야 아래의 고정 주제 · 급상승 점수 상위 {quickThemes.length}개</span>
+          <span>분야별 테마 · 빠른 선택 {quickThemes.length}개</span>
         </div>
         <button
           type="button"
@@ -60,7 +60,7 @@ export default function ThemeFilterPanel({
       <div className={s.selectedTheme}>
         <span>현재 테마</span>
         <strong>
-          {selectedTheme ? `${selectedTheme.field} › ${selectedTheme.name}` : '급상승 테마 전체'}
+          {selectedTheme ? `${selectedTheme.field} › ${selectedTheme.name}` : '테마 선택 없음'}
         </strong>
         {selectedTheme && (
           <button type="button" aria-label="테마 선택 해제" onClick={() => onSelectQuick?.(null)}>
@@ -75,7 +75,7 @@ export default function ThemeFilterPanel({
           className={selectedIndex === null ? s.on : ''}
           onClick={() => onSelectQuick?.(null)}
         >
-          전체
+          선택 해제
         </button>
         {quickThemes.map((theme, index) => (
           <button
@@ -152,7 +152,7 @@ export default function ThemeFilterPanel({
             ))}
           </div>
 
-          <p className={s.pickerNote}>검색 결과 일부만 표시한 프로토타입입니다.</p>
+          <p className={s.pickerNote}>{filtered.length ? `${filtered.length}개 테마를 찾았습니다.` : '검색 조건에 맞는 테마가 없습니다.'}</p>
         </div>
       )}
     </section>
