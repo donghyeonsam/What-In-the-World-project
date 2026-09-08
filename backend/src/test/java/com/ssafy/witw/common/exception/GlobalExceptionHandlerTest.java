@@ -20,7 +20,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 // ThemeController 는 어드바이스를 태우기 위한 통로다.
-// addFilters = false: SecurityFilterChain 빈이 없어 켜두면 모든 요청이 401 이 된다.
+// addFilters = false: SecurityConfig 는 @WebMvcTest 슬라이스에 포함되지 않아
+// 켜두면 시큐리티 기본 정책이 걸려 401 이 된다.
 @WebMvcTest(ThemeController.class)
 @ActiveProfiles("test")
 @AutoConfigureMockMvc(addFilters = false)
@@ -46,7 +47,7 @@ class GlobalExceptionHandlerTest {
         when(themeService.getThemesByField()).thenThrow(new GlobalException(errorCode));
 
         // when
-        var result = mvc.perform(get("/api/themes/by-field"));
+        var result = mvc.perform(get("/api/v1/themes/by-field"));
 
         // then
         result
@@ -65,7 +66,7 @@ class GlobalExceptionHandlerTest {
                 .thenThrow(new IllegalStateException("DB 커넥션 풀 고갈 - 노출되면 안 되는 내부 메시지"));
 
         // when
-        var result = mvc.perform(get("/api/themes/by-field"));
+        var result = mvc.perform(get("/api/v1/themes/by-field"));
 
         // then
         result
