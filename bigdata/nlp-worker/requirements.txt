@@ -4,3 +4,5 @@ numpy<2
 pycountry
 Babel
 gliner
+sentence-transformers
+torch
