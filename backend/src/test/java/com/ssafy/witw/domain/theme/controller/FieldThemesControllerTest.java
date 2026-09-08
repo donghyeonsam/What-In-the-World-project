@@ -19,7 +19,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-// addFilters = false: SecurityFilterChain 빈이 없어 켜두면 모든 요청이 401 이 된다.
+// addFilters = false: SecurityConfig 는 @WebMvcTest 슬라이스에 포함되지 않아
+// 켜두면 시큐리티 기본 정책이 걸려 401 이 된다.
 @WebMvcTest(ThemeController.class)
 @ActiveProfiles("test")
 @AutoConfigureMockMvc(addFilters = false)
