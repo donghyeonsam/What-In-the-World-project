@@ -1,21 +1,19 @@
 package com.ssafy.witw.domain.theme.dao;
 
+import com.ssafy.witw.support.RepositoryTest;
+import com.ssafy.witw.support.TestContainerSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
-import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
-import static org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase.Replace.NONE;
 
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = NONE)
-class FieldThemesRepositoryTest {
+@RepositoryTest
+class FieldThemesRepositoryTest extends TestContainerSupport {
     @Autowired private ThemeRepository repository;
     @Autowired private JdbcTemplate jdbc;
 
@@ -51,8 +49,7 @@ class FieldThemesRepositoryTest {
         var rows = repository.findThemesByField();
 
         // then
-        assertThat(rows.stream()
-                .filter(row -> row.getFieldId() == 940001L || row.getFieldId() == 940002L))
+        assertThat(rows)
                 .as("기간 내 미삭제 기사 2건을 집계하고, 기사 없는 테마와 테마 없는 분야는 0건으로 유지한다")
                 .extracting(ThemeRepository.FieldThemeRow::getFieldId,
                         ThemeRepository.FieldThemeRow::getThemeId,
