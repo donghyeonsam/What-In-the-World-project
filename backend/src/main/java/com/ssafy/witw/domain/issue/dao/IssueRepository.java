@@ -165,7 +165,9 @@ public interface IssueRepository extends JpaRepository<Issue, Long> {
                    c.latitude                            AS "latitude",
                    AVG(a.tone_score)::double precision   AS "toneAvg",
                    MAX(a.tone_score)::double precision   AS "toneMax",
-                   MIN(a.tone_score)::double precision   AS "toneMin"
+                   MIN(a.tone_score)::double precision   AS "toneMin",
+                   STDDEV_POP(a.tone_score)::double precision AS "toneSd",
+                   COUNT(*)                              AS "articleCount"
             FROM article a
             JOIN country c ON c.country_code = a.publisher_country_code
             CROSS JOIN bounds b
@@ -194,5 +196,7 @@ public interface IssueRepository extends JpaRepository<Issue, Long> {
         double getToneAvg();
         double getToneMax();
         double getToneMin();
+        double getToneSd();
+        long getArticleCount();
     }
 }

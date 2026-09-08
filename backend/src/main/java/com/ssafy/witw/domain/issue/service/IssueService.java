@@ -111,7 +111,9 @@ public class IssueService {
                 country,
                 row.getToneAvg(),
                 row.getToneMax(),
-                row.getToneMin()
+                row.getToneMin(),
+                row.getToneSd(),
+                row.getArticleCount()
         );
     }
 
