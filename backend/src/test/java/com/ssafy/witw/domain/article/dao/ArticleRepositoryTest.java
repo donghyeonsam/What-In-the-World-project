@@ -1,5 +1,7 @@
 package com.ssafy.witw.domain.article.dao;
 
+import com.ssafy.witw.domain.article.entity.Article;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
@@ -54,6 +56,30 @@ class ArticleRepositoryTest {
                 .as("삭제된 기사와 다른 테마의 기사는 조회에서 제외됨")
                 .extracting(ArticleRepository.RepresentArticleProjection::getArticleId)
                 .containsExactly("represent-1", "represent-2");
+    }
+
+    @Test
+    @DisplayName("[미분류 기사 저장] 이슈가 없으면 이슈 유사도와 배정 시각도 null로 저장한다")
+    void 이슈가_없으면_이슈_유사도와_배정_시각도_null로_저장한다() {
+        // given
+        prepareData();
+        LocalDateTime now = LocalDateTime.now();
+        jdbcTemplate.update("""
+                INSERT INTO article (
+                    id, publisher_country_code, theme_id, publisher, url, original_title,
+                    crawled_at, theme_relevance_score, tone_score, created_at, published_at
+                ) VALUES ('unassigned-article', ?, ?, 'publisher', 'https://example.com/unassigned',
+                          '미분류 기사', ?, 1, 50, ?, ?)
+                """, COUNTRY_CODE, THEME_ID, Timestamp.valueOf(now), Timestamp.valueOf(now),
+                Timestamp.valueOf(now));
+
+        // when
+        Article article = articleRepository.findById("unassigned-article").orElseThrow();
+
+        // then
+        assertThat(article.getIssue()).as("배정된 이슈").isNull();
+        assertThat(article.getIssueSimilarity()).as("이슈 유사도").isNull();
+        assertThat(article.getIssueAssignedAt()).as("이슈 배정 시각").isNull();
     }
 
     private void prepareData() {

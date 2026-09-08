@@ -48,7 +48,7 @@ public interface ArticleRepository extends JpaRepository<Article, String> {
                    a.published_at AS "publishedAt"
             FROM article a
             WHERE a.issue_id = :issueId AND a.deleted_at IS NULL
-            ORDER BY a.issue_similarity DESC, a.id ASC
+            ORDER BY a.issue_similarity DESC NULLS LAST, a.id ASC
             LIMIT :limit
             """, nativeQuery = true)
     List<RepresentArticleProjection> getRepresentArticlesByIssueId(
