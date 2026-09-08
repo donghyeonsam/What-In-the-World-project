@@ -9,11 +9,11 @@ import com.ssafy.witw.domain.issue.dto.GlobalIssueDetailResponse;
 import com.ssafy.witw.domain.issue.dto.GlobalIssueRankResponse;
 import com.ssafy.witw.domain.issue.dto.GlobalIssueRankResponse.GlobalIssue;
 import com.ssafy.witw.domain.issue.dto.IssueInfo;
+import com.ssafy.witw.support.RepositoryTest;
+import com.ssafy.witw.support.TestContainerSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
-import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.sql.Timestamp;
@@ -24,11 +24,9 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
-import static org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase.Replace.NONE;
 
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = NONE)
-class IssueServiceTest {
+@RepositoryTest
+class IssueServiceTest extends TestContainerSupport {
 
     private static final String COUNTRY_A = "ZA";
     private static final String COUNTRY_B = "ZB";
@@ -41,9 +39,9 @@ class IssueServiceTest {
     private static final long NOT_EXIST_ISSUE_ID = 900_999L;
 
     // 픽스처가 넣는 기사 중 삭제되지 않은 기사 수 (24시간 밖 기사, 이슈 미배정 기사 포함)
-    private static final long FIXTURE_TOTAL_ARTICLE_COUNT = 8;
+    private static final long EXPECTED_TOTAL_ARTICLE_COUNT = 8;
     // 그중 최근 24시간 안에 들어오는 기사 수
-    private static final long FIXTURE_RECENT_24_ARTICLE_COUNT = 6;
+    private static final long EXPECTED_RECENT_24_ARTICLE_COUNT = 6;
 
     @Autowired
     private IssueRepository issueRepository;
@@ -56,15 +54,9 @@ class IssueServiceTest {
 
     private IssueService issueService;
 
-    // 전체/24시간 기사 수는 픽스처 밖 데이터까지 세므로, 삽입 전 값을 기준선으로 잡고 증가분만 검증한다
-    private long baselineTotalArticleCount;
-    private long baselineRecent24ArticleCount;
-
     @BeforeEach
     void setUp() {
         issueService = new IssueService(issueRepository, articleRepository);
-        baselineTotalArticleCount = countAllArticles();
-        baselineRecent24ArticleCount = countRecent24Articles();
         prepareData();
     }
 
@@ -100,10 +92,10 @@ class IssueServiceTest {
         // then
         assertThat(response.totalArticleCount())
                 .as("삭제 기사만 제외하고 24시간 밖 기사와 이슈 미배정 기사까지 센다")
-                .isEqualTo(baselineTotalArticleCount + FIXTURE_TOTAL_ARTICLE_COUNT);
+                .isEqualTo(EXPECTED_TOTAL_ARTICLE_COUNT);
         assertThat(response.recent24ArticleCount())
                 .as("24시간 밖 기사는 제외하고 이슈 미배정 기사는 센다")
-                .isEqualTo(baselineRecent24ArticleCount + FIXTURE_RECENT_24_ARTICLE_COUNT);
+                .isEqualTo(EXPECTED_RECENT_24_ARTICLE_COUNT);
     }
 
     @Test
@@ -182,19 +174,6 @@ class IssueServiceTest {
                         exception -> assertThat(exception.getErrorCode())
                                 .as("이슈 없음 오류 코드")
                                 .isEqualTo(ErrorCode.ENTITY_NOT_FOUND));
-    }
-
-    private long countAllArticles() {
-        return jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM article WHERE deleted_at IS NULL", Long.class);
-    }
-
-    private long countRecent24Articles() {
-        return jdbcTemplate.queryForObject("""
-                SELECT COUNT(*) FROM article
-                WHERE deleted_at IS NULL
-                  AND created_at >= (NOW() AT TIME ZONE 'Asia/Seoul') - INTERVAL '24 hours'
-                """, Long.class);
     }
 
     private void prepareData() {

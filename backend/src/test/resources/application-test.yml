@@ -1,0 +1,15 @@
+spring:
+  config:
+    activate:
+      on-profile: test
+
+  # 스키마 주인은 Flyway. 운영 프로파일의 ddl-auto: update 를 덮어쓴다.
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+  # db/vendor/{vendor} 는 없는 경로라 제외한다.
+  flyway:
+    locations: classpath:db/migration
+
+# datasource/redis 는 TestContainerSupport 가 주입한다. 여기 적으면 실 DB 로 붙을 수 있다.
