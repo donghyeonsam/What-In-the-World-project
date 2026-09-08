@@ -74,7 +74,7 @@ public class ThemeService {
         List<RepresentArticle> representArticles = articleRepository
                 .getRepresentArticlesByThemeId(themeId, articleLimit)
                 .stream()
-                .map(RepresentArticle::from)
+                .map(this::toRepresentArticle)
                 .toList();
 
         return new ThemeOverviewResponse(
@@ -83,6 +83,16 @@ public class ThemeService {
                 theme.getDescription(),
                 primaryIssues,
                 representArticles
+        );
+    }
+
+    private RepresentArticle toRepresentArticle(RepresentArticleProjection article) {
+        return new RepresentArticle(
+                article.getArticleId(),
+                article.getArticleTitle(),
+                ArticleTone.fromScore(article.getArticleToneScore()),
+                article.getArticlePublisher(),
+                article.getPublishedAt()
         );
     }
 
