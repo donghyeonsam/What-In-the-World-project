@@ -1,32 +1,43 @@
 # API 명세서
 
-> 출처: Notion `API 명세서` 메인 페이지  
-> 추출일: 2026-09-03  
-> 범위: 메인 데이터베이스에 표시된 API 목록만 포함하며, 각 API 하위 페이지의 Request·Response 상세 명세는 포함하지 않음.
+> 기준: 현재 구현된 조회 API 7개 및 기존 회원 기능 기획 목록
+>
+> 갱신일: 2026-09-08
+>
+> 조회 API는 모두 로그인 없이 호출할 수 있으며 `/api/v1` 경로를 사용한다.
+
+요청·응답 상세와 집계 기준은 [조회 API 문서](../backend/docs/read-api.md)를 참조한다.
+실행 중인 서버의 `/swagger-ui.html`에서 요청을 실행할 수 있다.
+URL의 쿼리 파라미터 값은 기본값이며, 조회 개수는 모두 1~10 범위에서 변경할 수 있다.
 
 ## 글로벌 대시보드
 
 | 기능 | 화면 | Method | URL | 진행 상황 |
 |---|---|---|---|---|
-| 글로벌 이슈 TOP5 조회 | DSBD-001 | GET | `/api/v1/global/issues?sort=articleCount,desc&limit=5` | 진행 전 |
-| 전체 수집 기사 개수 조회 | DSBD-001 | GET | `/api/v1/global/total-count` | 진행 전 |
-| 금일 수집 기사 개수 조회 | DSBD-001 | GET | `/api/v1/global/today-count` | 진행 전 |
-| 글로벌 이슈별 각 국 톤 조회 | DSBD-003 | GET | `/api/v1/global/issues/{issueId}/tones` | 진행 전 |
-| 이슈 상세 정보 조회 | DSBD-003 | GET | `/api/v1/global/issues/{issue_id}` | 진행 전 |
-| 글로벌 이슈별 대표 기사 3개 조회 | DSBD-003 | GET | `/api/v1/global/issues/{issue_id}/articles?sort=issue_similarity,desc&limit=3` | 진행 전 |
+| 전체·최근 24시간 수집 기사 수 및 글로벌 이슈 TOP 5 조회 | DSBD-001 | GET | `/api/v1/global/issues` | 구현 완료 |
+| 글로벌 이슈 상세 정보 및 국가별 논조 조회 | DSBD-003 | GET | `/api/v1/global/issues/{issueId}` | 구현 완료 |
+| 이슈 미리보기·국가별 논조·대표 기사 조회 | DSBD-003 | GET | `/api/v1/issues/{issueId}/overview?articleLimit=3` | 구현 완료 |
+
+글로벌 이슈 TOP 5는 고정 순위 조회이며 별도 `sort`·`limit` 파라미터를 제공하지 않는다.
+기존에 분리되어 있던 전체·금일 기사 수, 국가별 논조, 대표 기사 조회는 위 API 응답으로 통합되었다.
 
 ## 국가별 대시보드
 
 | 기능 | 화면 | Method | URL | 진행 상황 |
 |---|---|---|---|---|
-| 금일 수집 기사 개수 조회 | DSBD-002 | GET | `/api/v1/countries/{country_code}/articles/today-count` | 진행 전 |
-| 인기 테마 TOP3 조회 | DSBD-002 | GET | `/api/v1/countries/{country_code}/themes/popular?limit=3` | 진행 전 |
-| 해당 국가 기준 국가별 관심도 조회 | DSBD-002 | GET | `/api/v1/countries/{country_code}` | 진행 전 |
-| 인기 테마 10개 표시 | DSBD-004 | GET | `/api/v1/countries/{country_code}/themes/popular?limit=10` | 진행 전 |
-| 해당 테마 대표기사 10개 조회 | DSBD-005 | GET | `/api/v1/themes/{theme_id}/articles` | 진행 전 |
-| 테마 검색 | MDL-001 | GET | `/api/v1/themes/search?keyword={keyword}` | 진행 전 |
+| 국가 대시보드 조회 (최근 24시간 수집 기사 수·순위·인기 테마·국가 간 언급 비율·대표 기사) | DSBD-002 | GET | `/api/v1/countries/{countryCode}` | 구현 완료 |
+| 국가별 인기 테마 및 시간별 기사 수 추이 조회 | DSBD-002, DSBD-004 | GET | `/api/v1/countries/{countryCode}/themes/popular?limit=3` | 구현 완료 |
+| 테마 개요·주요 이슈·대표 기사 조회 | DSBD-005 | GET | `/api/v1/themes/{themeId}/overview?issueLimit=3&articleLimit=10` | 구현 완료 |
+| 분야별 테마 ID·이름·최근 24시간 기사 수 조회 | 미지정 | GET | `/api/v1/themes/by-field` | 구현 완료 |
+
+인기 테마 10개가 필요한 화면에서는 동일 API에 `limit=10`을 전달한다.
+국가 대시보드의 `todayArticleCount`는 자정부터가 아닌 최근 24시간 수집 기사 수다.
+분야별 테마 조회의 화면 ID는 기존 명세에 없어 미지정으로 표시했다.
+기존 테마 검색 API는 미구현이며, 현재 구현된 조회 API 목록에는 포함하지 않는다.
 
 ## 네비게이션 바
+
+아래 회원 기능은 기존 기획 목록이며 아직 구현되지 않았다.
 
 | 기능 | 화면 | Method | URL | 진행 상황 |
 |---|---|---|---|---|
@@ -46,7 +57,9 @@
 
 | 구분 | API 수 |
 |---|---:|
-| 글로벌 대시보드 | 6 |
-| 국가별 대시보드 | 6 |
+| 글로벌 대시보드 (구현 완료) | 3 |
+| 국가별 대시보드 (구현 완료) | 4 |
 | 네비게이션 바 | 11 |
-| **전체** | **23** |
+| **전체** | **18** |
+
+구현 완료된 조회 API는 7개다. 동일 경로의 조회 개수 변경은 별도 API로 집계하지 않으며, 미구현 테마 검색은 위 집계에서 제외한다.

@@ -17,6 +17,13 @@ spring:
     properties:
       hibernate:
         format_sql: true
+springdoc:
+  paths-to-match: /api/v1/**
+  override-with-generic-response: false
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: alpha
+    tags-sorter: alpha
 server:
   forward-headers-strategy: framework
   servlet:
