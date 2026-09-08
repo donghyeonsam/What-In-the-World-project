@@ -109,7 +109,9 @@ class DashboardControllerTest {
                 .andExpect(jsonPath("$.data.countryTones[0].country.countryCode").value("KR"))
                 .andExpect(jsonPath("$.data.countryTones[0].country.lng").value(127.0))
                 .andExpect(jsonPath("$.data.countryTones[0].country.lat").value(37.5))
-                .andExpect(jsonPath("$.data.countryTones[0].toneAvg").value(50.0));
+                .andExpect(jsonPath("$.data.countryTones[0].toneAvg").value(50.0))
+                .andExpect(jsonPath("$.data.countryTones[0].toneSd").value(12.5))
+                .andExpect(jsonPath("$.data.countryTones[0].articleCount").value(4));
         verify(issueService).getGlobalIssueDetail(1);
     }
 
@@ -343,7 +345,7 @@ class DashboardControllerTest {
     }
 
     private CountryTone countryTone() {
-        return new CountryTone(new CountryPoint("KR", "대한민국", 127, 37.5), 50, 80, 20);
+        return new CountryTone(new CountryPoint("KR", "대한민국", 127, 37.5), 50, 80, 20, 12.5, 4);
     }
 
     private RepresentArticle article() {

@@ -131,9 +131,15 @@ class IssueServiceTest extends TestContainerSupport {
                 .as("삭제 기사의 톤 9.0이 최댓값이 되면 안 된다")
                 .isCloseTo(3.0, within(1e-9));
         assertThat(countryA.toneMin()).isCloseTo(1.0, within(1e-9));
+        assertThat(countryA.toneSd())
+                .as("모집단 표준편차: sqrt(((1-2)^2 + (3-2)^2) / 2)")
+                .isCloseTo(1.0, within(1e-9));
+        assertThat(countryA.articleCount()).isEqualTo(2);
 
         CountryTone countryB = countryTones.get(1);
         assertThat(countryB.toneAvg()).isCloseTo(-2.0, within(1e-9));
+        assertThat(countryB.toneSd()).isZero();
+        assertThat(countryB.articleCount()).isEqualTo(1);
     }
 
     @Test

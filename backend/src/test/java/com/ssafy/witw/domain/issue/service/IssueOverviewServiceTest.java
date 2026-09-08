@@ -49,6 +49,8 @@ class IssueOverviewServiceTest {
         when(country.getToneAvg()).thenReturn(50.0);
         when(country.getToneMin()).thenReturn(20.0);
         when(country.getToneMax()).thenReturn(80.0);
+        when(country.getToneSd()).thenReturn(12.5);
+        when(country.getArticleCount()).thenReturn(4L);
         when(issueRepository.findCountryTonesLast24Hours(1L)).thenReturn(List.of(country));
 
         var article = mock(RepresentArticleProjection.class);
@@ -68,8 +70,8 @@ class IssueOverviewServiceTest {
                 .as("이슈 제목, 테마 제목, 전체 기사 수가 응답에 매핑됨")
                 .isEqualTo(new IssueOverviewResponse.IssuePreview("폭염", "기후", 8L));
         assertThat(response.countryTones())
-                .as("국가 코드와 이름, 경도와 위도, 평균과 최대·최소가 뒤바뀌지 않음")
-                .containsExactly(new CountryTone(new CountryPoint("KR", "대한민국", 127.0, 37.5), 50, 80, 20));
+                .as("국가 정보와 평균·범위·표준편차·기사 수가 뒤바뀌지 않음")
+                .containsExactly(new CountryTone(new CountryPoint("KR", "대한민국", 127.0, 37.5), 50, 80, 20, 12.5, 4));
         assertThat(response.representArticles())
                 .as("대표 기사 모든 필드를 보존하고 점수 경계에 맞는 ArticleTone으로 변환함")
                 .containsExactly(new RepresentArticle("article-1", "대표 기사 제목", expectedTone, "언론사", publishedAt));

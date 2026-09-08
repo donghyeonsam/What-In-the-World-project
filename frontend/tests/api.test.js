@@ -28,8 +28,8 @@ test('API errors, invalid envelopes, and cancellation do not become sample data'
   } finally { globalThis.fetch = original; }
 });
 test('country scope never includes foreign tone and absent sample sizes remain unknown', () => {
-  const rows = [{ country: { countryCode: 'KR' }, toneAvg: 75 }, { country: { countryCode: 'US' }, toneAvg: 10 }];
-  assert.deepEqual(globeTones(rows, 'KR'), { kr: { s: .5, n: null } });
+  const rows = [{ country: { countryCode: 'KR' }, toneAvg: 75, articleCount: 40 }, { country: { countryCode: 'US' }, toneAvg: 10, articleCount: 20 }];
+  assert.deepEqual(globeTones(rows, 'KR'), { kr: { s: .5, n: 40 } });
   assert.deepEqual(globeTones(rows, 'GB'), {});
   assert.equal(Object.keys(globeTones(rows)).length, 2);
   assert.equal(scoreOf(0), -1); assert.equal(scoreOf(50), 0); assert.equal(scoreOf(100), 1);

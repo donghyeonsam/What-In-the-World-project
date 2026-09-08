@@ -7,7 +7,7 @@ const root = fileURLToPath(new URL('../dist/', import.meta.url));
 const article = (id, tone) => ({ articleId: id, articleTitle: `검증 기사 ${id}`, articleTone: tone, articlePublisher: '검증 매체', publishedAt: '2026-09-08T12:30:00' });
 const articles = [article('1', 'POSITIVE'), article('2', 'NEUTRAL'), article('3', 'NEGATIVE')];
 const themes = [{ themeId: 1, themeName: '반도체', fieldName: '산업', articleCount24: 50 }, { themeId: 2, themeName: '기후', fieldName: '환경', articleCount24: 20 }];
-const tones = [{ country: { countryCode: 'KR', countryName: '한국', lat: 36.5, lng: 127.9 }, toneAvg: 75, toneMin: 40, toneMax: 90 }, { country: { countryCode: 'US', countryName: '미국', lat: 38.9, lng: -95.7 }, toneAvg: 20, toneMin: 5, toneMax: 60 }];
+const tones = [{ country: { countryCode: 'KR', countryName: '한국', lat: 36.5, lng: 127.9 }, toneAvg: 75, toneMin: 40, toneMax: 90, toneSd: 12.5, articleCount: 40 }, { country: { countryCode: 'US', countryName: '미국', lat: 38.9, lng: -95.7 }, toneAvg: 20, toneMin: 5, toneMax: 60, toneSd: 20, articleCount: 35 }];
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
   if (url.pathname.startsWith('/api/v1')) {

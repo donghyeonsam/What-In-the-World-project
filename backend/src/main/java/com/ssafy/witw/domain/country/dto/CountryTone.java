@@ -4,5 +4,7 @@ public record CountryTone(
         CountryPoint country,
         double toneAvg,
         double toneMax,
-        double toneMin
+        double toneMin,
+        double toneSd,
+        long articleCount
 ) { }

@@ -126,9 +126,9 @@ export default function App() {
     stage={<><StageHead eyebrow={view.countryCode ? `국가 분석 · ${countryName}` : 'Global News'} title={view.type === 'dash' ? <>전 세계 뉴스의 <em>흐름</em>을<br />한눈에 확인하세요</> : view.title}
       desc={view.issueId ? (view.countryCode ? `${countryName}의 논조만 표시합니다.` : '최근 24시간 국가별 논조를 확인하세요.') : '나라를 한 번 누르면 표시하고, 두 번 누르면 국가 분석을 엽니다.'}
       mode={mapMode} onMode={setMapMode} toneAvailable={Boolean(view.issueId)} />
-      <GlobeSlot><GlobeThree countries={countryMetadata} iso3={iso3} tone={tone} minSample={null} focus={spot || view.countryCode?.toLowerCase()} highlight={pick}
+      <GlobeSlot><GlobeThree countries={countryMetadata} iso3={iso3} tone={tone} minSample={30} focus={spot || view.countryCode?.toLowerCase()} highlight={pick}
         spinControl={false} onSelectCountry={(id) => setPick((old) => old === id ? null : id)} onOpenCountry={goCountry} /></GlobeSlot>
-      <StageFoot toneOn={Boolean(tone)} minSample={null} updated={view.type === 'dash' ? updated : ''} /></>}
+      <StageFoot toneOn={Boolean(tone)} minSample={30} updated={view.type === 'dash' ? updated : ''} /></>}
     panel={<>{history.length > 1 && <div className={s.panelNav}><BackLink onClick={() => setHistory((old) => old.slice(0, -1))}>← {history[history.length - 2].title}</BackLink>
       <TaxonomyPath items={history.map((item, index) => ({ label: '', value: item.title, onClick: index === history.length - 1 ? undefined : () => setHistory((old) => old.slice(0, index + 1)) }))} /></div>}{body}</>} />
     <CommandPalette open={paletteOpen} onClose={closePalette} quick={countryMetadata.map((item) => ({ flag: item.flag, name: item.name, count: item.code }))}
