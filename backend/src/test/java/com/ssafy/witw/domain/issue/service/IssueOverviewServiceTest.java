@@ -11,9 +11,11 @@ import com.ssafy.witw.domain.country.dto.CountryTone;
 import com.ssafy.witw.domain.issue.dao.IssueRepository;
 import com.ssafy.witw.domain.issue.dto.IssueOverviewResponse;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -106,6 +108,18 @@ class IssueOverviewServiceTest {
         verify(issueRepository).existsById(99L);
         verifyNoMoreInteractions(issueRepository);
         verifyNoInteractions(articleRepository);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 11})
+    @DisplayName("[이슈 미리보기] 대표 기사 개수가 허용 범위를 벗어나면 DB 조회 전에 거부한다")
+    void 대표_기사_개수가_범위를_벗어나면_조회하지_않는다(int articleLimit) {
+        // when / then
+        assertThatThrownBy(() -> issueService.getIssueOverview(1L, articleLimit))
+                .as("대표 기사 조회 개수는 1~10만 허용한다")
+                .isInstanceOfSatisfying(GlobalException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.INVALID_INPUT_VALUE));
+        verifyNoInteractions(issueRepository, articleRepository);
     }
 
     private IssueRepository.IssuePreview 프리뷰(long count) {

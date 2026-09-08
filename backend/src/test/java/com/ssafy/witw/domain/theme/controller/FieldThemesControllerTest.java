@@ -27,7 +27,7 @@ class FieldThemesControllerTest {
                 new ThemeService(repository, null, null, null))).build();
 
         // when
-        var result = mvc.perform(get("/api/themes/by-field"));
+        var result = mvc.perform(get("/api/v1/themes/by-field"));
 
         // then
         result
@@ -54,7 +54,7 @@ class FieldThemesControllerTest {
                 new ThemeService(repository, null, null, null))).build();
 
         // when
-        var result = mvc.perform(get("/api/themes/by-field"));
+        var result = mvc.perform(get("/api/v1/themes/by-field"));
 
         // then
         result

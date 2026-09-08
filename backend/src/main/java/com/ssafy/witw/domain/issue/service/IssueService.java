@@ -26,12 +26,15 @@ import java.util.List;
 public class IssueService {
 
     private static final int GLOBAL_ISSUE_RANK_LIMIT = 5;
-    private static final int REPRESENT_ARTICLE_LIMIT = 3;
+    private static final int MAX_ARTICLE_LIMIT = 10;
 
     private final IssueRepository issueRepository;
     private final ArticleRepository articleRepository;
 
     public IssueOverviewResponse getIssueOverview(long issueId, int articleLimit) {
+        if (articleLimit < 1 || articleLimit > MAX_ARTICLE_LIMIT) {
+            throw new GlobalException(ErrorCode.INVALID_INPUT_VALUE);
+        }
         if (!issueRepository.existsById(issueId)) {
             throw new GlobalException(ErrorCode.ENTITY_NOT_FOUND);
         }
