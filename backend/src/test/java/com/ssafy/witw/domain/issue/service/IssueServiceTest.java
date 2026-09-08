@@ -1,8 +1,11 @@
 package com.ssafy.witw.domain.issue.service;
 
+import com.ssafy.witw.common.exception.GlobalException;
+import com.ssafy.witw.common.response.ErrorCode;
 import com.ssafy.witw.domain.article.dao.ArticleRepository;
 import com.ssafy.witw.domain.country.dto.CountryTone;
 import com.ssafy.witw.domain.issue.dao.IssueRepository;
+import com.ssafy.witw.domain.issue.dto.GlobalIssueDetailResponse;
 import com.ssafy.witw.domain.issue.dto.GlobalIssueRankResponse;
 import com.ssafy.witw.domain.issue.dto.GlobalIssueRankResponse.GlobalIssue;
 import com.ssafy.witw.domain.issue.dto.IssueInfo;
@@ -19,6 +22,7 @@ import java.time.ZoneId;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 import static org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase.Replace.NONE;
 
@@ -33,6 +37,13 @@ class IssueServiceTest {
     private static final long HOT_ISSUE_ID = 900_001L;
     private static final long MINOR_ISSUE_ID = 900_002L;
     private static final long OLD_ISSUE_ID = 900_003L;
+    private static final long EMPTY_ISSUE_ID = 900_004L;
+    private static final long NOT_EXIST_ISSUE_ID = 900_999L;
+
+    // 픽스처가 넣는 기사 중 삭제되지 않은 기사 수 (24시간 밖 기사, 이슈 미배정 기사 포함)
+    private static final long FIXTURE_TOTAL_ARTICLE_COUNT = 8;
+    // 그중 최근 24시간 안에 들어오는 기사 수
+    private static final long FIXTURE_RECENT_24_ARTICLE_COUNT = 6;
 
     @Autowired
     private IssueRepository issueRepository;
@@ -45,9 +56,15 @@ class IssueServiceTest {
 
     private IssueService issueService;
 
+    // 전체/24시간 기사 수는 픽스처 밖 데이터까지 세므로, 삽입 전 값을 기준선으로 잡고 증가분만 검증한다
+    private long baselineTotalArticleCount;
+    private long baselineRecent24ArticleCount;
+
     @BeforeEach
     void setUp() {
         issueService = new IssueService(issueRepository, articleRepository);
+        baselineTotalArticleCount = countAllArticles();
+        baselineRecent24ArticleCount = countRecent24Articles();
         prepareData();
     }
 
@@ -76,11 +93,36 @@ class IssueServiceTest {
     }
 
     @Test
-    void 선택한_이슈의_국가별_톤을_톤_평균_내림차순으로_반환한다() {
+    void 이슈_랭킹에_전체_기사_수와_최근_24시간_기사_수를_함께_반환한다() {
         // when
-        List<CountryTone> countryTones = issueService.getCountryTones(HOT_ISSUE_ID);
+        GlobalIssueRankResponse response = issueService.getGlobalIssueRank();
 
         // then
+        assertThat(response.totalArticleCount())
+                .as("삭제 기사만 제외하고 24시간 밖 기사와 이슈 미배정 기사까지 센다")
+                .isEqualTo(baselineTotalArticleCount + FIXTURE_TOTAL_ARTICLE_COUNT);
+        assertThat(response.recent24ArticleCount())
+                .as("24시간 밖 기사는 제외하고 이슈 미배정 기사는 센다")
+                .isEqualTo(baselineRecent24ArticleCount + FIXTURE_RECENT_24_ARTICLE_COUNT);
+    }
+
+    @Test
+    void 선택한_이슈의_기사_집계와_국가별_톤을_톤_평균_내림차순으로_반환한다() {
+        // when
+        GlobalIssueDetailResponse response = issueService.getGlobalIssueDetail(HOT_ISSUE_ID);
+
+        // then
+        IssueInfo issueInfo = response.issueInfo();
+        assertThat(issueInfo.issueId()).isEqualTo(HOT_ISSUE_ID);
+        assertThat(issueInfo.issueName()).isEqualTo("핫이슈");
+        assertThat(issueInfo.articleCount())
+                .as("삭제 기사를 제외한 기사 수")
+                .isEqualTo(3);
+        assertThat(issueInfo.countryCount())
+                .as("중복을 제거한 발행 국가 수")
+                .isEqualTo(2);
+
+        List<CountryTone> countryTones = response.countryTones();
         assertThat(countryTones)
                 .extracting(tone -> tone.country().countryCode())
                 .as("톤 평균이 높은 국가부터")
@@ -103,51 +145,56 @@ class IssueServiceTest {
     }
 
     @Test
-    void 선택한_이슈의_24시간_밖_기사는_톤_집계에서_제외한다() {
+    void 선택한_이슈의_24시간_밖_기사는_톤_집계에서만_제외한다() {
         // when
-        List<CountryTone> countryTones = issueService.getCountryTones(OLD_ISSUE_ID);
+        GlobalIssueDetailResponse response = issueService.getGlobalIssueDetail(OLD_ISSUE_ID);
 
         // then
-        assertThat(countryTones)
-                .as("30시간, 40시간 전 기사만 가진 이슈")
+        assertThat(response.countryTones())
+                .as("30시간, 40시간 전 기사만 가진 이슈는 톤 집계 대상이 없다")
                 .isEmpty();
-    }
-
-    @Test
-    void 이슈_카드에_기사_수와_관련_국가_수를_반환한다() {
-        // when
-        IssueInfo issueInfo = issueService.getIssueInfo(HOT_ISSUE_ID);
-
-        // then
-        assertThat(issueInfo.issueName()).isEqualTo("핫이슈");
-        assertThat(issueInfo.articleCount())
-                .as("삭제 기사를 제외한 기사 수")
-                .isEqualTo(3);
-        assertThat(issueInfo.countryCount())
-                .as("중복을 제거한 발행 국가 수")
+        assertThat(response.issueInfo().articleCount())
+                .as("기사 수는 24시간 제한 없이 집계한다")
                 .isEqualTo(2);
+        assertThat(response.issueInfo().countryCount()).isEqualTo(1);
     }
 
     @Test
-    void 선택한_이슈의_24시간_톤_평균을_반환한다() {
+    void 기사가_한_건도_없는_이슈도_집계가_영인_응답을_반환한다() {
         // when
-        Double toneAvg = issueService.getGlobalTone(HOT_ISSUE_ID);
+        GlobalIssueDetailResponse response = issueService.getGlobalIssueDetail(EMPTY_ISSUE_ID);
 
         // then
-        assertThat(toneAvg)
-                .as("삭제 기사의 톤 9.0을 제외한 (1.0 + 3.0 - 2.0) / 3")
-                .isCloseTo(2.0 / 3.0, within(1e-9));
+        assertThat(response.issueInfo().issueName())
+                .as("LEFT JOIN 이라 기사가 없어도 이슈 정보는 나온다")
+                .isEqualTo("기사없는이슈");
+        assertThat(response.issueInfo().articleCount()).isZero();
+        assertThat(response.issueInfo().countryCount()).isZero();
+        assertThat(response.countryTones()).isEmpty();
     }
 
     @Test
-    void 최근_24시간_기사가_없으면_톤_평균은_null_이다() {
-        // when
-        Double toneAvg = issueService.getGlobalTone(OLD_ISSUE_ID);
+    void 존재하지_않는_이슈를_조회하면_ENTITY_NOT_FOUND_이다() {
+        // when & then
+        assertThatThrownBy(() -> issueService.getGlobalIssueDetail(NOT_EXIST_ISSUE_ID))
+                .as("LEFT JOIN 결과가 null 인 경우만 미존재로 판정한다")
+                .isInstanceOfSatisfying(GlobalException.class,
+                        exception -> assertThat(exception.getErrorCode())
+                                .as("이슈 없음 오류 코드")
+                                .isEqualTo(ErrorCode.ENTITY_NOT_FOUND));
+    }
 
-        // then
-        assertThat(toneAvg)
-                .as("집계 대상이 없으면 AVG 는 null 을 반환한다")
-                .isNull();
+    private long countAllArticles() {
+        return jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM article WHERE deleted_at IS NULL", Long.class);
+    }
+
+    private long countRecent24Articles() {
+        return jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM article
+                WHERE deleted_at IS NULL
+                  AND created_at >= (NOW() AT TIME ZONE 'Asia/Seoul') - INTERVAL '24 hours'
+                """, Long.class);
     }
 
     private void prepareData() {
@@ -162,6 +209,7 @@ class IssueServiceTest {
         insertIssue(HOT_ISSUE_ID, "핫이슈", now.minusDays(3));
         insertIssue(MINOR_ISSUE_ID, "잔잔한이슈", now.minusDays(1));
         insertIssue(OLD_ISSUE_ID, "지난이슈", now.minusDays(10));
+        insertIssue(EMPTY_ISSUE_ID, "기사없는이슈", now.minusDays(1));
 
         // 핫이슈 - 24시간 내 3건 (ZA 2건, ZB 1건)
         insertArticle("hot-a1", HOT_ISSUE_ID, COUNTRY_A, 1.0, now.minusHours(1), false);
