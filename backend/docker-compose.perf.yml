@@ -1,0 +1,116 @@
+services:
+
+  # ===========================================================================
+  # 성능 측정 전용 PostgreSQL
+  #
+  # 목적: 팀원 간 동일한 조건에서 쿼리 성능을 측정하기 위한 환경.
+  #
+  # 성능 수치는 PostgreSQL 설정에 크게 좌우됩니다. 각자 로컬에 설치한
+  # PostgreSQL 로 재면 shared_buffers 나 random_page_cost 가 달라서
+  # 숫자를 비교할 수 없습니다. 그래서 아래 설정을 파일에 못박아 두고,
+  # 측정은 항상 이 컨테이너에서 합니다.
+  #
+  # 사용법:
+  #   docker compose -f docker-compose.perf.yml up -d
+  #   psql -h localhost -p 15432 -U postgres -d witw -f scripts/perf/generate-bulk.sql
+  #   psql -h localhost -p 15432 -U postgres -d witw -f scripts/perf/measure.sql
+  #
+  # 내리기 (데이터까지 삭제):
+  #   docker compose -f docker-compose.perf.yml down -v
+  # ===========================================================================
+  postgres-perf:
+    image: postgres:17-alpine
+    container_name: witw-postgres-perf
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: witw
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: perf
+
+    ports:
+      # 호스트 15432 -> 컨테이너 5432
+      #
+      # 5432 를 쓰지 않는 이유: 로컬에 이미 PostgreSQL 이 설치돼 있으면
+      # 포트가 충돌합니다. 15432 로 분리해 두면 기존 개발 DB 를 건드리지
+      # 않고 병행할 수 있습니다.
+      #
+      # 애플리케이션을 이 DB 로 붙이려면 환경변수로 덮어쓰십시오.
+      #   POSTGRESQL_URL=jdbc:postgresql://localhost:15432/witw
+      #   POSTGRESQL_PASSWORD=perf
+      - "127.0.0.1:15432:5432"
+
+    volumes:
+      - postgres-perf-data:/var/lib/postgresql/data
+
+    # -------------------------------------------------------------------------
+    # 측정 조건 고정
+    #
+    # 이 값을 바꾸면 과거 측정치와 비교할 수 없게 됩니다. 바꿀 때는
+    # DOCS/PERF.md 에 변경 사실을 기록하고 베이스라인을 다시 잡으십시오.
+    # -------------------------------------------------------------------------
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c work_mem=16MB
+      -c maintenance_work_mem=128MB
+      -c effective_cache_size=1GB
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c max_parallel_workers_per_gather=2
+      -c max_parallel_workers=4
+      -c track_io_timing=on
+      -c shared_preload_libraries=pg_stat_statements
+      -c pg_stat_statements.max=10000
+      -c pg_stat_statements.track=all
+
+    # 각 설정의 의미:
+    #
+    # shared_buffers=256MB
+    #   PostgreSQL 이 자체적으로 쓰는 페이지 캐시. 50만 건 기준 article
+    #   테이블이 약 300MB 이므로 이 값보다 큽니다. 일부러 그렇게 뒀습니다 —
+    #   테이블 전체가 캐시에 들어가면 디스크 I/O 가 사라져서 실제 운영과
+    #   다른 결과가 나옵니다.
+    #
+    # work_mem=16MB
+    #   정렬·해시가 이 값을 넘기면 디스크로 흘러내립니다. 플랜에
+    #   'Sort Method: external merge Disk:' 가 찍히면 이 값이 원인입니다.
+    #   기본값 4MB 는 집계 쿼리에 너무 작습니다.
+    #
+    # random_page_cost=1.1
+    #   가장 중요한 설정입니다. 기본값 4.0 은 회전 디스크를 가정한 값이라
+    #   인덱스 스캔을 과도하게 불리하게 평가합니다. SSD/NVMe 환경에서는
+    #   1.1 정도가 적절하고, 이 값에 따라 플래너가 인덱스를 쓸지 말지가
+    #   완전히 달라집니다. 운영 서버 디스크에 맞춰 정하십시오.
+    #
+    # max_parallel_workers_per_gather=2
+    #   병렬 워커 수도 플랜을 바꿉니다. 고정하지 않으면 머신의 CPU 코어
+    #   수에 따라 다른 플랜이 나와서 비교가 깨집니다.
+    #
+    # track_io_timing=on
+    #   EXPLAIN (ANALYZE, BUFFERS) 에 실제 I/O 대기 시간을 찍어줍니다.
+    #   CPU 바운드인지 I/O 바운드인지 구분하려면 반드시 필요합니다.
+    #
+    # shared_preload_libraries=pg_stat_statements
+    #   쿼리별 누적 통계(호출 수, 총 실행시간)를 수집합니다. 이 옵션은
+    #   재시작이 필요하므로 여기서 미리 켜 둡니다.
+    #   컨테이너를 띄운 뒤 확장을 한 번 생성해야 합니다:
+    #     CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+    #
+    #   이후 총 소모 시간 상위 쿼리를 이렇게 봅니다:
+    #     SELECT calls, round(total_exec_time) AS total_ms,
+    #            round(mean_exec_time, 2) AS mean_ms, query
+    #     FROM pg_stat_statements
+    #     ORDER BY total_exec_time DESC LIMIT 20;
+    #
+    #   평균이 느린 쿼리가 아니라 total_exec_time 상위를 봐야 합니다.
+    #   5ms 쿼리가 100만 번이면 100ms 쿼리 10번보다 훨씬 큰 문제입니다.
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d witw"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-perf-data:
