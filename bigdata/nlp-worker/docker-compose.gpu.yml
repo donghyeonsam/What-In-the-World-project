@@ -15,3 +15,10 @@ services:
       KAFKA_CONSUMER_GROUP: nlp-worker-v1
 
       NLP_BATCH_SIZE: "32"
+
+    volumes:
+      # GPU 서버의 모델 파일을 컨테이너에서 사용
+      - ./models:/app/models
+
+      # raw_archive.py가 저장하는 원본 기사 데이터 보존
+      - ./data:/app/data

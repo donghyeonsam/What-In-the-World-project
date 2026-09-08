@@ -1,1 +1,3 @@
 confluent-kafka
+fasttext-wheel
+numpy<2
