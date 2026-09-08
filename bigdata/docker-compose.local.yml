@@ -281,6 +281,37 @@ services:
 
 
   # =========================================================
+  # Spark Checkpoint HDFS Directory Init
+  # =========================================================
+  hdfs-checkpoint-init:
+    image: apache/hadoop:3.4.3
+    container_name: news-hdfs-checkpoint-init
+    user: root
+    restart: "no"
+
+    volumes:
+      - ./hadoop/config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./hadoop/config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+
+    command:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        # Spark 프로세스는 spark 사용자로 실행되므로 체크포인트 경로만 쓰기 가능하게 준비한다.
+        hdfs dfs -mkdir -p /checkpoints/enriched-article-events-v1
+        hdfs dfs -chown spark:supergroup /checkpoints/enriched-article-events-v1
+        hdfs dfs -chmod 775 /checkpoints/enriched-article-events-v1
+
+    depends_on:
+      datanode:
+        condition: service_healthy
+
+    networks:
+      - news-network
+
+
+  # =========================================================
   # Kafka(news.raw.v1) -> HDFS bronze writer
   # =========================================================
   bronze-writer:
@@ -370,7 +401,11 @@ services:
   # Spark Master
   # =========================================================
   spark-master:
-    image: apache/spark:4.2.0-python3
+    # Kafka Connector를 이미지 빌드 시점에 포함해 런타임 Maven 접근을 제거한다.
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    image: news-spark:4.2.0-kafka
 
     container_name: news-spark-master
     hostname: spark-master
@@ -408,7 +443,10 @@ services:
   # Spark Worker
   # =========================================================
   spark-worker:
-    image: apache/spark:4.2.0-python3
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    image: news-spark:4.2.0-kafka
 
     container_name: news-spark-worker
     hostname: spark-worker
@@ -438,6 +476,57 @@ services:
 
     depends_on:
       - spark-master
+
+    networks:
+      - news-network
+
+
+  # =========================================================
+  # Enriched Article Spark Stream
+  # =========================================================
+  spark-enriched-stream:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    image: news-spark:4.2.0-kafka
+
+    container_name: news-spark-enriched-stream
+    restart: unless-stopped
+    stop_grace_period: 60s
+
+    environment:
+      HADOOP_CONF_DIR: /opt/hadoop-conf
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_ENRICHED_TOPIC: news.enriched.v1
+      KAFKA_EVENT_TOPIC: news.event.v1
+      SPARK_CHECKPOINT_LOCATION: ${SPARK_CHECKPOINT_LOCATION:-hdfs://namenode:9000/checkpoints/enriched-article-events-v1}
+      SPARK_STARTING_OFFSETS: ${SPARK_STARTING_OFFSETS:-earliest}
+
+    volumes:
+      - ./hadoop/config:/opt/hadoop-conf:ro
+      - ./spark/apps:/opt/spark/apps:ro
+
+    command:
+      - /opt/spark/bin/spark-submit
+      - --master
+      - spark://spark-master:7077
+      - --deploy-mode
+      - client
+      - --py-files
+      - /opt/spark/apps/article_event.py
+      - /opt/spark/apps/enriched_article_stream.py
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      hdfs-checkpoint-init:
+        condition: service_completed_successfully
+      spark-master:
+        condition: service_started
+      spark-worker:
+        condition: service_started
 
     networks:
       - news-network

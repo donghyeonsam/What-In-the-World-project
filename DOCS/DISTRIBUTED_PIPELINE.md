@@ -10,11 +10,10 @@
 - [4. Kafka(news.enriched.v1)](#4-kafkanewsenriched)
 - [5. Spark(기사 분석용)](#5-spark기사-분석용)
 - [6. 이슈 매칭](#6-이슈-매칭)
-  - [6-1. Kafka(news.unclassified.v1)](#6-1-kafkanewsunclassified)
+  - [6-1. Kafka(news.unclassified.v1)](#6-1-kafkanewsunclassifiedv1)
   - [6-2. Spark(이슈 클러스터링용)](#6-2-spark이슈-클러스터링용)
-- [7. Kafka(news.event.v1)](#7-kafkanewsevent)
+- [7. Kafka(news.event.v1)](#7-kafkanewseventv1)
 - [8. Database 저장](#8-database-저장)
-- [9. 이벤트 테이블 저장](#9-이벤트-테이블-저장)
 
 <hr>
 
@@ -133,6 +132,7 @@ NLP Worker에서는 다음 작업을 수행한다.
 
 ```json
 {
+  "article_id": "87fa2c9...",
   "source_id": "622913",
   "source_name": "Hankook Ilbo - South Korea (Korean)",
   "country": "South Korea",
@@ -150,21 +150,21 @@ NLP Worker에서는 다음 작업을 수행한다.
   "error": null,
 
   "nlp_worker_data": {
-    "country_code": "kor",
-    "language_code": "kor",
+    "country_code": "KR",
+    "language_code": "ko",
     "domain_id": 3,
     "theme_id": 27,
 
     "mentioned_countries": [
       {
-        "country_code": "kor",
+        "country_code": "KR",
         "count": 3
       }
     ],
 
     "sentiment": {
       "label": "neutral",
-      "score": 0.12,
+      "score": 51.5,
       "confidence": 0.91
     },
 
@@ -175,6 +175,10 @@ NLP Worker에서는 다음 작업을 수행한다.
   }
 }
 ```
+
+`country_code`와 `mentioned_countries[].country_code`는 ISO 3166-1 alpha-2
+대문자 두 글자(`KR`, `US`, `JP` 등)를 사용한다. `sentiment.score`는 0부터
+100까지의 연속 논조 점수이며 Database의 `article.tone_score`에 저장한다.
 
 ## 4. Kafka(news.enriched.v1)
 NLP Worker의 처리가 완료된 기사는 Kafka의 news.enriched.v1 토픽에 저장된다.
@@ -210,7 +214,7 @@ news.enriched.v1
       ▼
 Spark(기사 분석용)
       │
-      ├──► 7. Kafka(news.event)
+      ├──► 7. Kafka(news.event.v1)
       │       └─ 기사 기본정보 1차 저장
       │
       └──► 6. 이슈 매칭
@@ -224,8 +228,8 @@ Spark(기사 분석용)
 - 기사 기본정보 저장을 위한 이벤트 생성
 - 이슈 매칭에 필요한 기사 Embedding 및 Theme 정보 전달
 
-### 5-1. Kafka(news.event)로 전달<hr>
-Spark에서 가공이 완료된 기사 데이터는 우선 news.event 토픽으로 전달한다.
+### 5-1. Kafka(news.event.v1)로 전달<hr>
+Spark에서 가공이 완료된 기사 데이터는 우선 `news.event.v1` 토픽으로 전달한다.
 
 이 단계의 목적은 이슈 매칭 결과와 관계없이 기사 자체를 먼저 Database에 저장하는 것이다.
 
@@ -233,7 +237,7 @@ Spark에서 가공이 완료된 기사 데이터는 우선 news.event 토픽으�
 Spark
   │
   ▼
-news.event
+news.event.v1
   │
   ▼
 Database(DB writer)
@@ -242,16 +246,45 @@ Database(DB writer)
 기사 기본정보 저장(물리적 저장)
 ```
 
-이 시점에는 아직 이슈가 결정되지 않았을 수 있으므로 issue_id는 비어 있는 상태로 저장될 수 있다.
+이 시점에는 아직 이슈가 결정되지 않았으므로 `issue_id`,
+`issue_similarity`, `issue_assigned_at`은 모두 `NULL`로 저장할 수 있다.
 
 ```text
 article
  ├─ 기본 기사 정보 저장
  ├─ NLP 분석 결과 저장 
- └─ issue_id = NULL 가능
+ ├─ issue_id = NULL 가능
+ ├─ issue_similarity = NULL 가능
+ └─ issue_assigned_at = NULL 가능
 ```
 
 이후 이슈 매칭이 성공하면 별도의 이벤트를 통해 기존 기사에 issue_id를 추가한다.
+
+Spark가 생성하는 최초 기사 저장 이벤트는 다음 계약을 사용한다. Kafka Key는
+`article_id`이며, Database Writer도 `article_id`를 기준으로 upsert한다.
+
+```json
+{
+  "event_type": "ARTICLE_UPSERT",
+  "occurred_at": "2026-09-04T03:20:15+09:00",
+  "payload": {
+    "article_id": "87fa2c9...",
+    "publisher_country_code": "KR",
+    "theme_id": 27,
+    "publisher": "Hankook Ilbo - South Korea (Korean)",
+    "url": "https://www.hankooki.com/news/articleView.html?idxno=342372",
+    "original_title": "국가철도공단, 정진혁 신임 이사장 취임…CEO 공백 종료",
+    "crawled_at": "2026-09-01T08:22:28.256121+00:00",
+    "embedding": [0.031, -0.114, 0.072],
+    "tone_score": 51.5,
+    "published_at": "2026-09-01T08:15:03+00:00",
+    "mentioned_countries": [{"country_code": "KR", "count": 3}]
+  }
+}
+```
+
+Spark는 NLP 계약에 없는 값을 임의로 생성하지 않는다. `published_at`을 포함한
+필수 필드가 없거나 형식이 잘못된 메시지는 정합성 검사 실패로 처리한다.
 
 ### 5-2. 이슈 매칭 단계로 전달<hr>
 동시에 Spark에서 처리된 기사는 6. 이슈 매칭 단계로 전달된다.
@@ -265,18 +298,18 @@ Spark
 6. 이슈 매칭
   │
   ├── 매칭 성공
-  │      └──► news.event
+  │      └──► news.event.v1
   │             └─ 기존 기사에 issue_id 할당
   │
   └── 매칭 실패
-         └──► news.unclassified
+         └──► news.unclassified.v1
 ```
 
 즉, 5번 Spark 단계에서는 기사 자체의 저장 흐름과 이슈 분석 흐름을 분리한다.
 
 ```text
 기사 기본정보
-    └──► news.event
+    └──► news.event.v1
 
 기사 이슈 분석
     └──► 이슈 매칭
@@ -294,14 +327,14 @@ Spark(기사 분석용)
 6. 이슈 매칭
         │
         ├── 매칭 성공
-        │      └──► news.event
+        │      └──► news.event.v1
         │             └─ 기존 기사에 issue_id 할당
         │
         └── 매칭 실패
-               └──► news.unclassified
+               └──► news.unclassified.v1
 ```
 ### 주요 처리 내용
-- 기사 article_embedding과 기존 이슈의 centroid_embedding 비교
+- 기사 `article_embedding`과 기존 이슈의 `embedding` 비교
 - 기사와 이슈 간 유사도 계산
 - 기준값 이상이면 기존 이슈와 매칭
 - 매칭 성공 시 해당 issue_id를 기사에 할당
@@ -320,7 +353,7 @@ Spark(기사 분석용)
 매칭 성공
   │
   ▼
-news.event
+news.event.v1
   │
   ▼
 기존 기사에 issue_id 할당
@@ -329,13 +362,13 @@ news.event
 ### 매칭 실패<hr>
 기존 이슈와 충분히 유사한 이슈를 찾지 못한 경우 해당 기사는 신규 이슈 후보로 분류한다.
 
-이후 news.unclassified 토픽으로 전달되며, 미분류 기사들이 일정 수 이상 쌓이면 이슈 클러스터링 단계에서 새로운 이슈 생성에 사용된다.
+이후 `news.unclassified.v1` 토픽으로 전달되며, 미분류 기사들이 일정 수 이상 쌓이면 이슈 클러스터링 단계에서 새로운 이슈 생성에 사용된다.
 
 ```text
 매칭 실패
    │
    ▼
-news.unclassified
+news.unclassified.v1
    │
    ▼
 Spark(이슈 클러스터링용)
@@ -368,24 +401,20 @@ TRADE
 
 ---
 
-## 기존 활성 이슈 조회
+## 기존 이슈 조회
 
-새롭게 유입된 기사와 비교하기 위해 해당 기사들이 속한 Theme의 기존 활성 이슈를 PostgreSQL에서 조회한다.
+새롭게 유입된 기사와 비교하기 위해 해당 기사들이 속한 Theme의 기존 이슈를 PostgreSQL에서 조회한다.
+Issue 테이블은 `id`, `theme_id`, `name`, `embedding`, `first_seen_at`,
+`created_at`, `updated_at`으로 구성한다. 별도의 상태나 최근 관측 시각 컬럼은
+사용하지 않는다.
 
 ```sql
 SELECT
     id AS issue_id,
     theme_id,
-    centroid_embedding
+    embedding AS issue_embedding
 FROM issue
-WHERE theme_id IN (12, 15, 21)
-  AND status = 'ACTIVE';
-```
-
-필요한 경우 최근 일정 기간 내 활성화된 이슈만 조회한다.
-
-```sql
-AND last_seen_at >= NOW() - INTERVAL '72 hours'
+WHERE theme_id IN (12, 15, 21);
 ```
 
 Spark에서는 JDBC를 이용하여 이슈 정보를 조회한다.
@@ -406,13 +435,13 @@ issues_df = (
 최종적으로 다음과 같은 형태의 DataFrame을 얻는다.
 
 ```
-+----------+----------+--------------------+
-| issue_id | theme_id | centroid_embedding |
-+----------+----------+--------------------+
++----------+----------+-----------------+
+| issue_id | theme_id | issue_embedding |
++----------+----------+-----------------+
 | 101      | 12       | [...]              |
 | 102      | 12       | [...]              |
 | 201      | 15       | [...]              |
-+----------+----------+--------------------+
++----------+----------+-----------------+
 ```
 
 ## 같은 Theme의 Issue끼리 후보 생성
@@ -422,13 +451,13 @@ issues_df = (
 예를 들어 다음과 같은 형태가 된다.
 
 ```
-+------------+----------+----------+------------------+--------------------+
-| article_id | theme_id | issue_id | embedding        | centroid_embedding |
-+------------+----------+----------+------------------+--------------------+
++------------+----------+----------+------------------+-----------------+
+| article_id | theme_id | issue_id | embedding        | issue_embedding |
++------------+----------+----------+------------------+-----------------+
 | a-123      | 12       | 101      | [article...]     | [issue101...]      |
 | a-123      | 12       | 102      | [article...]     | [issue102...]      |
 | a-124      | 15       | 201      | [article...]     | [issue201...]      |
-+------------+----------+----------+------------------+--------------------+
++------------+----------+----------+------------------+-----------------+
 ```
 
 이를 통해 서로 다른 Theme에 속한 이슈와의 불필요한 유사도 계산을 방지한다.
@@ -437,7 +466,8 @@ issues_df = (
 
 ## Cosine Similarity 계산
 
-각 기사 embedding과 Issue의 `centroid_embedding` 사이의 Cosine Similarity를 계산한다.
+각 기사 embedding과 Issue의 `embedding` 사이의 Cosine Similarity를 계산한다.
+Issue의 `embedding`은 해당 이슈에 속한 기사 임베딩의 centroid를 의미한다.
 
 ```
 article a-123
@@ -498,7 +528,6 @@ similarity < 0.90
 
 ```json
 {
-  "event_id": "event-uuid-002",
   "event_type": "ARTICLE_ISSUE_ASSIGNED",
   "occurred_at": "2026-09-03T06:40:02Z",
   "payload": {
@@ -525,10 +554,10 @@ key = article_id
 
 이슈가 매칭되지 않은 기사들은 따로 관리한다.
 
-### 6-1. Kafka(news.unclassified)
+### 6-1. Kafka(news.unclassified.v1)
 # 6-1. 미분류 기사 상태 저장
 
-`news.unclassified` Kafka에는 미분류 기사 발생 이벤트를 전달한다.
+`news.unclassified.v1` Kafka에는 미분류 기사 발생 이벤트를 전달한다.
 
 ```
 key = theme_id
@@ -552,11 +581,11 @@ key = theme_id
 
 # 미분류 기사 클러스터링 Trigger
 
-`news.unclassified` 에 저장된 이벤트들을 집계해서 테마별로 개수를 확인했을 때, 50개가 넘을 때 클러스터링을 진행한다.
+`news.unclassified.v1`에 저장된 이벤트들을 집계해서 테마별로 개수를 확인했을 때, 50개가 넘을 때 클러스터링을 진행한다.
 ### 6-2. Spark(이슈 클러스터링용)
 # 6-2. HDBSCAN 클러스터링
 
-`news.unclassified` 에 저장된 이벤트들을 집계해서 동일한 테마에 해당하는 기사끼리, embedding을 대상으로 HDBSCAN을 실행한다.
+`news.unclassified.v1`에 저장된 이벤트들을 집계해서 동일한 테마에 해당하는 기사끼리, embedding을 대상으로 HDBSCAN을 실행한다.
 
 ---
 
@@ -612,21 +641,23 @@ Cluster centroid와 가장 가까운 대표 기사 3건을 선택한다. (3건 �
 }
 ```
 
-summary에 대한 임베딩값은, spark에서 계산한다.
-## 7. Kafka(news.event)
+대표 기사와 클러스터 정보를 바탕으로 이슈명을 생성하고, Spark는 클러스터
+centroid를 Issue의 `embedding`으로 사용한다. LLM이 생성한 summary는 현재 Issue
+테이블에 저장하지 않는다.
+
+## 7. Kafka(news.event.v1)
 # 7. 신규 Issue 생성 이벤트 발행
 
-LLM을 통해 신규 Issue의 이름과 설명이 생성되면 카프카의 `news.event` 토픽에 `ISSUE_CREATE` 이벤트를 발행한다.
+LLM을 통해 신규 Issue의 이름이 생성되면 카프카의 `news.event.v1` 토픽에 `ISSUE_CREATE` 이벤트를 발행한다.
 
 ```json
 {
-  "event_id": "event-uuid-004",
   "event_type": "ISSUE_CREATE",
   "occurred_at": "2026-09-03T06:50:00Z",
   "payload": {
     "theme_id": 12,
     "name": "미국의 대중국 AI 반도체 수출 규제 확대",
-    "centroid_embedding": [
+    "embedding": [
       0.031,
       -0.114,
       0.072
@@ -636,8 +667,7 @@ LLM을 통해 신규 Issue의 이름과 설명이 생성되면 카프카의 `new
       "31cd921...",
       "aac8210..."
     ],
-    "first_seen_at": "2026-09-03T03:35:24Z",
-    "last_seen_at": "2026-09-03T06:40:21Z"
+    "first_seen_at": "2026-09-03T03:35:24Z"
   }
 }
 ```
@@ -646,15 +676,15 @@ DB Writer는 해당 이벤트를 소비하여 신규 Issue를 생성하고 Clust
 
 ## 8. Database 저장
 
-Spark에서 생성한 최종 이벤트는 `news.event` Kafka Topic으로 발행한다.
+Spark에서 생성한 최종 이벤트는 `news.event.v1` Kafka Topic으로 발행한다.
 
-Database Writer는 `news.event`를 구독하고, `event_type`에 따라 PostgreSQL의 데이터를 생성하거나 갱신한다.
+Database Writer는 `news.event.v1`을 구독하고, `event_type`에 따라 PostgreSQL의 데이터를 생성하거나 갱신한다.
 
 ```text
 Spark
   │
   ▼
-news.event
+news.event.v1
   │
   ▼
 Database Writer
@@ -663,7 +693,20 @@ Database Writer
 PostgreSQL
 ```
 
-Kafka 메시지의 `event_id`는 이벤트의 고유 식별자로 사용하며, 실제 DB 조회 및 갱신에는 `payload` 내부의 `article_id`, `issue_id` 등의 식별자를 사용한다.
+Kafka 메시지의 Key와 Database의 멱등 처리에는 `payload` 내부의
+`article_id`, `article_ids`, `issue_id` 등 비즈니스 식별자를 사용한다.
+
+---
+
+### ARTICLE_UPSERT 처리
+
+이슈 매칭 전 기사 기본정보를 먼저 저장한다. `article.id`에는
+`payload.article_id`를 사용하고, 동일 ID가 이미 있으면 최신 NLP 결과로 갱신한다.
+최초 저장 시 `issue_id`, `issue_similarity`, `issue_assigned_at`은 `NULL`이다.
+`embedding` 배열은 현재 DB의 TEXT 컬럼에 JSON 문자열로 저장한다.
+
+`mentioned_countries`는 기사를 저장한 뒤 `article_country_mention`에 upsert한다.
+Database Writer는 기사와 언급 국가 저장을 하나의 Transaction으로 처리한다.
 
 ---
 
@@ -673,7 +716,6 @@ Kafka 메시지의 `event_id`는 이벤트의 고유 식별자로 사용하며, 
 
 ```json
 {
-  "event_id": "event-uuid-002",
   "event_type": "ARTICLE_ISSUE_ASSIGNED",
   "occurred_at": "2026-09-03T06:40:02Z",
   "payload": {
@@ -694,27 +736,10 @@ SET
     issue_id = 102,
     issue_similarity = 0.94,
     issue_assigned_at = NOW()
-WHERE article_id = 'a-123';
+WHERE id = 'a-123';
 ```
 
-별도의 관계 테이블을 사용하는 경우에는 다음과 같이 저장할 수 있다.
-
-```sql
-INSERT INTO article_issue (
-    article_id,
-    issue_id,
-    similarity,
-    assigned_at
-)
-VALUES (
-    'a-123',
-    102,
-    0.94,
-    NOW()
-);
-```
-
-MVP에서는 하나의 기사가 하나의 Issue에만 속하도록 설계한다면 `article.issue_id`를 직접 갱신하는 방식이 더 단순하다.
+MVP에서는 하나의 기사가 하나의 Issue에만 속하므로 `article.issue_id`를 직접 갱신한다.
 
 ---
 
@@ -724,21 +749,18 @@ MVP에서는 하나의 기사가 하나의 Issue에만 속하도록 설계한다
 
 ```json
 {
-  "event_id": "event-uuid-004",
   "event_type": "ISSUE_CREATE",
   "occurred_at": "2026-09-03T06:50:00Z",
   "payload": {
     "theme_id": 12,
     "name": "미국의 대중국 AI 반도체 수출 규제 확대",
-    "summary": "미국 정부가 중국에 대한 첨단 AI 반도체 수출 규제를 확대했다.",
-    "centroid_embedding": [...],
+    "embedding": [...],
     "article_ids": [
       "a-101",
       "a-102",
       "a-103"
     ],
-    "first_seen_at": "2026-09-03T03:35:24Z",
-    "last_seen_at": "2026-09-03T06:40:21Z"
+    "first_seen_at": "2026-09-03T03:35:24Z"
   }
 }
 ```
@@ -758,22 +780,16 @@ Database Writer는 하나의 Transaction 안에서 다음 작업을 처리한다
 INSERT INTO issue (
     theme_id,
     name,
-    summary,
-    centroid_embedding,
-    status,
+    embedding,
     first_seen_at,
-    last_seen_at,
     created_at,
     updated_at
 )
 VALUES (
     12,
     '미국의 대중국 AI 반도체 수출 규제 확대',
-    '미국 정부가 중국에 대한 첨단 AI 반도체 수출 규제를 확대했다.',
-    :centroid_embedding,
-    'ACTIVE',
+    :embedding,
     '2026-09-03T03:35:24Z',
-    '2026-09-03T06:40:21Z',
     NOW(),
     NOW()
 )
@@ -787,7 +803,7 @@ UPDATE article
 SET
     issue_id = 205,
     issue_assigned_at = NOW()
-WHERE article_id IN (
+WHERE id IN (
     'a-101',
     'a-102',
     'a-103'
@@ -821,8 +837,7 @@ Issue 생성에는 성공했지만 기사 연결 과정에서 오류가 발생�
 주요 갱신 대상은 다음과 같다.
 
 ```text
-last_seen_at
-centroid_embedding
+embedding
 updated_at
 ```
 
@@ -831,15 +846,13 @@ updated_at
 ```sql
 UPDATE issue
 SET
-    centroid_embedding = :updated_centroid_embedding,
-    last_seen_at = :published_at,
+    embedding = :updated_embedding,
     updated_at = NOW()
 WHERE id = 102;
 ```
 
-`last_seen_at`은 해당 Issue에 속한 기사 중 가장 최근 기사 시각을 나타낸다.
-
-`centroid_embedding`은 Issue에 새로운 기사가 추가됨에 따라 기존 centroid와 신규 기사 embedding을 반영하여 갱신한다.
+`embedding`은 Issue에 새로운 기사가 추가됨에 따라 기존 centroid와 신규 기사
+embedding을 반영하여 갱신한다. 최초 등장 시각인 `first_seen_at`은 변경하지 않는다.
 
 ---
 
@@ -847,65 +860,37 @@ WHERE id = 102;
 
 Kafka는 Consumer 장애나 재시작 상황에서 동일한 메시지가 다시 전달될 수 있기 때문에 Database Writer는 동일 이벤트가 여러 번 처리되어도 결과가 달라지지 않도록 멱등성을 보장해야 한다.
 
-이를 위해 처리한 `event_id`를 별도로 저장한다.
+`ARTICLE_UPSERT`는 `article_id` Primary Key를 기준으로 upsert하고,
+`ARTICLE_ISSUE_ASSIGNED`는 `article_id`를 기준으로 update하므로 반복 처리해도
+최종 상태가 같다.
 
-예:
-
-```text
-processed_event
-----------------------------
-event_id        UUID PK
-event_type
-processed_at
-```
-
-Database Writer가 이벤트를 받으면 먼저 해당 `event_id`가 이미 처리되었는지 확인한다.
+`ISSUE_CREATE`는 Cluster의 `article_ids`를 잠근 뒤 이슈 할당 여부를 확인한다.
+모든 기사가 미할당 상태일 때만 Issue를 생성하고, Issue 생성과 기사 연결을 같은
+Transaction 안에서 처리한다.
 
 ```sql
-SELECT 1
-FROM processed_event
-WHERE event_id = 'event-uuid-002';
+BEGIN;
+
+SELECT id, issue_id
+FROM article
+WHERE id IN ('a-101', 'a-102', 'a-103')
+ORDER BY id
+FOR UPDATE;
+
+-- 모든 issue_id가 NULL인 경우에만 Issue 생성 및 기사 연결
+
+COMMIT;
 ```
 
-이미 존재하는 경우 해당 이벤트는 다시 처리하지 않는다.
-
-처음 처리하는 이벤트라면 DB 작업과 함께 `event_id`를 저장한다.
-
-```sql
-INSERT INTO processed_event (
-    event_id,
-    event_type,
-    processed_at
-)
-VALUES (
-    'event-uuid-002',
-    'ARTICLE_ISSUE_ASSIGNED',
-    NOW()
-);
-```
-
-이 작업 역시 실제 데이터 변경과 같은 Transaction 안에서 처리한다.
-
-```text
-BEGIN
-
-event_id 중복 확인
-        ↓
-Article / Issue 데이터 변경
-        ↓
-processed_event INSERT
-        ↓
-COMMIT
-```
-
-이를 통해 Consumer 재처리 상황에서도 동일 Issue가 중복 생성되거나 동일 이벤트가 반복 적용되는 것을 방지한다.
+이미 같은 Issue에 할당된 기사들이라면 중복 이벤트로 판단하여 건너뛴다. 일부만
+할당됐거나 서로 다른 Issue에 할당된 경우에는 충돌로 처리하고 자동 생성하지 않는다.
 
 ---
 
 ### 최종 Database 저장 흐름
 
 ```text
-                         news.event
+                         news.event.v1
                              │
                              ▼
                        Database Writer
@@ -928,13 +913,7 @@ COMMIT
               └──────────────┬──────────────┘
                              │
                              ▼
-                   processed_event 저장
-                             │
-                             ▼
                           COMMIT
 ```
 
 Database Writer는 Kafka와 PostgreSQL 사이의 저장 책임을 담당하며, Spark가 직접 PostgreSQL의 데이터를 생성하거나 수정하지 않도록 역할을 분리한다.
-
-
-## 9. 이벤트 테이블 저장

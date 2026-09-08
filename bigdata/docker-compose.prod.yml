@@ -202,6 +202,34 @@ services:
     networks:
       - news-network
 
+  hdfs-checkpoint-init:
+    image: apache/hadoop:3.4.3
+    container_name: news-hdfs-checkpoint-init
+    user: root
+    restart: "no"
+
+    volumes:
+      - ./hadoop/config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./hadoop/config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+
+    command:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        # Spark 사용자에게 전체 HDFS가 아니라 전용 체크포인트 경로의 쓰기 권한만 부여한다.
+        hdfs dfs -mkdir -p /checkpoints/enriched-article-events-v1
+        hdfs dfs -chown spark:supergroup /checkpoints/enriched-article-events-v1
+        hdfs dfs -chmod 775 /checkpoints/enriched-article-events-v1
+
+    depends_on:
+      datanode:
+        condition: service_healthy
+
+    logging: *default-logging
+    networks:
+      - news-network
+
   bronze-writer:
     build:
       context: ./kafka-hdfs-writer
@@ -273,7 +301,10 @@ services:
       - news-network
 
   spark-master:
-    image: apache/spark:4.2.0-python3
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    image: news-spark:4.2.0-kafka
     container_name: news-spark-master
     hostname: spark-master
     restart: unless-stopped
@@ -316,7 +347,10 @@ services:
       - news-network
 
   spark-worker:
-    image: apache/spark:4.2.0-python3
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    image: news-spark:4.2.0-kafka
     container_name: news-spark-worker
     hostname: spark-worker
     restart: unless-stopped
@@ -358,6 +392,53 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
+
+    logging: *default-logging
+    networks:
+      - news-network
+
+  spark-enriched-stream:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    image: news-spark:4.2.0-kafka
+    container_name: news-spark-enriched-stream
+    restart: unless-stopped
+    stop_grace_period: 60s
+
+    environment:
+      HADOOP_CONF_DIR: /opt/hadoop-conf
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_ENRICHED_TOPIC: news.enriched.v1
+      KAFKA_EVENT_TOPIC: news.event.v1
+      SPARK_CHECKPOINT_LOCATION: ${SPARK_CHECKPOINT_LOCATION:-hdfs://namenode:9000/checkpoints/enriched-article-events-v1}
+      SPARK_STARTING_OFFSETS: ${SPARK_STARTING_OFFSETS:-earliest}
+
+    volumes:
+      - ./hadoop/config:/opt/hadoop-conf:ro
+      - ./spark/apps:/opt/spark/apps:ro
+
+    command:
+      - /opt/spark/bin/spark-submit
+      - --master
+      - spark://spark-master:7077
+      - --deploy-mode
+      - client
+      - --py-files
+      - /opt/spark/apps/article_event.py
+      - /opt/spark/apps/enriched_article_stream.py
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      hdfs-checkpoint-init:
+        condition: service_completed_successfully
+      spark-master:
+        condition: service_healthy
+      spark-worker:
+        condition: service_healthy
 
     logging: *default-logging
     networks:
