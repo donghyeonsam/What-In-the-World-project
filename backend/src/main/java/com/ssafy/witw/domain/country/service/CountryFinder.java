@@ -20,4 +20,10 @@ public class CountryFinder {
         return countryRepository.findById(countryCode)
                 .orElseThrow(() -> new GlobalException(ErrorCode.COUNTRY_NOT_FOUND));
     }
+
+    public void validateExists(String countryCode) {
+        if (!countryRepository.existsById(countryCode)) {
+            throw new GlobalException(ErrorCode.COUNTRY_NOT_FOUND);
+        }
+    }
 }

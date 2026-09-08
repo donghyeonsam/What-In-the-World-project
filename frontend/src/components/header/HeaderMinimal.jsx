@@ -16,7 +16,7 @@ const SearchIcon = () => (
  *          searchLabel?: string, shortcut?: string, status?: string}} props
  */
 export default function HeaderMinimal({
-  brand = 'What In the World',
+  brand = 'What In the World!',
   routes = [
     { id: 'global', label: '글로벌 동향' },
     { id: 'country', label: '국가 분석' },
