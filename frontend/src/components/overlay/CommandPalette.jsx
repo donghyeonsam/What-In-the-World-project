@@ -54,6 +54,7 @@ export default function CommandPalette({
           <kbd className={s.kbd}>ESC</kbd>
         </div>
         <p>빠른 선택</p>
+        {!list.length && <p role="status">검색 결과가 없습니다.</p>}
         {list.map((c) => (
           <button
             key={c.name}
