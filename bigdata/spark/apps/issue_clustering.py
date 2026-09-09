@@ -1,0 +1,249 @@
+"""Pure clustering and event transformations for unclassified articles."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Iterable, Sequence
+
+
+ISSUE_CREATE = "ISSUE_CREATE"
+
+
+class InvalidUnclassifiedArticle(ValueError):
+    """Raised when a news.unclassified.v1 message violates its contract."""
+
+
+@dataclass(frozen=True)
+class UnclassifiedArticle:
+    article_id: str
+    theme_id: int
+    embedding: tuple[float, ...]
+    title: str
+    published_at: str
+    unclassified_at: str
+
+
+@dataclass(frozen=True)
+class ClusterCandidate:
+    theme_id: int
+    articles: tuple[UnclassifiedArticle, ...]
+    centroid: tuple[float, ...]
+    representatives: tuple[UnclassifiedArticle, ...]
+    membership_confidence: float
+
+
+@dataclass(frozen=True)
+class GeneratedIssue:
+    name: str
+    summary: str
+
+
+def _required_text(value: Any, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise InvalidUnclassifiedArticle(f"{field} must be a non-empty string")
+    return value.strip()
+
+
+def _required_timestamp(value: Any, field: str) -> str:
+    text = _required_text(value, field)
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise InvalidUnclassifiedArticle(f"{field} must be an ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None:
+        raise InvalidUnclassifiedArticle(f"{field} must include a timezone")
+    return text
+
+
+def numeric_embedding(value: Any, field: str = "embedding") -> tuple[float, ...]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise InvalidUnclassifiedArticle(f"{field} must be a JSON array") from exc
+    if not isinstance(value, (list, tuple)) or not value:
+        raise InvalidUnclassifiedArticle(f"{field} must be a non-empty array")
+    if any(
+        isinstance(item, bool)
+        or not isinstance(item, (int, float))
+        or not math.isfinite(float(item))
+        for item in value
+    ):
+        raise InvalidUnclassifiedArticle(f"{field} must contain only finite numbers")
+    return tuple(float(item) for item in value)
+
+
+def parse_unclassified_message(raw_value: str) -> UnclassifiedArticle:
+    if not isinstance(raw_value, str):
+        raise InvalidUnclassifiedArticle("value must be a JSON object")
+    try:
+        payload = json.loads(raw_value)
+    except json.JSONDecodeError as exc:
+        raise InvalidUnclassifiedArticle("value must be a JSON object") from exc
+    if not isinstance(payload, dict):
+        raise InvalidUnclassifiedArticle("value must be a JSON object")
+
+    theme_id = payload.get("theme_id")
+    if isinstance(theme_id, bool) or not isinstance(theme_id, int) or theme_id <= 0:
+        raise InvalidUnclassifiedArticle("theme_id must be a positive integer")
+
+    return UnclassifiedArticle(
+        article_id=_required_text(payload.get("article_id"), "article_id"),
+        theme_id=theme_id,
+        embedding=numeric_embedding(payload.get("embedding")),
+        title=_required_text(payload.get("title"), "title"),
+        published_at=_required_timestamp(payload.get("published_at"), "published_at"),
+        unclassified_at=_required_timestamp(
+            payload.get("unclassified_at"), "unclassified_at"
+        ),
+    )
+
+
+def cosine_similarity(left: Iterable[float], right: Iterable[float]) -> float | None:
+    left_values = tuple(float(item) for item in left)
+    right_values = tuple(float(item) for item in right)
+    if not left_values or len(left_values) != len(right_values):
+        return None
+    dot_product = sum(a * b for a, b in zip(left_values, right_values))
+    left_norm = math.sqrt(sum(item * item for item in left_values))
+    right_norm = math.sqrt(sum(item * item for item in right_values))
+    if left_norm == 0.0 or right_norm == 0.0:
+        return None
+    return max(-1.0, min(1.0, dot_product / (left_norm * right_norm)))
+
+
+def _normalized_centroid(embeddings: Sequence[tuple[float, ...]]) -> tuple[float, ...]:
+    dimensions = {len(embedding) for embedding in embeddings}
+    if len(dimensions) != 1:
+        raise InvalidUnclassifiedArticle("all embeddings must have equal dimensions")
+    centroid = tuple(
+        sum(embedding[index] for embedding in embeddings) / len(embeddings)
+        for index in range(len(embeddings[0]))
+    )
+    norm = math.sqrt(sum(value * value for value in centroid))
+    if norm == 0.0:
+        raise InvalidUnclassifiedArticle("cluster centroid must not be a zero vector")
+    return tuple(value / norm for value in centroid)
+
+
+def cluster_articles(
+    articles: Sequence[UnclassifiedArticle],
+    min_cluster_size: int,
+    min_samples: int | None = None,
+    representative_count: int = 3,
+    min_membership_confidence: float = 0.0,
+) -> tuple[ClusterCandidate, ...]:
+    """Run HDBSCAN and return deterministic non-noise cluster candidates."""
+
+    if min_cluster_size < 2:
+        raise ValueError("min_cluster_size must be at least 2")
+    if representative_count < 1:
+        raise ValueError("representative_count must be positive")
+    if not 0.0 <= min_membership_confidence <= 1.0:
+        raise ValueError("min_membership_confidence must be between 0 and 1")
+    if len(articles) < min_cluster_size:
+        return ()
+    theme_ids = {article.theme_id for article in articles}
+    if len(theme_ids) != 1:
+        raise ValueError("articles from different themes cannot be clustered together")
+    dimensions = {len(article.embedding) for article in articles}
+    if len(dimensions) != 1:
+        raise InvalidUnclassifiedArticle("all embeddings must have equal dimensions")
+
+    # Imported lazily so contract/event unit tests do not require the ML runtime.
+    from sklearn.cluster import HDBSCAN
+
+    model = HDBSCAN(
+        min_cluster_size=min_cluster_size,
+        min_samples=min_samples,
+        metric="euclidean",
+        cluster_selection_method="eom",
+        # A theme batch can legitimately contain one newly emerging issue.
+        allow_single_cluster=True,
+    )
+    labels = model.fit_predict([article.embedding for article in articles])
+    probabilities = getattr(model, "probabilities_", [1.0] * len(articles))
+
+    clusters: list[ClusterCandidate] = []
+    for label in sorted(set(int(value) for value in labels if int(value) >= 0)):
+        members = tuple(
+            article
+            for article, article_label in zip(articles, labels)
+            if int(article_label) == label
+        )
+        member_probabilities = [
+            float(probability)
+            for probability, article_label in zip(probabilities, labels)
+            if int(article_label) == label
+        ]
+        membership_confidence = sum(member_probabilities) / len(member_probabilities)
+        if membership_confidence < min_membership_confidence:
+            continue
+
+        centroid = _normalized_centroid([article.embedding for article in members])
+
+        def representative_key(article: UnclassifiedArticle) -> tuple[float, str]:
+            similarity = cosine_similarity(article.embedding, centroid)
+            return (-(similarity if similarity is not None else -1.0), article.article_id)
+
+        representatives = tuple(
+            sorted(
+                members,
+                key=representative_key,
+            )[:representative_count]
+        )
+        clusters.append(
+            ClusterCandidate(
+                theme_id=members[0].theme_id,
+                articles=members,
+                centroid=centroid,
+                representatives=representatives,
+                membership_confidence=membership_confidence,
+            )
+        )
+
+    # HDBSCAN label values themselves are not a durable ordering contract.
+    return tuple(sorted(clusters, key=lambda item: item.articles[0].article_id))
+
+
+def cluster_event_key(cluster: ClusterCandidate) -> str:
+    article_ids = "\n".join(sorted(article.article_id for article in cluster.articles))
+    digest = hashlib.sha256(article_ids.encode("utf-8")).hexdigest()[:24]
+    return f"issue-cluster:{cluster.theme_id}:{digest}"
+
+
+def build_issue_events(
+    cluster: ClusterCandidate,
+    generated: GeneratedIssue,
+    occurred_at: str | None = None,
+) -> tuple[tuple[str, str], ...]:
+    """Build the existing ISSUE_CREATE Kafka key/value contract."""
+
+    occurred_at = occurred_at or datetime.now(timezone.utc).isoformat()
+    first_seen_at = min(
+        cluster.articles,
+        key=lambda article: datetime.fromisoformat(
+            article.published_at.replace("Z", "+00:00")
+        ),
+    ).published_at
+    event = {
+        "event_type": ISSUE_CREATE,
+        "occurred_at": occurred_at,
+        "payload": {
+            "theme_id": cluster.theme_id,
+            "name": generated.name,
+            "embedding": list(cluster.centroid),
+            "article_ids": sorted(article.article_id for article in cluster.articles),
+            "first_seen_at": first_seen_at,
+        },
+    }
+    return (
+        (
+            cluster_event_key(cluster),
+            json.dumps(event, ensure_ascii=False, separators=(",", ":")),
+        ),
+    )
