@@ -14,10 +14,12 @@ Windows PowerShell 실행 정책으로 npm 실행이 막히면 `npm.cmd`를 사�
 다른 서버를 사용하려면 `.env.example`을 참고해 `.env.local`에 `API_PROXY_TARGET`을 설정합니다.
 브라우저가 직접 별도 서버에 접속해야 하는 경우 `VITE_API_BASE_URL`을 설정하고 백엔드 CORS 허용 출처를 맞춥니다.
 
-프로덕션에서는 **동일 출처의 `/api`를 백엔드로 연결하는 리버스 프록시가 필요**합니다.
-Vite 개발 프록시는 빌드 결과물에 포함되지 않습니다. 외부 API를 직접 사용할 Docker 빌드는
+프로덕션 Docker 이미지의 Nginx는 동일 출처의 `/api` 요청을 백엔드로 프록시합니다.
+백엔드 주소는 공용 Docker 네트워크의 `http://backend:8080`입니다.
+프론트와 백엔드 컨테이너는 공용 Docker 네트워크에 연결됩니다. 배포 파이프라인의 기본 네트워크는
+`witw-app-network`이며 `APP_DOCKER_NETWORK` CI 변수로 바꿀 수 있습니다.
+Vite 개발 프록시는 개발 서버에서만 사용됩니다. 브라우저가 외부 API를 직접 호출해야 하는 빌드는
 `--build-arg VITE_API_BASE_URL=https://서버주소/api/v1`을 전달할 수 있습니다.
-프론트 컨테이너의 기본 Nginx는 정적 파일만 제공합니다.
 
 | 화면 | API |
 |---|---|

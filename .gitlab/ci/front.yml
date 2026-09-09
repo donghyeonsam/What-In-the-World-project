@@ -31,9 +31,13 @@ deploy-frontend:
   tags:
     - frontend-deploy
   timeout: 20m
+  variables:
+    APP_DOCKER_NETWORK: witw-app-network
 
   needs:
     - validate-frontend
+    - job: deploy-backend
+      optional: true
 
   resource_group: frontend-production
   interruptible: false
@@ -50,10 +54,13 @@ deploy-frontend:
     - docker build -t jamonda1/what-in-the-world:latest .
     - docker push jamonda1/what-in-the-world:latest
 
+    - docker network inspect "$APP_DOCKER_NETWORK" >/dev/null
     - docker rm -f what-in-the-world-front || true
-    - docker run -d --name what-in-the-world-front --restart unless-stopped -p 127.0.0.1:3000:80 jamonda1/what-in-the-world:latest
+    - docker run -d --name what-in-the-world-front --restart unless-stopped --network "$APP_DOCKER_NETWORK" -p 127.0.0.1:3000:80 jamonda1/what-in-the-world:latest
 
     - timeout 5 bash -c '</dev/tcp/127.0.0.1/3000'
+    - docker exec what-in-the-world-front wget -q -O /dev/null http://127.0.0.1/healthz
+    - docker exec what-in-the-world-front wget -q -O /dev/null http://127.0.0.1/api/v1/themes/by-field
 
   rules:
     # master에서만 배포
