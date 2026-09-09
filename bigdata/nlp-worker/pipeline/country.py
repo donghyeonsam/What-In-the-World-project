@@ -13,7 +13,6 @@ from functools import lru_cache
 
 import pycountry
 from babel import Locale
-from gliner import GLiNER
 
 
 # =========================================================
@@ -22,7 +21,16 @@ from gliner import GLiNER
 
 MODEL_NAME = "urchade/gliner_multi-v2.1"
 
-_country_model = GLiNER.from_pretrained(MODEL_NAME)
+_country_model = None
+
+
+def get_country_model():
+    global _country_model
+    if _country_model is None:
+        from gliner import GLiNER
+        _country_model = GLiNER.from_pretrained(MODEL_NAME)
+        _country_model.eval()
+    return _country_model
 
 
 # =========================================================
@@ -187,7 +195,7 @@ def extract_country_entities(article):
     if not text:
         return []
 
-    return _country_model.predict_entities(
+    return get_country_model().predict_entities(
         text,
         labels=["country"],
         threshold=0.3,
@@ -238,6 +246,9 @@ def extract_country_mentions_from_entity(
             continue
 
         pattern = re.escape(country_name)
+        # Keep Latin country names at word boundaries; preserve CJK particles.
+        if re.search(r"[A-Za-z]", country_name):
+            pattern = r"(?<!\w)" + pattern + r"(?!\w)"
 
         for match in re.finditer(
                 pattern,
@@ -377,5 +388,5 @@ def extract_mentioned_countries(
             "count": count,
         }
         for country_code, count
-        in country_counter.items()
+        in sorted(country_counter.items())
     ]

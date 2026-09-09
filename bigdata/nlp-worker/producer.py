@@ -1,69 +1,59 @@
-"""
-Kafka Producer 모듈.
-
-NLP 처리가 완료된 뉴스 데이터를
-news.enriched.v1 토픽으로 전송한다.
-"""
-
+"""Kafka broker acknowledgement를 검증하는 단일 Worker producer."""
 import json
 
 from confluent_kafka import Producer
+from config import KAFKA_BOOTSTRAP_SERVERS, KAFKA_ENRICHED_TOPIC
 
-from config import (
-    KAFKA_BOOTSTRAP_SERVERS,
-    KAFKA_ENRICHED_TOPIC,
-)
+
+class DeliveryProducer:
+    def __init__(self, client):
+        self.client = client
+        self.pending = 0
+        self.errors = []
+
+    def on_delivery(self, error, message):
+        self.pending -= 1
+        if error is not None:
+            self.errors.append(str(error))
 
 
 def create_producer():
-    """
-    NLP Worker에서 사용할 Kafka Producer를 생성한다.
-    """
-    producer = Producer(
-        {
-            "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
-
-            # Producer를 식별하기 위한 이름
-            "client.id": "nlp-worker",
-
-            # 모든 replica가 메시지를 확인한 뒤 성공 처리
-            "acks": "all",
-
-            # 동일 메시지 중복 전송 가능성을 줄이기 위한 설정
-            "enable.idempotence": True,
-
-            # 네트워크 전송량 절감을 위한 압축
-            "compression.type": "snappy",
-        }
-    )
-
-    return producer
+    return DeliveryProducer(Producer({
+        "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
+        "client.id": "nlp-worker",
+        "acks": "all",
+        "enable.idempotence": True,
+        "compression.type": "snappy",
+    }))
 
 
 def send_enriched_article(producer, article):
-    """
-    NLP 처리 결과가 포함된 기사 데이터를
-    news.enriched.v1 토픽으로 전송한다.
-    """
-
-    article_id = article["article_id"]
-
     payload = json.dumps(
-        article,
-        ensure_ascii=False,
-        separators=(",", ":"),
+        article, ensure_ascii=False, separators=(",", ":"), allow_nan=False,
     )
-
-    producer.produce(
-        topic=KAFKA_ENRICHED_TOPIC,
-        key=article_id,
-        value=payload,
-    )
+    producer.pending += 1
+    try:
+        producer.client.produce(
+            topic=KAFKA_ENRICHED_TOPIC,
+            key=article["article_id"],
+            value=payload,
+            on_delivery=producer.on_delivery,
+        )
+    except Exception:
+        producer.pending -= 1
+        raise
+    producer.client.poll(0)
+    if producer.errors:
+        raise RuntimeError(f"Kafka delivery failed: {producer.errors}")
 
 
 def flush_producer(producer):
-    """
-    Producer 내부에 대기 중인 메시지가
-    Kafka에 모두 전달될 때까지 기다린다.
-    """
-    producer.flush()
+    # timeout은 librdkafka 기본 message.timeout.ms(300000)와 같은 300초.
+    # 애플리케이션 retry/backoff는 추가하지 않는다.
+    remaining = producer.client.flush(300.0)
+    if remaining or producer.pending:
+        raise TimeoutError(
+            f"Kafka delivery incomplete: queue={remaining}, pending={producer.pending}"
+        )
+    if producer.errors:
+        raise RuntimeError(f"Kafka delivery failed: {producer.errors}")

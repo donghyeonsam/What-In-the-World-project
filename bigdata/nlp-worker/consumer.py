@@ -1,82 +1,65 @@
-"""
-Kafka Consumer 모듈.
-
-news.raw.v1 토픽에서 원본 뉴스 메시지를 읽고,
-NLP 처리를 위한 배치 단위로 데이터를 수집한다.
-"""
-
+"""Kafka 수신과 배치 완료 후 offset 저장. invalid JSON도 archive 단계로 전달한다."""
 import json
 
 from confluent_kafka import Consumer, KafkaError
 
-from config import ( # config 상수들 가져오기
-    KAFKA_BOOTSTRAP_SERVERS,
-    KAFKA_RAW_TOPIC,
-    KAFKA_CONSUMER_GROUP,
-    NLP_BATCH_SIZE,
+from config import (
+    KAFKA_BOOTSTRAP_SERVERS, KAFKA_RAW_TOPIC,
+    KAFKA_CONSUMER_GROUP, NLP_BATCH_SIZE,
 )
 
 
 def create_consumer():
-    """
-    NLP Worker에서 사용할 Kafka Consumer를 생성한다.
-    """
-    consumer = Consumer(
-        {
-            "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
-            "group.id": KAFKA_CONSUMER_GROUP,
-
-            # Consumer Group에 저장된 offset이 없을 경우
-            # 가장 오래된 메시지부터 읽는다.
-            "auto.offset.reset": "earliest",
-
-            # NLP 처리와 Kafka 전송이 성공한 뒤
-            # 직접 offset을 commit하기 위해 자동 commit을 비활성화한다.
-            "enable.auto.commit": False,
-        }
-    )
-
-    consumer.subscribe([KAFKA_RAW_TOPIC]) # 해당 consumer는 이 토픽을 구독한다.
-
+    if NLP_BATCH_SIZE <= 0:
+        raise ValueError("NLP_BATCH_SIZE must be positive")
+    consumer = Consumer({
+        "bootstrap.servers": KAFKA_BOOTSTRAP_SERVERS,
+        "group.id": KAFKA_CONSUMER_GROUP,
+        "auto.offset.reset": "earliest",
+        "enable.auto.commit": False,
+    })
+    try:
+        consumer.subscribe([KAFKA_RAW_TOPIC])
+    except BaseException:
+        consumer.close()
+        raise
     return consumer
 
 
-def consume_batch(consumer):
-    """
-    Kafka에서 최대 NLP_BATCH_SIZE개의 메시지를 읽어
-    하나의 배치로 반환한다.
-    """
-    batch = []
+def _reject_constant(value):
+    raise ValueError(f"Invalid JSON constant: {value}")
 
+
+def consume_batch(consumer):
+    batch = []
     while len(batch) < NLP_BATCH_SIZE:
         message = consumer.poll(timeout=1.0)
-
-        # 현재 읽을 메시지가 없으면 지금까지 모인 배치를 반환한다.
         if message is None:
             break
-
         if message.error():
             if message.error().code() == KafkaError._PARTITION_EOF:
                 continue
+            raise RuntimeError(f"Kafka consumer error: {message.error()}")
 
-            raise RuntimeError(
-                f"Kafka consumer error: {message.error()}"
-            )
-
+        item = {"message": message, "article": None}
         try:
-            article = json.loads(
-                message.value().decode("utf-8")
+            value = message.value()
+            if value is None:
+                raise ValueError("null Kafka payload")
+            item["article"] = json.loads(
+                value.decode("utf-8"), parse_constant=_reject_constant,
             )
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ValueError(
-                f"Invalid Kafka message: {exc}"
-            ) from exc
-
-        batch.append(
-            {
-                "message": message,
-                "article": article,
-            }
-        )
-
+            # Reject overflowed numbers and lone surrogates before archiving.
+            json.dumps(item["article"], allow_nan=False, ensure_ascii=False).encode("utf-8")
+        except (UnicodeError, ValueError, RecursionError) as exc:
+            item["invalid_reason"] = f"Invalid Kafka JSON: {exc}"
+        batch.append(item)
     return batch
+
+
+def commit_batch(consumer):
+    # 모든 유효 메시지의 delivery 완료 또는 명시적 invalid 폐기 후에만 호출한다.
+    results = consumer.commit(asynchronous=False)
+    failures = [result for result in (results or []) if result.error]
+    if failures:
+        raise RuntimeError(f"Kafka offset commit failed: {failures}")

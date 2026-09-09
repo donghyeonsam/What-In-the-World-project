@@ -1,54 +1,27 @@
-"""
-기사 언어 판별 모듈.
-
-fastText Language Identification 모델을 이용해
-기사의 title과 body에서 작성 언어를 판별하고,
-2글자 language_code를 반환한다.
-"""
-
+"""fastText 언어 판별. 최초 사용 시 1회 로딩하며 실패 시 원인을 보존한다."""
 from pathlib import Path
 
-import fasttext
+MODEL_PATH = Path(__file__).resolve().parent.parent / "models" / "lid.176.bin"
+_language_model = None
 
 
-# 언어 판별 모델 경로
-MODEL_PATH = (
-        Path(__file__).resolve().parent.parent
-        / "models"
-        / "lid.176.bin"
-)
+def get_language_model():
+    global _language_model
+    if _language_model is None:
+        if not MODEL_PATH.is_file():
+            raise FileNotFoundError(f"fastText language model missing: {MODEL_PATH}")
+        import fasttext
+        _language_model = fasttext.load_model(str(MODEL_PATH))
+    return _language_model
 
 
-# NLP Worker 시작 시 언어 판별 모델을 한 번만 로드한다.
-_language_model = fasttext.load_model(str(MODEL_PATH))
-
-
-# 기사 제목과 본문을 이용해 작성 언어를 판별한다.
 def detect_language(article):
-    title = article.get("title", "")
-    body = article.get("body", "")
-
-    # 제목과 본문을 합쳐 언어 판별에 사용한다.
-    text = f"{title}\n{body}".strip()
-
-    # 판별할 텍스트가 없으면 None을 반환한다.
+    text = " ".join(
+        f"{article.get('title') or ''}\n{article.get('body') or ''}".split()
+    )
     if not text:
         return None
-
-    # fastText 입력을 한 줄 문자열로 정리한다.
-    text = text.replace("\n", " ")
-
-    # 가장 가능성이 높은 언어 1개를 판별한다.
-    labels, probabilities = _language_model.predict(
-        text,
-        k=1,
-    )
-
-    # 언어를 판별하지 못한 경우 None을 반환한다.
-    if not labels:
+    labels, _ = get_language_model().predict(text, k=1)
+    if len(labels) == 0:
         return None
-
-    # "__label__ko" -> "ko"
-    language_code = labels[0].replace("__label__", "")
-
-    return language_code
+    return labels[0].removeprefix("__label__")

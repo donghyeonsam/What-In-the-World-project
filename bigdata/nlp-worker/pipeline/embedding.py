@@ -256,6 +256,13 @@ def _pool_chunk_embeddings(
     )
 
     # chunk 하나면 그대로 반환
+    if (embeddings.ndim != 2 or embeddings.shape[1] != 768
+            or len(embeddings) == 0 or not np.all(np.isfinite(embeddings))
+            or np.any(np.linalg.norm(embeddings, axis=1) == 0)):
+        raise RuntimeError("Embedding model must return finite, non-zero 768D vectors")
+    if (len(weights) != len(embeddings) or not np.all(np.isfinite(weights))
+            or np.any(np.asarray(weights) <= 0)):
+        raise RuntimeError("Invalid embedding aggregation weights")
     if len(embeddings) == 1:
         return embeddings[0]
 
@@ -273,8 +280,9 @@ def _pool_chunk_embeddings(
     # 평균 후 다시 L2 normalize
     norm = np.linalg.norm(pooled)
 
-    if norm > 0:
-        pooled = pooled / norm
+    if not np.isfinite(norm) or norm == 0:
+        raise RuntimeError("Pooled article embedding is zero or non-finite")
+    pooled = pooled / norm
 
     return pooled.astype(
         np.float32
