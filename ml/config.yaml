@@ -1,0 +1,106 @@
+# 모든 설정의 단일 출처. 새 데이터가 오면 여기만 수정한다.
+seed: 42
+
+data:
+  input: data/news.raw.jsonl
+  work_dir: work                      # 수 GB. .gitignore 필수
+
+  # 포털·비기사 소스 (도메인/소스명 부분일치, 소문자 비교)
+  exclude_sources: [docomo, excite, prtimes, togetter, hatena,
+                    univision, golwg360, "chosun online", golem]
+
+  # 의견·사상 매체. true면 제외 (팀 결정 대기 중)
+  exclude_opinion_sources: false
+  opinion_sources: ["christ & welt", benzinga]
+
+  body_quality:
+    enabled: true
+    min_body_chars: 300
+    min_longest_line: 40              # 가장 긴 줄이 이보다 짧으면 헤드라인 목록
+    teaser_markers: [記事全文, 外部ページ, 全文を読む, "Read the full article"]
+    wall_markers: ["wie gewohnt mit Werbung", Adblocker,
+                   "Need assistance?", "obituary desk",
+                   "Willkommen auf Golem.de"]
+    min_title_term_overlap: 0.0       # 0.0 = 진단만 (게이트로 쓰지 않음)
+
+  # 도메인 → 국가 하드가드 (theguardian이 United States로 오분류된 사례 대응)
+  domain_country_overrides:
+    theguardian.com: United Kingdom
+    bbc.co.uk: United Kingdom
+    bbc.com: United Kingdom
+
+  country_to_lang:
+    Japan: ja
+    South Korea: ko
+    United States: en
+    United Kingdom: en
+    Germany: de
+
+teacher:
+  model: MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7
+  device: cuda
+  batch_size: 64
+  max_length: 512                     # 모델 상한. 바꾸면 안 됨
+  lead_chars: 1200                    # 분야 분류에 쓰는 본문 앞부분
+  chunk_tokens: 200
+  min_chunk_tokens: 20                # 이보다 짧은 꼬리 청크는 앞 청크에 흡수
+  max_chunks: 24                       # 초과분은 버림 (비용 상한)
+  shard_size: 2000
+  hypothesis_lang: en                 # en | ko — 400건 검증 후 확정
+
+gates:
+  category_min_p1: 0.50               # 1위 분야 확률 하한
+  category_min_margin: 0.15           # 1위 - 2위 차이
+  tone_min_conf: 0.60                 # max(p_pos, p_neg) 하한
+
+aggregate:
+  method: topk_mean                   # topk_mean | weighted_mean | max
+  topk: 2
+  neutral_band: 0.15                  # |p_pos-p_neg| < 이 값이면 중립 청크 (neu_base 진단)
+
+labels:
+  mixed_threshold: 0.50
+  neutral_threshold: 0.40
+
+# 서빙(NLP worker)과 반드시 공유해야 하는 상수
+categories: [POLITICS, ECONOMY, SOCIETY, TECH, CULTURE, SPORTS]
+
+category_clf:
+  embed_model: intfloat/multilingual-e5-base
+  embed_prefix: "passage: "           # E5 요구 프리픽스
+  max_body_chars: 4000                # NLP worker와 동일해야 함
+  embed_batch_size: 32
+  embed_max_length: 512
+  mean_center: true                   # E5 비등방성 보정. 끄면 안 됨
+  hidden: 256
+  dropout: 0.2
+  epochs: 40
+  lr: 0.001
+  batch_size: 64
+  patience: 6
+
+student:
+  model: jhu-clsp/mmBERT-small
+  fallback_model: xlm-roberta-base
+  fallback_max_length: 512
+  max_length: 4096
+  head_tokens: 3072
+  tail_tokens: 1024
+  epochs: 4
+  lr: 0.00002
+  batch_size: 8
+  grad_accum: 4
+  warmup_ratio: 0.1
+  weight_decay: 0.01
+  bf16: true
+  gradient_checkpointing: true
+  pooling: mean
+  group_by_length: true
+  min_train_per_category: 50          # 이보다 적으면 해당 분야 학습 건너뜀
+
+split:
+  val_ratio: 0.1
+  stratify_by: [category, lang]       # 24칸이 val에도 고루 들어가게
+
+output:
+  dir: artifacts                      # 산출물 A(분야) + B(톤 6개)
