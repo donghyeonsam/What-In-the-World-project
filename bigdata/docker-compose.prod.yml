@@ -218,9 +218,12 @@ services:
       - |
         set -euo pipefail
         # Spark 사용자에게 전체 HDFS가 아니라 전용 체크포인트 경로의 쓰기 권한만 부여한다.
-        hdfs dfs -mkdir -p /checkpoints/enriched-article-events-v1
-        hdfs dfs -chown spark:supergroup /checkpoints/enriched-article-events-v1
-        hdfs dfs -chmod 775 /checkpoints/enriched-article-events-v1
+        hdfs dfs -mkdir -p \
+          /checkpoints/enriched-article-events-v1 \
+          /checkpoints/unclassified-issue-stream-v1 \
+          /checkpoints/unclassified-issue-state-v1
+        hdfs dfs -chown -R spark:supergroup /checkpoints
+        hdfs dfs -chmod -R 775 /checkpoints
 
     depends_on:
       datanode:
@@ -430,6 +433,8 @@ services:
       - spark://spark-master:7077
       - --deploy-mode
       - client
+      - --conf
+      - spark.cores.max=1
       - --py-files
       - /opt/spark/apps/article_event.py,/opt/spark/apps/issue_matching.py
       - /opt/spark/apps/enriched_article_stream.py
@@ -450,6 +455,60 @@ services:
     networks:
       - news-network
 
+  spark-unclassified-issue-stream:
+    build:
+      context: ./spark
+      dockerfile: Dockerfile
+    image: news-spark:4.2.0-kafka
+    container_name: news-spark-unclassified-issue-stream
+    restart: unless-stopped
+    stop_grace_period: 60s
+
+    environment:
+      HADOOP_CONF_DIR: /opt/hadoop-conf
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_UNCLASSIFIED_TOPIC: news.unclassified.v1
+      KAFKA_EVENT_TOPIC: news.event.v1
+      POSTGRESQL_URL: ${POSTGRESQL_URL:?POSTGRESQL_URL must be set}
+      POSTGRESQL_USER: ${POSTGRESQL_USER:?POSTGRESQL_USER must be set}
+      POSTGRESQL_PASSWORD: ${POSTGRESQL_PASSWORD:?POSTGRESQL_PASSWORD must be set}
+      GMS_API_KEY: ${GMS_API_KEY:?GMS_API_KEY must be set}
+      ISSUE_CLUSTER_MAX_ARTICLES_PER_THEME: ${ISSUE_CLUSTER_MAX_ARTICLES_PER_THEME:-2000}
+      ISSUE_CLUSTER_CHECKPOINT_LOCATION: ${ISSUE_CLUSTER_CHECKPOINT_LOCATION:-hdfs://namenode:9000/checkpoints/unclassified-issue-stream-v1}
+      ISSUE_CLUSTER_STATE_LOCATION: ${ISSUE_CLUSTER_STATE_LOCATION:-hdfs://namenode:9000/checkpoints/unclassified-issue-state-v1}
+      ISSUE_CLUSTER_STARTING_OFFSETS: ${ISSUE_CLUSTER_STARTING_OFFSETS:-earliest}
+
+    volumes:
+      - ./hadoop/config:/opt/hadoop-conf:ro
+      - ./spark/apps:/opt/spark/apps:ro
+
+    command:
+      - /opt/spark/bin/spark-submit
+      - --master
+      - spark://spark-master:7077
+      - --deploy-mode
+      - client
+      - --conf
+      - spark.cores.max=1
+      - --py-files
+      - /opt/spark/apps/issue_clustering.py,/opt/spark/apps/gms_issue_generator.py
+      - /opt/spark/apps/unclassified_issue_stream.py
+
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      hdfs-checkpoint-init:
+        condition: service_completed_successfully
+      spark-master:
+        condition: service_healthy
+      spark-worker:
+        condition: service_healthy
+
+    logging: *default-logging
+    networks:
+      - news-network
 volumes:
   kafka-data:
     name: news-kafka-data
