@@ -29,10 +29,10 @@ export default function IssueCardList({ issues, onSelect }) {
               <span className={s.mini}>{issue.countries}</span>
             </span>
           </span>
-          <span className={s.issueSide}>
+          {(issue.change || issue.path) && <span className={s.issueSide}>
             <strong>{issue.change}</strong>
-            <Sparkline path={issue.path} />
-          </span>
+            {issue.path && <Sparkline path={issue.path} />}
+          </span>}
         </button>
       ))}
     </div>

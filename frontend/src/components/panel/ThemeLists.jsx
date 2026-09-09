@@ -22,7 +22,7 @@ export function ThemeCardList({ themes, limit, onSelect }) {
             <small className={s.themeField}>{theme.field}</small>
             <strong>{theme.name}</strong>
             <small>
-              기사 {theme.count} · 주요 이슈: {theme.leadingIssue}
+              최근 24시간 기사 {theme.count}{theme.leadingIssue ? ` · 주요 이슈: ${theme.leadingIssue}` : ''}
             </small>
           </span>
           <span className={s.rise}>{theme.rise}</span>
@@ -66,15 +66,15 @@ export function ThemeDetailList({ themes, intro, onSelect }) {
                 <b>{theme.rise}</b>
               </span>
               <span className={s.themeDetailMeta}>
-                {theme.field} · 기사 {theme.count} · 주요 이슈 3개
+                {theme.field} · 최근 24시간 기사 {theme.count}
               </span>
-              <span className={s.volumeBars} aria-label="최근 7일 기사량">
+              {theme.bars?.length > 0 && <span className={s.volumeBars} aria-label="최근 24개 시간 구간 기사량">
                 {theme.bars?.map((h, i) => (
                   // eslint-disable-next-line react/no-array-index-key
-                  <i key={i} style={{ height: `${h}%` }} />
+                  <i key={i} style={{ height: `${h}%` }} title={theme.timestamps?.[i] ? `${theme.timestamps[i].time} · ${theme.timestamps[i].articleCount}건` : undefined} />
                 ))}
-              </span>
-              <span className={s.leading}>주요 이슈 · {theme.leadingIssue}</span>
+              </span>}
+              {theme.leadingIssue && <span className={s.leading}>주요 이슈 · {theme.leadingIssue}</span>}
             </span>
           </button>
         ))}
@@ -113,7 +113,7 @@ export function ThemeIssueList({ issues, onSelect }) {
           <span className={s.issueType}>이슈 {String(i + 1).padStart(2, '0')}</span>
           <span>
             <strong>{issue.title}</strong>
-            <small>기사 {issue.count}</small>
+            {issue.count != null && <small>기사 {issue.count}</small>}
           </span>
           <b>{issue.rise}</b>
           <i>›</i>

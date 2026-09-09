@@ -363,6 +363,18 @@
   position: absolute; top: 50%; width: 8px; height: 8px; border-radius: 50%;
   transform: translate(-50%, -50%);
 }
+.sparkCountry { display: contents; }
+.sparkRange {
+  position: absolute;
+  top: 50%;
+  min-width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--wtw-text-2);
+  transform: translateY(-50%);
+}
+.sparkLowSample .sparkRange,
+.sparkLowSample .sparkDot { opacity: 0.35; }
 .sparkDot.sparkMe {
   width: 12px; height: 12px;
   box-shadow: 0 0 0 2px var(--wtw-panel), 0 0 0 3px var(--wtw-text);
@@ -396,7 +408,7 @@
 .toneRow {
   width: 100%;
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) 40px 96px 62px 46px;
+  grid-template-columns: 18px minmax(0, 1fr) 40px 82px 58px 82px;
   align-items: center; gap: 8px;
   padding: 7px 4px;
   border-bottom: 1px solid var(--wtw-line);
@@ -442,7 +454,7 @@
   font-family: var(--wtw-mono); font-size: 9px; text-align: center;
   padding: 3px 5px; border: 1px solid; border-radius: 999px;
 }
-.toneWord { font-size: 8px; color: var(--wtw-muted); text-align: right; }
+.toneWord { font-family: var(--wtw-mono); font-size: 8px; color: var(--wtw-muted); text-align: right; white-space: nowrap; }
 
 .method {
   margin-top: 12px; padding-top: 10px;

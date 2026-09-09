@@ -10,6 +10,33 @@ import java.util.List;
 
 public interface ThemeRepository extends JpaRepository<Theme, Long> {
 
+    @Query(value = """
+            WITH bounds AS (
+                SELECT CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul' AS end_at
+            )
+            SELECT f.id AS "fieldId", f.name AS "fieldName",
+                   t.id AS "themeId", t.name AS "themeName",
+                   COUNT(a.id) AS "articleCount24"
+            FROM field f
+            CROSS JOIN bounds b
+            LEFT JOIN theme t ON t.field_id = f.id
+            LEFT JOIN article a ON a.theme_id = t.id
+                               AND a.deleted_at IS NULL
+                               AND a.published_at >= b.end_at - INTERVAL '24 hours'
+                               AND a.published_at < b.end_at
+            GROUP BY f.id, f.name, t.id, t.name
+            ORDER BY f.id, COUNT(a.id) DESC, t.id
+            """, nativeQuery = true)
+    List<FieldThemeRow> findThemesByField();
+
+    interface FieldThemeRow {
+        Long getFieldId();
+        String getFieldName();
+        Long getThemeId();
+        String getThemeName();
+        long getArticleCount24();
+    }
+
     // TODO: article (country, published_at, theme_id) 복합 인덱스 검토
     @Query(value = """
             WITH bounds AS (

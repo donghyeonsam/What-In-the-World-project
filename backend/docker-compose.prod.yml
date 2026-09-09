@@ -14,6 +14,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    ports:
+      - "${DB_BIND_HOST:?DB_BIND_HOST is required}:5432:5432"
+
 
   valkey:
     image: valkey/valkey:8-alpine

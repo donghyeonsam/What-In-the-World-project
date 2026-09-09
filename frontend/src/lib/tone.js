@@ -9,14 +9,14 @@ export const sg = (v) => (v > 0 ? '+' : '') + v.toFixed(2);
 
 /** 논조 색 (CSS 변수) — 신문·미니멀 계열이 쓰는 3단계 */
 export const toneVar = (v) =>
-  v > 0.15 ? 'var(--wtw-pos)' : v < -0.15 ? 'var(--wtw-neg)' : 'var(--wtw-neu)';
+  v > 0.32 ? 'var(--wtw-pos)' : v <= -0.34 ? 'var(--wtw-neg)' : 'var(--wtw-neu)';
 
 /** 논조 한국어 라벨 — 5단계 */
 export const toneLabel5 = (v) =>
   v > 0.35 ? '우호' : v > 0.15 ? '다소 우호' : v > -0.15 ? '중립' : v > -0.35 ? '다소 비판' : '비판';
 
 /** 논조 한국어 라벨 — 3단계 (코스모스 계열) */
-export const toneLabel3 = (v) => (v > 0.18 ? '긍정' : v < -0.18 ? '부정' : '중립');
+export const toneLabel3 = (v) => (v > 0.32 ? '긍정' : v <= -0.34 ? '부정' : '중립');
 
 /** 논조 → 연속 RGB. 빨강(부정) ↔ 보라회색(중립) ↔ 파랑(긍정) */
 const lerp = (a, b, t) => a + (b - a) * t;
