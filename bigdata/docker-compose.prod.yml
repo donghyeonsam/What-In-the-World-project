@@ -45,7 +45,7 @@ services:
         - CMD-SHELL
         - /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list >/dev/null 2>&1
       interval: 10s
-      timeout: 5s
+      timeout: 30s        # 5s -> 30s
       retries: 12
       start_period: 30s
 
@@ -161,7 +161,7 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "hdfs dfsadmin -report >/dev/null 2>&1"]
       interval: 10s
-      timeout: 5s
+      timeout: 30s        # 5s -> 30s
       retries: 12
       start_period: 30s
 
@@ -194,7 +194,7 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "hdfs dfsadmin -report 2>/dev/null | grep -q 'Live datanodes (1)' "]
       interval: 10s
-      timeout: 5s
+      timeout: 30s        # 5s -> 30s
       retries: 12
       start_period: 30s
 
