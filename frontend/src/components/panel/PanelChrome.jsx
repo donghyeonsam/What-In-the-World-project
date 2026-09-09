@@ -72,7 +72,7 @@ export function TaxonomyPath({ items }) {
   return (
     <nav className={s.taxonomyPath} aria-label="분류 경로">
       {items.map((it, i) => (
-        <span key={`${it.label}-${it.value ?? i}`} style={{ display: 'contents' }}>
+        <span key={`${i}-${it.label}-${it.value ?? ''}`} style={{ display: 'contents' }}>
           {i > 0 && <i>›</i>}
           <span>{it.label}</span>
           {it.value &&

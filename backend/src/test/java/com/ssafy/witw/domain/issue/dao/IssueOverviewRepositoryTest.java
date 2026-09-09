@@ -1,11 +1,11 @@
 package com.ssafy.witw.domain.issue.dao;
 
 import com.ssafy.witw.domain.article.dao.ArticleRepository;
+import com.ssafy.witw.support.RepositoryTest;
+import com.ssafy.witw.support.TestContainerSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
-import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
@@ -14,11 +14,9 @@ import java.time.LocalDateTime;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.assertj.core.api.Assertions.within;
-import static org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase.Replace.NONE;
 
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = NONE)
-class IssueOverviewRepositoryTest {
+@RepositoryTest
+class IssueOverviewRepositoryTest extends TestContainerSupport {
     private static final long THEME_ID = 930_001L;
     private static final long ISSUE_ID = 930_001L;
     private static final long OTHER_ISSUE_ID = 930_002L;

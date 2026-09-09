@@ -11,9 +11,11 @@ import com.ssafy.witw.domain.country.dto.CountryTone;
 import com.ssafy.witw.domain.issue.dao.IssueRepository;
 import com.ssafy.witw.domain.issue.dto.IssueOverviewResponse;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -47,6 +49,8 @@ class IssueOverviewServiceTest {
         when(country.getToneAvg()).thenReturn(50.0);
         when(country.getToneMin()).thenReturn(20.0);
         when(country.getToneMax()).thenReturn(80.0);
+        when(country.getToneSd()).thenReturn(12.5);
+        when(country.getArticleCount()).thenReturn(4L);
         when(issueRepository.findCountryTonesLast24Hours(1L)).thenReturn(List.of(country));
 
         var article = mock(RepresentArticleProjection.class);
@@ -66,8 +70,8 @@ class IssueOverviewServiceTest {
                 .as("이슈 제목, 테마 제목, 전체 기사 수가 응답에 매핑됨")
                 .isEqualTo(new IssueOverviewResponse.IssuePreview("폭염", "기후", 8L));
         assertThat(response.countryTones())
-                .as("국가 코드와 이름, 경도와 위도, 평균과 최대·최소가 뒤바뀌지 않음")
-                .containsExactly(new CountryTone(new CountryPoint("KR", "대한민국", 127.0, 37.5), 50, 80, 20));
+                .as("국가 정보와 평균·범위·표준편차·기사 수가 뒤바뀌지 않음")
+                .containsExactly(new CountryTone(new CountryPoint("KR", "대한민국", 127.0, 37.5), 50, 80, 20, 12.5, 4));
         assertThat(response.representArticles())
                 .as("대표 기사 모든 필드를 보존하고 점수 경계에 맞는 ArticleTone으로 변환함")
                 .containsExactly(new RepresentArticle("article-1", "대표 기사 제목", expectedTone, "언론사", publishedAt));
@@ -106,6 +110,18 @@ class IssueOverviewServiceTest {
         verify(issueRepository).existsById(99L);
         verifyNoMoreInteractions(issueRepository);
         verifyNoInteractions(articleRepository);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 11})
+    @DisplayName("[이슈 미리보기] 대표 기사 개수가 허용 범위를 벗어나면 DB 조회 전에 거부한다")
+    void 대표_기사_개수가_범위를_벗어나면_조회하지_않는다(int articleLimit) {
+        // when / then
+        assertThatThrownBy(() -> issueService.getIssueOverview(1L, articleLimit))
+                .as("대표 기사 조회 개수는 1~10만 허용한다")
+                .isInstanceOfSatisfying(GlobalException.class,
+                        exception -> assertThat(exception.getErrorCode()).isEqualTo(ErrorCode.INVALID_INPUT_VALUE));
+        verifyNoInteractions(issueRepository, articleRepository);
     }
 
     private IssueRepository.IssuePreview 프리뷰(long count) {

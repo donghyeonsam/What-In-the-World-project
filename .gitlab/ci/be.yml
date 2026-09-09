@@ -4,6 +4,8 @@ validate-backend:
   tags:
     - backend-ci
   timeout: 15m
+  # privileged = false 정책이라 CI 에는 Docker 가 없다. Testcontainers 대신
+  # 이 service 컨테이너를 TEST_* 로 넘겨 TestContainerSupport 가 쓰게 한다.
   services:
     - name: postgres:17-alpine
       alias: postgres
@@ -13,11 +15,12 @@ validate-backend:
     POSTGRES_DB: witw
     POSTGRES_USER: postgres
     POSTGRES_PASSWORD: test_password
-    POSTGRESQL_URL: jdbc:postgresql://postgres:5432/witw
-    POSTGRESQL_USER: postgres
-    POSTGRESQL_PASSWORD: test_password
-    VALKEY_HOST: valkey
-    VALKEY_HOST_PORT: "6379"
+    # POSTGRESQL_* 과 겹치지 않게 해 실 DB 오접속을 막는다.
+    TEST_POSTGRESQL_URL: jdbc:postgresql://postgres:5432/witw
+    TEST_POSTGRESQL_USER: postgres
+    TEST_POSTGRESQL_PASSWORD: test_password
+    TEST_VALKEY_HOST: valkey
+    TEST_VALKEY_PORT: "6379"
   script:
     - cd "$CI_PROJECT_DIR/backend"
     - bash ./gradlew test --no-daemon

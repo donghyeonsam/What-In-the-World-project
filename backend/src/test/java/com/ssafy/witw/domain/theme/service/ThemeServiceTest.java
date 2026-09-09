@@ -7,10 +7,10 @@ import com.ssafy.witw.domain.issue.dao.IssueRepository;
 import com.ssafy.witw.domain.theme.dao.ThemeRepository;
 import com.ssafy.witw.domain.theme.dto.PopularThemeTrend;
 import com.ssafy.witw.domain.theme.dto.PopularThemeResponse;
+import com.ssafy.witw.support.RepositoryTest;
+import com.ssafy.witw.support.TestContainerSupport;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
-import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.sql.Timestamp;
@@ -18,11 +18,9 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase.Replace.NONE;
 
-@DataJpaTest
-@AutoConfigureTestDatabase(replace = NONE)
-class ThemeServiceTest {
+@RepositoryTest
+class ThemeServiceTest extends TestContainerSupport {
 
     private static final String COUNTRY_CODE = "ZZ";
     private static final long FIELD_ID = 900_001L;

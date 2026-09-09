@@ -12,6 +12,7 @@ const FALLBACK_RAD = { kr: 2.6, us: 12, uk: 4, au: 14, me: 3.2, af: 7, br: 13 };
 
 const CYAN = 0x6fe7ff;
 const AMBER = 0xffb454;
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 
 /** 위경도 → 구면 좌표 */
 function ll2v(lat, lon, r = 1) {
@@ -283,7 +284,7 @@ export default function GlobeThree({
     const toneColorOf = (id) => {
       const d = TONE.topic && TONE.topic.t[id];
       if (!d) return null;
-      return d.n < TONE.minN ? NO_SAMPLE : toneRGB(d.s);
+      return d.s == null || (d.n != null && TONE.minN != null && d.n < TONE.minN) ? NO_SAMPLE : toneRGB(d.s);
     };
     const beaconBaseColor = (id) => {
       if (TONE.active) {
@@ -742,13 +743,13 @@ export default function GlobeThree({
         setCountryOutlineActive(u.cid || u.id);
         let tt;
         if (u.type === 'pin') {
-          tt = `📌 <b>${u.title}</b><br>클릭하면 기사로 이동`;
+          tt = `📌 <b>${escapeHtml(u.title)}</b><br>클릭하면 기사로 이동`;
         } else {
-          tt = `${u.flag} <b>${u.name}</b> · 국가 윤곽 강조`;
+          tt = `${escapeHtml(u.flag)} <b>${escapeHtml(u.name)}</b> · 국가 윤곽 강조`;
           if (TONE.active && TONE.topic.t[u.id]) {
             const d = TONE.topic.t[u.id];
-            const badge = d.n < TONE.minN ? '표본부족' : (d.s > 0 ? '+' : '') + d.s.toFixed(2);
-            tt += `<br>「${TONE.topic.name}」 톤 ${badge} · ${d.n}건`;
+            const badge = d.s == null ? '분석 없음' : d.n != null && TONE.minN != null && d.n < TONE.minN ? '표본부족' : (d.s > 0 ? '+' : '') + d.s.toFixed(2);
+            tt += `<br>「${escapeHtml(TONE.topic.name)}」 톤 ${badge}${d.n == null ? ' · 표본 수 미제공' : ` · ${d.n}건`}`;
           }
         }
         tip.innerHTML = tt;

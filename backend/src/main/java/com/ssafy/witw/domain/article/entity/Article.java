@@ -64,8 +64,7 @@ public class Article {
     @Column(name = "embedding", length = Integer.MAX_VALUE)
     private String embedding;
 
-    @NotNull
-    @Column(name = "issue_similarity", nullable = false)
+    @Column(name = "issue_similarity")
     private BigDecimal issueSimilarity;
 
     @NotNull
@@ -83,8 +82,7 @@ public class Article {
     @Column(name = "published_at", nullable = false)
     private LocalDateTime publishedAt;
 
-    @NotNull
-    @Column(name = "issue_assigned_at", nullable = false)
+    @Column(name = "issue_assigned_at")
     private LocalDateTime issueAssignedAt;
 
     @Column(name = "deleted_at")

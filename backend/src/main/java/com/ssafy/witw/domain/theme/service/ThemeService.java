@@ -10,6 +10,8 @@ import com.ssafy.witw.domain.country.service.CountryFinder;
 import com.ssafy.witw.domain.country.entity.Country;
 import com.ssafy.witw.domain.issue.dao.IssueRepository;
 import com.ssafy.witw.domain.theme.dao.ThemeRepository;
+import com.ssafy.witw.domain.theme.dao.ThemeRepository.FieldThemeRow;
+import com.ssafy.witw.domain.theme.dto.FieldThemesResponse;
 import com.ssafy.witw.domain.theme.dao.ThemeRepository.PopularThemeTrendRow;
 import com.ssafy.witw.domain.theme.dto.PopularThemeTrend;
 import com.ssafy.witw.domain.theme.dto.PopularThemeTrend.ThemeTimeStamp;
@@ -40,6 +42,21 @@ public class ThemeService {
     private final IssueRepository issueRepository;
     private final ArticleRepository articleRepository;
 
+    public List<FieldThemesResponse> getThemesByField() {
+        return themeRepository.findThemesByField().stream()
+                .collect(groupingBy(FieldThemeRow::getFieldId, LinkedHashMap::new, toList()))
+                .values().stream()
+                .map(rows -> new FieldThemesResponse(
+                        rows.getFirst().getFieldId(),
+                        rows.getFirst().getFieldName(),
+                        rows.stream()
+                                .filter(row -> row.getThemeId() != null)
+                                .map(row -> new FieldThemesResponse.ThemeCount(
+                                        row.getThemeId(), row.getThemeName(), row.getArticleCount24()))
+                                .toList()))
+                .toList();
+    }
+
     public ThemeOverviewResponse getThemeOverview(Long themeId, int issueLimit, int articleLimit) {
         validateLimit(issueLimit);
         validateLimit(articleLimit);
@@ -57,7 +74,7 @@ public class ThemeService {
         List<RepresentArticle> representArticles = articleRepository
                 .getRepresentArticlesByThemeId(themeId, articleLimit)
                 .stream()
-                .map(RepresentArticle::from)
+                .map(this::toRepresentArticle)
                 .toList();
 
         return new ThemeOverviewResponse(
@@ -66,6 +83,16 @@ public class ThemeService {
                 theme.getDescription(),
                 primaryIssues,
                 representArticles
+        );
+    }
+
+    private RepresentArticle toRepresentArticle(RepresentArticleProjection article) {
+        return new RepresentArticle(
+                article.getArticleId(),
+                article.getArticleTitle(),
+                ArticleTone.fromScore(article.getArticleToneScore()),
+                article.getArticlePublisher(),
+                article.getPublishedAt()
         );
     }
 

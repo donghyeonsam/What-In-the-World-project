@@ -1,8 +1,6 @@
 services:
   nlp-worker:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: nlp-worker:latest
 
     container_name: news-nlp-worker
     restart: unless-stopped
@@ -15,3 +13,9 @@ services:
       KAFKA_CONSUMER_GROUP: nlp-worker-v1
 
       NLP_BATCH_SIZE: "32"
+
+      HF_HOME: /app/models/huggingface
+
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data

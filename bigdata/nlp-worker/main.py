@@ -2,10 +2,12 @@
 NLP Worker 실행 진입점.
 
 Kafka의 news.raw.v1 토픽에서 원본 뉴스를 배치 단위로 읽고,
-NLP 처리 결과를 추가한 뒤 news.enriched.v1 토픽으로 전송한다.
+원본 데이터를 저장한 뒤 NLP 처리 결과를 추가하여
+news.enriched.v1 토픽으로 전송한다.
 """
-from pipeline import process_article
 
+from pipeline import process_article
+from storage.raw_archive import archive_batch
 from consumer import create_consumer, consume_batch
 from producer import (
     create_producer,
@@ -46,6 +48,9 @@ def main():
 
             print(f"Consumed batch: {len(batch)} articles")
 
+            # Kafka에서 읽어온 원본 기사 데이터를 JSONL 파일에 저장한다.
+            archive_batch(batch)
+
             # 읽어온 기사들을 NLP 처리한다.
             processed_articles = process_batch(batch)
 
@@ -56,7 +61,7 @@ def main():
             # Producer 내부 버퍼의 메시지가 모두 Kafka로 전송될 때까지 기다린다.
             flush_producer(producer)
 
-            # NLP 처리와 Kafka 전송이 성공한 뒤 Consumer offset을 저장한다.
+            # 원본 저장, NLP 처리, Kafka 전송이 성공한 뒤 Consumer offset을 저장한다.
             consumer.commit(asynchronous=False)
 
             print(f"Processed batch: {len(batch)} articles")

@@ -1,7 +1,6 @@
 package com.ssafy.witw.domain.issue.dao;
 
 import com.ssafy.witw.domain.issue.dto.IssueInfo;
-import com.ssafy.witw.domain.issue.dto.ToneDetail;
 import com.ssafy.witw.domain.issue.entity.Issue;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -139,20 +138,23 @@ public interface IssueRepository extends JpaRepository<Issue, Long> {
             """, nativeQuery = true)
     List<GlobalIssueRankRow> findGlobalIssueRankLast24Hours(@Param("limit") int limit);
 
+    // LEFT JOIN 이라 기사가 0건인 이슈도 집계 0으로 행이 나오고, 이슈가 없을 때만 null 이 된다.
+    // 삭제 조건은 ON 절에 둔다. WHERE 로 옮기면 삭제된 기사만 있는 이슈가 행 자체를 잃는다.
     @Query(value = """
         SELECT  i.id AS "issueId",
                 i.name AS "issueName",
                 count(a.id) AS "articleCount",
                 count(distinct a.publisher_country_code) AS "countryCount"
         FROM issue i
-        JOIN article a on a.issue_id = i.id
-        WHERE a.deleted_at IS NULL
-            AND i.id = :issueId
-        GROUP BY i.id
+        LEFT JOIN article a
+            ON a.issue_id = i.id
+            AND a.deleted_at IS NULL
+        WHERE i.id = :issueId
+        GROUP BY i.id, i.name
 """, nativeQuery = true)
     IssueInfo findIssueById(@Param("issueId") long issueId);
-    // 이슈 하나의 최근 24시간 국가별 톤
 
+    // 이슈 하나의 최근 24시간 국가별 톤
     @Query(value = """
             WITH bounds AS (
                 SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul') AS end_at
@@ -163,7 +165,9 @@ public interface IssueRepository extends JpaRepository<Issue, Long> {
                    c.latitude                            AS "latitude",
                    AVG(a.tone_score)::double precision   AS "toneAvg",
                    MAX(a.tone_score)::double precision   AS "toneMax",
-                   MIN(a.tone_score)::double precision   AS "toneMin"
+                   MIN(a.tone_score)::double precision   AS "toneMin",
+                   STDDEV_POP(a.tone_score)::double precision AS "toneSd",
+                   COUNT(*)                              AS "articleCount"
             FROM article a
             JOIN country c ON c.country_code = a.publisher_country_code
             CROSS JOIN bounds b
@@ -192,19 +196,7 @@ public interface IssueRepository extends JpaRepository<Issue, Long> {
         double getToneAvg();
         double getToneMax();
         double getToneMin();
+        double getToneSd();
+        long getArticleCount();
     }
-
-    @Query(value = """
-        WITH bounds AS(
-            SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul') AS end_at
-        )
-        select AVG(a.tone_score)::double precision
-        from article a
-        cross join bounds b
-        where deleted_at is null
-            AND a.issue_id = :issueId
-            AND a.published_at >= b.end_at - INTERVAL '24 hours'
-            AND a.published_at < b.end_at
-""", nativeQuery = true)
-    Double findGlobalToneById(@Param("issueId") long issueId);
 }

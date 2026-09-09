@@ -1,4 +1,62 @@
-# What in the World — 통합안
+# What in the World — API 연동
+
+현재 앱은 백엔드에 구현된 조회 API 7개를 사용합니다. 백엔드 코드는 변경하지 않았습니다.
+
+```bash
+npm ci
+npm run dev      # http://localhost:5174
+npm test
+npm run build
+```
+
+Windows PowerShell 실행 정책으로 npm 실행이 막히면 `npm.cmd`를 사용하세요.
+기본 요청 경로는 `/api/v1`이며 개발 서버가 `http://localhost:8080`으로 프록시합니다.
+다른 서버를 사용하려면 `.env.example`을 참고해 `.env.local`에 `API_PROXY_TARGET`을 설정합니다.
+브라우저가 직접 별도 서버에 접속해야 하는 경우 `VITE_API_BASE_URL`을 설정하고 백엔드 CORS 허용 출처를 맞춥니다.
+
+프로덕션에서는 **동일 출처의 `/api`를 백엔드로 연결하는 리버스 프록시가 필요**합니다.
+Vite 개발 프록시는 빌드 결과물에 포함되지 않습니다. 외부 API를 직접 사용할 Docker 빌드는
+`--build-arg VITE_API_BASE_URL=https://서버주소/api/v1`을 전달할 수 있습니다.
+프론트 컨테이너의 기본 Nginx는 정적 파일만 제공합니다.
+
+| 화면 | API |
+|---|---|
+| 글로벌 기사 수 · TOP 5 (1분 갱신) | `GET /global/issues` |
+| 글로벌 이슈 정보 · 국가 논조 | `GET /global/issues/{id}` |
+| 이슈 미리보기 · 대표 기사 | `GET /issues/{id}/overview?articleLimit=10` |
+| 국가 기사 수 · 순위 · 인기 테마 · 양방향 언급 비율 · 대표 기사 | `GET /countries/{code}` |
+| 국가 인기 테마 · 시간별 추이 | `GET /countries/{code}/themes/popular?limit=10` |
+| 테마 주요 이슈 · 대표 기사 | `GET /themes/{id}/overview?issueLimit=10&articleLimit=10` |
+| 분야별 테마 · 테마 검색용 목록 | `GET /themes/by-field` |
+
+국가에서 테마→이슈로 이동하면 **선택한 국가의 논조만** 패널과 지구본에 표시합니다.
+테마 상세와 이슈 대표 기사는 국가 필터를 지원하지 않아 전 세계 기준이라고 명시합니다.
+논조 평균·최소·최대와 표준편차는 API의 0~100 척도에서 화면의 −1~1 척도로 환산합니다.
+국가별 기사 수가 30건 미만이면 평균은 표본 부족으로 숨깁니다. 표준편차는 1건이면 산출 불가,
+2~29건이면 참고용, 30건 이상이면 낮음·보통·높음으로 표시합니다. 30일 기준선,
+증가율, 매체 수는 제공되지 않아 임의 계산하지 않습니다. 기사 원문 URL과 요약도 현재 응답에 없어
+링크 미제공 안내를 표시합니다. 기사 필터는 응답에 포함된 대표 기사에만 적용하며 전체 기사 검색을 뜻하지 않습니다.
+국가 언급 비율은 API의 0~1 비율을 백분율로 바꿉니다.
+
+지리 메타데이터는 `src/data/countries.js`에 있습니다. 이전 목업의 합쳐진 지역을 ISO 2자리 국가 코드
+(GB, AE, QA, ZA, KE 등)로 분리했습니다. 별도 국가 목록 API가 없어 지도 대상은 이 파일에서 관리하며,
+서버에 없는 국가는 조회 오류와 재시도를 표시합니다. 이슈·테마·기사 목업은 실행 경로에서 사용하지 않습니다.
+
+현재 화면 이동은 실제 방문 경로를 따라 뒤로 가며, 기사 화면 내 테마 필터 변경은 같은 경로를 교체합니다.
+`src/data/api.js`는 응답 래퍼·오류·타임아웃을 처리하고, `useResource.js`는 로딩·재시도·요청 취소를 처리합니다.
+`responseAdapters.js`에서 DTO를 화면 값으로 변환합니다.
+
+검증은 `npm test`의 API 계약·국가 필터·논조 변환·컴포넌트 렌더링 테스트와 빌드로 수행합니다.
+실제 백엔드 연결과 브라우저 클릭 검증은 별도로 필요합니다. 수동 화면 확인용 계약 fixture 서버는
+`npm run build` 후 `npm run test:browser-server`로 실행하고 `http://127.0.0.1:5175`에 접속합니다.
+이 서버는 테스트 전용으로, 실제 API나 운영 빌드에 fixture를 주입하지 않습니다.
+
+---
+
+## 이전 목업 설계 기록
+
+아래와 `DECISIONS.md`는 API 연동 이전 기록입니다. `model.js`, `adapters.js`, `navigation.js` 및
+기존 `ToneScatter`는 기록용으로 남아 있으며 현재 App에서는 사용하지 않습니다. 현재 동작은 위 설명을 따릅니다.
 
 세 시안(`bunyeoldo.html` / `What in the World.html` / `아카이브`)을 하나로 합친 앱입니다.
 어떤 조각을 왜 골랐는지는 상위 폴더의 `통합-결정표.md`에 적혀 있고,

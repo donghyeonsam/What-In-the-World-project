@@ -4,6 +4,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 public record GlobalIssueRankResponse(
+        long totalArticleCount,
+        long recent24ArticleCount,
         List<GlobalIssue> globalIssues
 ) {
     public record GlobalIssue(

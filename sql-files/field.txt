@@ -1,0 +1,32 @@
+INSERT INTO field (code, name, description, created_at)
+VALUES
+    (
+        'pol',
+        '정치',
+        '정부·의회·정당·선거·외교·국방·사법 등 국가 권력과 공공 의사결정에 관한 뉴스 분야',
+        CURRENT_TIMESTAMP
+    ),
+    (
+        'eco',
+        '경제',
+        '금융시장·거시경제·기업·산업·무역·고용·소비 등 경제 활동과 자원 배분에 관한 뉴스 분야',
+        CURRENT_TIMESTAMP
+    ),
+    (
+        'soc',
+        '사회',
+        '범죄·재난·교육·의료·복지·노동·교통·환경·생활 등 시민의 일상과 사회 구조에 관한 뉴스 분야',
+        CURRENT_TIMESTAMP
+    ),
+    (
+        'sci',
+        '과학·기술',
+        'AI·반도체·소프트웨어·바이오·우주·통신·로봇 등 과학 연구와 기술 개발·활용에 관한 뉴스 분야',
+        CURRENT_TIMESTAMP
+    ),
+    (
+        'spo',
+        '스포츠',
+        '프로·아마추어 경기, 선수·팀, 대회, 기록, 훈련 및 스포츠 산업 전반에 관한 뉴스 분야',
+        CURRENT_TIMESTAMP
+    );

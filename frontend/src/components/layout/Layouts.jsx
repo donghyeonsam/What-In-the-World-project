@@ -95,7 +95,7 @@ export function StageFoot({
           </span>
           <span className={s.lowSample}>
             <i />
-            표본 부족 · 기사 {minSample}건 미만
+            {minSample == null ? '국가별 평균 논조 · 표본 수 미제공' : <>표본 부족 · 기사 {minSample}건 미만</>}
           </span>
         </>
       ) : (
