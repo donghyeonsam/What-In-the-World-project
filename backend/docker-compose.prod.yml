@@ -51,3 +51,8 @@ services:
 
 volumes:
   postgres-data:
+
+networks:
+  default:
+    name: ${APP_DOCKER_NETWORK:-witw-app-network}
+    external: true
