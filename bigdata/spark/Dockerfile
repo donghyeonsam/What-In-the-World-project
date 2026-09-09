@@ -24,4 +24,10 @@ USER root
 
 COPY --from=spark-dependency-resolver /tmp/.ivy2/jars/ /opt/spark/jars/
 
+# scikit-learn의 HDBSCAN 구현을 Driver와 Executor 모두에서 사용한다.
+# 버전을 고정해 동일 입력의 군집 결과와 이미지 재현성을 유지한다.
+RUN python3 -m pip install --no-cache-dir \
+        'numpy==1.26.4' \
+        'scikit-learn==1.6.1'
+
 USER spark
