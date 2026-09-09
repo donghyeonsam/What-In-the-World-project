@@ -21,6 +21,7 @@ validate-bigdata:
     POSTGRESQL_URL: jdbc:postgresql://validation.invalid:5432/witw
     POSTGRESQL_USER: validation
     POSTGRESQL_PASSWORD: validation
+    GMS_API_KEY: validation
 
   tags:
     - bigdata-deploy
