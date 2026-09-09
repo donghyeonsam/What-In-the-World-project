@@ -1,6 +1,7 @@
 services:
   nlp-worker:
     image: nlp-worker:latest
+    gpus: all
 
     container_name: news-nlp-worker
     restart: unless-stopped
