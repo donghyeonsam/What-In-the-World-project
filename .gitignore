@@ -72,6 +72,7 @@ bin/
 !.claude/skills/
 CLAUDE.local.md
 .mcp.json
+codex/
 
 ### NLP worker에서 사용되는 모델까지 올라가는 것 방지
 bigdata/nlp-worker/models/
