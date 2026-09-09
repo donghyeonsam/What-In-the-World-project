@@ -3,4 +3,5 @@ feedparser
 requests
 trafilatura
 beautifulsoup4
+python-dateutil>=2.9
 confluent-kafka
