@@ -27,12 +27,53 @@ validate-backend:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
-        - backend/**/*
+        - backend/docker-compose.dev.yml
+        - backend/src/**/*
+        - backend/gradle/**/*
+        - backend/*.gradle
+        - backend/gradle.properties
+        - backend/gradlew
+        - backend/Dockerfile
+        - backend/.dockerignore
         - .gitlab-ci.yml
         - .gitlab/ci/be.yml
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+        - backend/docker-compose.prod.yml
+    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "develop")'
       changes:
-        - backend/**/*
+        - backend/src/**/*
+        - backend/gradle/**/*
+        - backend/*.gradle
+        - backend/gradle.properties
+        - backend/gradlew
+        - backend/Dockerfile
+        - backend/.dockerignore
+        - .gitlab-ci.yml
+        - .gitlab/ci/be.yml
+        - backend/docker-compose.prod.yml
+        - backend/docker-compose.dev.yml
+
+deploy-backend-dev:
+  extends: deploy-backend
+  resource_group: backend-development
+  environment:
+    name: development-backend
+  variables:
+    BACKEND_ENV_FILE: /opt/witw-backend-dev/.env
+    BACKEND_COMPOSE_PROJECT: witw-backend-dev
+    BACKEND_COMPOSE_FILE: docker-compose.dev.yml
+    BACKEND_HOST_PORT: "8081"
+    APP_DOCKER_NETWORK: witw-dev-network
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - backend/src/**/*
+        - backend/gradle/**/*
+        - backend/*.gradle
+        - backend/gradle.properties
+        - backend/gradlew
+        - backend/Dockerfile
+        - backend/.dockerignore
+        - backend/docker-compose.dev.yml
         - .gitlab-ci.yml
         - .gitlab/ci/be.yml
 
@@ -51,17 +92,26 @@ deploy-backend:
     BACKEND_ENV_FILE: /opt/witw-backend/.env
     BACKEND_COMPOSE_PROJECT: witw-backend-prod
     APP_DOCKER_NETWORK: witw-app-network
+    BACKEND_COMPOSE_FILE: docker-compose.prod.yml
+    BACKEND_HOST_PORT: "8080"
   script:
     - test -f "$BACKEND_ENV_FILE"
     - cd "$CI_PROJECT_DIR/backend"
-    - docker compose --env-file "$BACKEND_ENV_FILE" -p "$BACKEND_COMPOSE_PROJECT" -f docker-compose.prod.yml config --quiet
+    - docker compose --env-file "$BACKEND_ENV_FILE" -p "$BACKEND_COMPOSE_PROJECT" -f "$BACKEND_COMPOSE_FILE" config --quiet
     - docker network inspect "$APP_DOCKER_NETWORK" >/dev/null 2>&1 || docker network create "$APP_DOCKER_NETWORK"
-    - docker compose --env-file "$BACKEND_ENV_FILE" -p "$BACKEND_COMPOSE_PROJECT" -f docker-compose.prod.yml up -d --build --wait --wait-timeout 180
-    - docker compose --env-file "$BACKEND_ENV_FILE" -p "$BACKEND_COMPOSE_PROJECT" -f docker-compose.prod.yml ps
-    - timeout 5 bash -c '</dev/tcp/127.0.0.1/8080'
+    - docker compose --env-file "$BACKEND_ENV_FILE" -p "$BACKEND_COMPOSE_PROJECT" -f "$BACKEND_COMPOSE_FILE" up -d --build --wait --wait-timeout 180
+    - docker compose --env-file "$BACKEND_ENV_FILE" -p "$BACKEND_COMPOSE_PROJECT" -f "$BACKEND_COMPOSE_FILE" ps
+    - timeout 5 bash -c "</dev/tcp/127.0.0.1/$BACKEND_HOST_PORT"
   rules:
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "master"'
       changes:
-        - backend/**/*
+        - backend/src/**/*
+        - backend/gradle/**/*
+        - backend/*.gradle
+        - backend/gradle.properties
+        - backend/gradlew
+        - backend/Dockerfile
+        - backend/.dockerignore
         - .gitlab-ci.yml
         - .gitlab/ci/be.yml
+        - backend/docker-compose.prod.yml
