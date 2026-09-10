@@ -54,6 +54,21 @@ def _tone_score(sentiment: Any) -> float:
     return score
 
 
+def _theme_relevance_score(value: Any) -> float:
+    # NLP ThemeClassifier가 계산한 Top-1 cosine similarity를 그대로 보존한다.
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise InvalidEnrichedArticle(
+            "nlp_worker_data.theme_relevance_score must be a number"
+        )
+
+    score = float(value)
+    if not math.isfinite(score) or not -1.0 <= score <= 1.0:
+        raise InvalidEnrichedArticle(
+            "nlp_worker_data.theme_relevance_score must be between -1 and 1"
+        )
+    return score
+
+
 def _mentioned_countries(value: Any) -> list[dict[str, Any]]:
     # 기사에 언급된 국가도 발행 국가와 동일한 두 글자 국가 코드 계약을 적용한다.
     if value is None:
@@ -130,6 +145,9 @@ def build_article_upsert_event(article: dict[str, Any]) -> dict[str, Any]:
                 nlp.get("country_code"), "nlp_worker_data.country_code"
             ),
             "theme_id": theme_id,
+            "theme_relevance_score": _theme_relevance_score(
+                nlp.get("theme_relevance_score")
+            ),
             "publisher": _required_text(article, "source_name"),
             "url": _required_text(article, "article_url"),
             "original_title": _required_text(article, "title"),

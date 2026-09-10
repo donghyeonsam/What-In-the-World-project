@@ -1,0 +1,23 @@
+package com.ssafy.witw.infra.kafka.dbwriter;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import java.math.BigDecimal;
+import java.time.OffsetDateTime;
+import java.util.List;
+
+public record ArticleUpsertPayload(
+        @JsonProperty("article_id") String articleId,
+        @JsonProperty("publisher_country_code") String publisherCountryCode,
+        @JsonProperty("theme_id") Long themeId,
+        @JsonProperty("theme_relevance_score") BigDecimal themeRelevanceScore,
+        String publisher,
+        String url,
+        @JsonProperty("original_title") String originalTitle,
+        @JsonProperty("crawled_at") OffsetDateTime crawledAt,
+        List<BigDecimal> embedding,
+        @JsonProperty("tone_score") BigDecimal toneScore,
+        @JsonProperty("published_at") OffsetDateTime publishedAt,
+        @JsonProperty("mentioned_countries") List<MentionedCountryPayload> mentionedCountries
+) {
+}

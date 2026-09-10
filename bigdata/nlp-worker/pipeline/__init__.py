@@ -56,6 +56,7 @@ def process_article(article):
         "language_code": language_code,
         "field_id": theme["field_id"],
         "theme_id": theme["theme_id"],
+        "theme_relevance_score": theme["similarity"],
         "mentioned_countries": mentioned,
         "sentiment": analyze_sentiment(article),
         "article_embedding": embedding,
