@@ -57,7 +57,6 @@ public class User {
         user.passwordHash = passwordHash;
         user.authProvider = AuthProvider.LOCAL;
         user.role = UserRole.USER;
-        user.createdAt = LocalDateTime.now();
 
         return user;
     }

@@ -26,9 +26,9 @@ public class AuthController {
 
     @PostMapping("/signup")
     @Operation(summary = "이메일 회원가입")
-    public ResponseEntity<BaseResponse<Map<String, Object>>> signup(@Valid @RequestBody SignupRequest request){
+    public ResponseEntity<BaseResponse<Void>> signup(@Valid @RequestBody SignupRequest request){
         authService.signup(request);
-        return BaseResponse.success(SuccessCode.SIGNUP_SUCCESS, Map.of());
+        return BaseResponse.success(SuccessCode.SIGNUP_SUCCESS);
 
     }
 
