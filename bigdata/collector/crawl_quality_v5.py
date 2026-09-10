@@ -15,6 +15,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Iterable
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from bs4 import BeautifulSoup
 import trafilatura
@@ -47,6 +48,39 @@ WALL_BODY_PATTERNS = (
 
 GENERIC_SECTIONS = {"news", "latest", "article", "articles", "index", "www", "html"}
 
+COUNTRY_TIMEZONES = {
+    "Germany": "Europe/Berlin",
+    "Japan": "Asia/Tokyo",
+    "South Korea": "Asia/Seoul",
+    "United Kingdom": "Europe/London",
+    # US publishers span multiple zones; keep UTC unless a registry row
+    # explicitly supplies a source timezone.
+    "United States": "UTC",
+}
+
+TITLE_SUFFIX_PATTERN = re.compile(
+    r"^(?P<head>.+)\s*(?P<separator>\||｜|\s[-–—:]\s)\s*"
+    r"(?P<suffix>[^\n]{1,40})\s*$"
+)
+
+TIMEZONE_ABBREVIATION_OFFSETS = {
+    "UTC": 0,
+    "GMT": 0,
+    "BST": 3600,
+    "CET": 3600,
+    "CEST": 7200,
+    "JST": 32400,
+    "KST": 32400,
+    "EST": -18000,
+    "EDT": -14400,
+    "CST": -21600,
+    "CDT": -18000,
+    "MST": -25200,
+    "MDT": -21600,
+    "PST": -28800,
+    "PDT": -25200,
+}
+
 LATIN_STOPWORDS = {
     "about", "after", "again", "against", "also", "been", "before", "being",
     "between", "could", "from", "have", "into", "more", "news", "over", "said",
@@ -74,23 +108,33 @@ def title_hash(value: str) -> str:
     return hashlib.sha256(normalize_title(value).encode("utf-8")).hexdigest()
 
 
-def parse_datetime(value: Any) -> str | None:
+def timezone_for_country(country: str) -> str:
+    return COUNTRY_TIMEZONES.get(safe(country), "UTC")
+
+
+def parse_datetime(value: Any, default_timezone: str = "UTC") -> str | None:
     text = safe(value)
     if not text:
         return None
     try:
         from dateutil.parser import parse as parse_date  # type: ignore
 
-        parsed = parse_date(text)
+        parsed = parse_date(text, tzinfos=TIMEZONE_ABBREVIATION_OFFSETS)
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
+            try:
+                parsed = parsed.replace(tzinfo=ZoneInfo(default_timezone))
+            except ZoneInfoNotFoundError:
+                parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(timezone.utc).isoformat()
     except Exception:
         pass
     try:
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
+            try:
+                parsed = parsed.replace(tzinfo=ZoneInfo(default_timezone))
+            except ZoneInfoNotFoundError:
+                parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(timezone.utc).isoformat()
     except ValueError:
         return None
@@ -129,7 +173,12 @@ def meta_content(soup: BeautifulSoup, *names: str) -> str:
     return ""
 
 
-def extract_published_at(soup: BeautifulSoup, jsonld: list[dict[str, Any]], fallback: str = "") -> tuple[str, str]:
+def extract_published_at(
+    soup: BeautifulSoup,
+    jsonld: list[dict[str, Any]],
+    fallback: str = "",
+    default_timezone: str = "UTC",
+) -> tuple[str, str]:
     candidates: list[tuple[str, str]] = []
     for name in ("article:published_time", "datePublished", "datepublished", "publish-date", "pubdate"):
         value = meta_content(soup, name)
@@ -145,7 +194,7 @@ def extract_published_at(soup: BeautifulSoup, jsonld: list[dict[str, Any]], fall
     if fallback:
         candidates.append((fallback, "discovery"))
     for value, source in candidates:
-        parsed = parse_datetime(value)
+        parsed = parse_datetime(value, default_timezone)
         if parsed:
             return parsed, source
     return "", ""
@@ -201,6 +250,66 @@ def extract_title(soup: BeautifulSoup, jsonld: list[dict[str, Any]], fallback: s
     if soup.title and safe(soup.title.get_text(" ", strip=True)):
         return safe(soup.title.get_text(" ", strip=True))
     return safe(fallback)
+
+
+def extract_site_names(
+    soup: BeautifulSoup,
+    jsonld: list[dict[str, Any]],
+) -> tuple[str, ...]:
+    names: list[str] = []
+    for meta_name in ("og:site_name", "application-name"):
+        value = meta_content(soup, meta_name)
+        if value:
+            names.append(value)
+    for item in jsonld:
+        publisher = item.get("publisher")
+        if isinstance(publisher, dict) and safe(publisher.get("name")):
+            names.append(safe(publisher.get("name")))
+        item_type = item.get("@type")
+        types = item_type if isinstance(item_type, list) else [item_type]
+        if any(
+            safe(value).casefold() in {"organization", "website", "newsmediaorganization"}
+            for value in types
+        ) and safe(item.get("name")):
+            names.append(safe(item.get("name")))
+    return tuple(dict.fromkeys(names))
+
+
+def title_suffix_candidate(title: str, maximum_chars: int = 40) -> tuple[str, str]:
+    """Return the removable title tail and the headline without that tail."""
+    value = safe(title)
+    match = TITLE_SUFFIX_PATTERN.match(value)
+    if not match:
+        return "", value
+    suffix = safe(match.group("suffix"))
+    head = safe(match.group("head"))
+    if not head or not suffix or len(suffix) > maximum_chars:
+        return "", value
+    return suffix, head
+
+
+def strip_title_suffix(
+    title: str,
+    known_suffixes: Iterable[str] = (),
+    observed_count: int = 0,
+    minimum_occurrences: int = 5,
+    maximum_chars: int = 40,
+) -> str:
+    """Safely strip only short, known or repeatedly observed publisher tails."""
+    suffix, head = title_suffix_candidate(title, maximum_chars)
+    if not suffix:
+        return safe(title)
+    suffix_key = normalize_title(suffix)
+    known = {normalize_title(value) for value in known_suffixes if safe(value)}
+    if suffix_key in known or observed_count >= max(1, minimum_occurrences):
+        return head
+    return safe(title)
+
+
+def body_prefix_hash(body: str, prefix_chars: int = 400) -> str:
+    normalized = unicodedata.normalize("NFKC", safe(body))
+    normalized = re.sub(r"\s+", " ", normalized).strip()[:prefix_chars]
+    return hashlib.sha1(normalized.encode("utf-8")).hexdigest() if normalized else ""
 
 
 def strip_non_article_nodes(soup: BeautifulSoup) -> None:
