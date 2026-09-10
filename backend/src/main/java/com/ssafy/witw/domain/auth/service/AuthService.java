@@ -2,6 +2,7 @@ package com.ssafy.witw.domain.auth.service;
 
 import com.ssafy.witw.common.exception.GlobalException;
 import com.ssafy.witw.common.response.ErrorCode;
+import com.ssafy.witw.domain.auth.dto.EmailExistsResponse;
 import com.ssafy.witw.domain.user.dao.UserRepository;
 import com.ssafy.witw.domain.auth.dto.SignupRequest;
 import com.ssafy.witw.domain.user.entity.User;
@@ -44,5 +45,11 @@ public class AuthService {
         return email.trim().toLowerCase(Locale.ROOT);
     }
 
+    public EmailExistsResponse checkEmailExists(String email){
+        String normalizeEmail = normalizeEmail(email);
+        boolean isDuplicate = userRepository.existsByEmailIgnoreCase(normalizeEmail);
+
+        return new EmailExistsResponse(isDuplicate);
+    }
 
 }
