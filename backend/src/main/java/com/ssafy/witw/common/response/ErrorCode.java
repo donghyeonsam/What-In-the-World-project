@@ -29,7 +29,10 @@ public enum ErrorCode {
     THEME_NOT_FOUND(HttpStatus.NOT_FOUND, "TH01", "테마를 찾을 수 없습니다."),
 
     // COUNTRY
-    COUNTRY_NOT_FOUND(HttpStatus.NOT_FOUND, "CT01", "국가를 찾을 수 없습니다.");
+    COUNTRY_NOT_FOUND(HttpStatus.NOT_FOUND, "CT01", "국가를 찾을 수 없습니다."),
+
+    // AUTH
+    EMAIL_DUPLICATED(HttpStatus.CONFLICT, "AU01", "이미 사용 중인 이메일입니다.");
 
     private final HttpStatus status;
     private final String code;
