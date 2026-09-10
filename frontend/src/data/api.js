@@ -41,7 +41,7 @@ export const api = {
   fields: (signal) => request('/themes/by-field', { signal }),
   country: (code, signal) => request(`/countries/${encodeURIComponent(code.toUpperCase())}`, { signal }),
   popular: (code, signal) => request(`/countries/${encodeURIComponent(code.toUpperCase())}/themes/popular`, { signal, params: { limit: 10 } }),
-  theme: (id, signal) => request(`/themes/${encodeURIComponent(id)}/overview`, { signal, params: { issueLimit: 10, articleLimit: 10 } }),
+  theme: (id, countryCode, signal) => request(`/themes/${encodeURIComponent(id)}/overview`, { signal, params: { issueLimit: 10, articleLimit: 10, countryCode } }),
   issue: (id, signal) => request(`/global/issues/${encodeURIComponent(id)}`, { signal }),
-  overview: (id, signal) => request(`/issues/${encodeURIComponent(id)}/overview`, { signal, params: { articleLimit: 10 } }),
+  overview: (id, countryCode, signal) => request(`/issues/${encodeURIComponent(id)}/overview`, { signal, params: { articleLimit: 10, countryCode } }),
 };

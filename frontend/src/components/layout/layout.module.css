@@ -1,8 +1,4 @@
-/* 화면 골격 — 미니멀 시안의 2열 대시보드 (결정표 2-2 / 3-1)
-
-   지도 열도 흰 배경이다. 화면 전체가 하나의 라이트 문서로 읽힌다.
-   지구본은 원래 검은 우주를 전제로 만들어졌으므로, 흰 바탕에서 떠 보이지 않도록
-   구체 아래에 옅은 그림자를 깔고 별 배경은 쓰지 않는다. */
+/* 화면 골격 — 우주 지도 스테이지 + 라이트 인사이트 패널 */
 
 .shell {
   height: 100%;
@@ -27,120 +23,40 @@
   flex-direction: column;
   min-height: 0;
   padding: 26px 30px 20px;
-  border-right: 1px solid var(--wtw-line);
-  background: var(--wtw-panel);
+  border-right: 1px solid #17233d;
+  background:
+    radial-gradient(circle at 48% 46%, rgba(23, 67, 135, 0.28) 0%, rgba(7, 19, 69, 0.12) 32%, transparent 58%),
+    radial-gradient(circle at 12% 18%, rgba(29, 78, 216, 0.12), transparent 30%),
+    linear-gradient(145deg, #071225 0%, #020712 55%, #050b18 100%);
 }
-
-.stageHead {
-  position: relative;
-  z-index: 4;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 18px;
-  flex: none;
-}
-.eyebrow {
-  color: var(--wtw-accent);
-  font-family: var(--wtw-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  margin-bottom: 7px;
-}
-.stageHead h1 {
-  margin: 0;
-  font-size: clamp(22px, 1.7vw, 28px);
-  line-height: 1.24;
-  letter-spacing: -0.03em;
-  color: var(--wtw-text);
-}
-.stageHead h1 em { font-style: normal; color: var(--wtw-accent); }
-.stageHead p {
-  margin: 9px 0 0;
-  color: var(--wtw-muted);
-  font-size: 11.5px;
-  line-height: 1.6;
-  max-width: 46ch;
-}
-
-/* 지도 표시 기준 스위치.
-   결정표 6번 "논조 모드 잠금" — 볼 맥락(선택 이슈)이 없으면 스위치가 아니라 라벨이 된다. */
-.switch {
-  flex: none;
-  display: flex;
-  padding: 3px;
-  border: 1px solid var(--wtw-line);
-  background: var(--wtw-surface);
-  border-radius: 10px;
-}
-.switch button {
-  border-radius: 7px;
-  color: var(--wtw-muted);
-  padding: 6px 11px;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.switch button.on {
-  background: var(--wtw-panel);
-  color: var(--wtw-accent);
-  box-shadow: var(--wtw-glow);
-}
-.switch.locked { padding: 0; border: 0; background: transparent; }
-.switch.locked button {
-  cursor: default;
-  color: var(--wtw-muted);
-  border: 1px solid var(--wtw-line);
-  background: var(--wtw-panel);
+.stage::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.72;
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.95) 0 1px, transparent 1.4px),
+    radial-gradient(circle, rgba(119, 171, 255, 0.8) 0 1px, transparent 1.3px),
+    radial-gradient(circle, rgba(255, 255, 255, 0.55) 0 0.7px, transparent 1.1px);
+  background-size: 97px 89px, 151px 137px, 59px 67px;
+  background-position: 13px 7px, 47px 31px, 5px 43px;
 }
 
 /* 지구본이 남는 세로 공간을 다 쓴다 */
-/* 흰 바탕에서는 구체 가장자리가 배경에 녹으므로 아래에 옅은 그림자를 깐다 */
-.globeSlot { position: relative; flex: 1; min-height: 0; margin: 8px 0 0; }
+/* 지구본 아래에 은은한 푸른 공간광을 둔다 */
+.globeSlot { position: relative; z-index: 1; flex: 1; min-height: 0; }
 .globeSlot::after {
   content: '';
   position: absolute;
   left: 50%; bottom: 6%;
   width: 46%; height: 6%;
   transform: translateX(-50%);
-  background: rgba(23, 43, 77, 0.16);
-  filter: blur(20px);
+  background: rgba(37, 99, 235, 0.3);
+  filter: blur(28px);
   border-radius: 50%;
   pointer-events: none;
 }
-
-/* 스테이지 바닥 — 범례와 갱신 시각 */
-.stageFoot {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding-top: 10px;
-  margin-top: 6px;
-  border-top: 1px solid var(--wtw-line);
-  font-family: var(--wtw-mono);
-  font-size: 10px;
-  color: var(--wtw-muted);
-}
-.ramp {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-.ramp i {
-  display: block;
-  width: 74px;
-  height: 6px;
-  border-radius: 3px;
-  background: linear-gradient(90deg, var(--wtw-neg), var(--wtw-neu), var(--wtw-pos));
-}
-.lowSample { display: inline-flex; align-items: center; gap: 6px; }
-.lowSample i {
-  width: 9px; height: 9px; border-radius: 3px;
-  background: var(--wtw-nodata);
-}
-.stageFoot .spacer { margin-left: auto; }
 
 /* ── 오른쪽: 라이트 인사이트 패널 ── */
 .panel {

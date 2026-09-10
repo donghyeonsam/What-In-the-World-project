@@ -97,6 +97,19 @@ class IssueOverviewServiceTest {
     }
 
     @Test
+    void 국가_코드가_있으면_해당_국가의_대표_기사만_조회한다() {
+        var preview = 프리뷰(1L);
+        when(issueRepository.existsById(1L)).thenReturn(true);
+        when(issueRepository.getIssuePreviewByIssueId(1L)).thenReturn(preview);
+        when(issueRepository.findCountryTonesLast24Hours(1L)).thenReturn(List.of());
+        when(articleRepository.getRepresentArticlesByIssueIdAndCountryCode(1L, "KR", 3)).thenReturn(List.of());
+
+        issueService.getIssueOverview(1L, 3, "KR");
+
+        verify(articleRepository).getRepresentArticlesByIssueIdAndCountryCode(1L, "KR", 3);
+    }
+
+    @Test
     void 없는_이슈는_예외를_던지고_추가_조회하지_않는다() {
         // given
         when(issueRepository.existsById(99L)).thenReturn(false);

@@ -94,13 +94,13 @@ export function ArticleFilterBar({ tone = 'all', onTone }) {
   ];
   return (
     <div className={s.filterBar}>
-      <span>논조로 좁히기</span>
-      <div className={s.toneFilter}>
+      <div className={s.toneFilter} role="group" aria-label="기사 논조 필터">
         {tones.map(([id, label]) => (
           <button
             key={id}
             type="button"
             className={tone === id ? s.on : ''}
+            aria-pressed={tone === id}
             onClick={() => onTone?.(id)}
           >
             {label}

@@ -94,9 +94,6 @@ export default function AttentionPanel({ country, flag = '🌐', direction, onDi
         ))}
       </div>
 
-      <p className={s.note}>
-        관심도는 선택 기간 내 기사에서 상대 국가가 언급된 횟수를 기준으로 계산합니다.
-      </p>
     </>
   );
 }

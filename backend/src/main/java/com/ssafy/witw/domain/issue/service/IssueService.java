@@ -32,6 +32,10 @@ public class IssueService {
     private final ArticleRepository articleRepository;
 
     public IssueOverviewResponse getIssueOverview(long issueId, int articleLimit) {
+        return getIssueOverview(issueId, articleLimit, null);
+    }
+
+    public IssueOverviewResponse getIssueOverview(long issueId, int articleLimit, String countryCode) {
         if (articleLimit < 1 || articleLimit > MAX_ARTICLE_LIMIT) {
             throw new GlobalException(ErrorCode.INVALID_INPUT_VALUE);
         }
@@ -52,8 +56,10 @@ public class IssueService {
                 .map(this::toCountryTone)
                 .toList();
 
-        List<RepresentArticle> representArticles = articleRepository
-                .getRepresentArticlesByIssueId(issueId, articleLimit)
+        List<ArticleRepository.RepresentArticleProjection> articleRows = countryCode == null
+                ? articleRepository.getRepresentArticlesByIssueId(issueId, articleLimit)
+                : articleRepository.getRepresentArticlesByIssueIdAndCountryCode(issueId, countryCode, articleLimit);
+        List<RepresentArticle> representArticles = articleRows
                 .stream()
                 .map(RepresentArticle::from)
                 .toList();
