@@ -11,20 +11,63 @@ validate-frontend:
     - npm run build
 
   rules:
-    # develop 대상 MR → 빌드 검증
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop"'
+    # develop / master 대상 MR → 빌드 검증
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && ($CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "develop" || $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "master")'
       changes:
-        - frontend/**/*
+        - frontend/src/**/*
+        - frontend/public/**/*
+        - frontend/nginx/**/*
+        - frontend/package*.json
+        - frontend/index.html
+        - frontend/vite.config.*
+        - frontend/Dockerfile
+        - frontend/.dockerignore
         - .gitlab-ci.yml
         - .gitlab/ci/front.yml
 
-    # master → 빌드 검증
-    - if: '$CI_COMMIT_BRANCH == "master"'
+    # master / develop merge(push) → 빌드 검증
+    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "develop")'
       changes:
-        - frontend/**/*
+        - frontend/src/**/*
+        - frontend/public/**/*
+        - frontend/nginx/**/*
+        - frontend/package*.json
+        - frontend/index.html
+        - frontend/vite.config.*
+        - frontend/Dockerfile
+        - frontend/.dockerignore
         - .gitlab-ci.yml
         - .gitlab/ci/front.yml
 
+
+deploy-frontend-dev:
+  extends: deploy-frontend
+  resource_group: frontend-development
+  environment:
+    name: development-frontend
+    url: https://dev.witw.kro.kr
+  variables:
+    APP_DOCKER_NETWORK: witw-dev-network
+    FRONTEND_CONTAINER: what-in-the-world-front-dev
+    FRONTEND_IMAGE: jamonda1/what-in-the-world:develop
+    FRONTEND_HOST_PORT: "3001"
+  needs:
+    - validate-frontend
+    - job: deploy-backend-dev
+      optional: true
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+      changes:
+        - frontend/src/**/*
+        - frontend/public/**/*
+        - frontend/nginx/**/*
+        - frontend/package*.json
+        - frontend/index.html
+        - frontend/vite.config.*
+        - frontend/Dockerfile
+        - frontend/.dockerignore
+        - .gitlab-ci.yml
+        - .gitlab/ci/front.yml
 
 deploy-frontend:
   stage: deploy
@@ -33,6 +76,9 @@ deploy-frontend:
   timeout: 20m
   variables:
     APP_DOCKER_NETWORK: witw-app-network
+    FRONTEND_CONTAINER: what-in-the-world-front
+    FRONTEND_IMAGE: jamonda1/what-in-the-world:latest
+    FRONTEND_HOST_PORT: "3000"
 
   needs:
     - validate-frontend
@@ -51,21 +97,28 @@ deploy-frontend:
 
     - echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
 
-    - docker build -t jamonda1/what-in-the-world:latest .
-    - docker push jamonda1/what-in-the-world:latest
+    - docker build -t "$FRONTEND_IMAGE" .
+    - docker push "$FRONTEND_IMAGE"
 
     - docker network inspect "$APP_DOCKER_NETWORK" >/dev/null
-    - docker rm -f what-in-the-world-front || true
-    - docker run -d --name what-in-the-world-front --restart unless-stopped --network "$APP_DOCKER_NETWORK" -p 127.0.0.1:3000:80 jamonda1/what-in-the-world:latest
+    - docker rm -f "$FRONTEND_CONTAINER" || true
+    - docker run -d --name "$FRONTEND_CONTAINER" --restart unless-stopped --network "$APP_DOCKER_NETWORK" -p "127.0.0.1:$FRONTEND_HOST_PORT:80" "$FRONTEND_IMAGE"
 
-    - timeout 5 bash -c '</dev/tcp/127.0.0.1/3000'
-    - docker exec what-in-the-world-front wget -q -O /dev/null http://127.0.0.1/healthz
-    - docker exec what-in-the-world-front wget -q -O /dev/null http://127.0.0.1/api/v1/themes/by-field
+    - timeout 5 bash -c "</dev/tcp/127.0.0.1/$FRONTEND_HOST_PORT"
+    - docker exec "$FRONTEND_CONTAINER" wget -q -O /dev/null http://127.0.0.1/healthz
+    - docker exec "$FRONTEND_CONTAINER" wget -q -O /dev/null http://127.0.0.1/api/v1/themes/by-field
 
   rules:
     # master에서만 배포
-    - if: '$CI_COMMIT_BRANCH == "master"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "master"'
       changes:
-        - frontend/**/*
+        - frontend/src/**/*
+        - frontend/public/**/*
+        - frontend/nginx/**/*
+        - frontend/package*.json
+        - frontend/index.html
+        - frontend/vite.config.*
+        - frontend/Dockerfile
+        - frontend/.dockerignore
         - .gitlab-ci.yml
         - .gitlab/ci/front.yml

@@ -587,17 +587,27 @@ key = theme_id
 
 # 미분류 기사 클러스터링 Trigger
 
-`news.unclassified.v1`에 저장된 이벤트들을 집계해서 테마별로 개수를 확인했을 때, 50개가 넘을 때 클러스터링을 진행한다.
+`news.unclassified.v1`에 저장된 이벤트들을 집계해서 테마별로 개수를 확인했을 때, 50개 이상이면 클러스터링을 진행한다.
+
+Spark 마이크로 배치가 50건보다 작더라도 메시지가 사라지지 않도록 검증된 미분류
+기사는 `ISSUE_CLUSTER_STATE_LOCATION`의 Parquet 상태에 누적한다. `article_id`로
+중복을 제거하며, 테마별 누적량이 MVP 고정 기준인 50건에 도달한 경우에만
+해당 테마를 처리한다.
+
 ### 6-2. Spark(이슈 클러스터링용)
 # 6-2. HDBSCAN 클러스터링
 
 `news.unclassified.v1`에 저장된 이벤트들을 집계해서 동일한 테마에 해당하는 기사끼리, embedding을 대상으로 HDBSCAN을 실행한다.
 
+MVP 고정값은 최소 군집 크기 5, `min_samples` 3, 평균 membership probability
+0.60 이상이다. 한 번에 Driver로 가져오는 기사 수는 테마별 2,000건으로 제한하고,
+초과분은 상태에 남겨 다음 실행에서 처리한다.
+
 ---
 
 # Cluster 형성 실패
 
-형성에 실패한 기사들은 바로 삭제한다.
+형성에 실패한 노이즈 기사들은 상태에서 제거한다.
 
 ---
 
@@ -618,22 +628,20 @@ Cluster centroid와 가장 가까운 대표 기사 3건을 선택한다. (3건 �
 ```json
 {
   "theme": "SEMICONDUCTOR",
-  "articles": [
-    {
-      "article_id": "a-101",
-      "title": "미국, 중국 대상 AI 반도체 수출 규제 확대"
-    },
-    {
-      "article_id": "a-102",
-      "title": "Washington tightens semiconductor export controls"
-    },
-    {
-      "article_id": "a-103",
-      "title": "New US rules target AI accelerators exported to China"
-    }
-  ]
+  "cluster": {
+    "article_count": 8,
+    "hdbscan_membership_confidence": 0.87,
+    "article_titles": [
+      "미국, 중국 대상 AI 반도체 수출 규제 확대",
+      "Washington tightens semiconductor export controls",
+      "New US rules target AI accelerators exported to China"
+    ]
+  }
 }
 ```
+
+`article_id`는 LLM의 메타데이터 생성에 필요하지 않으므로 외부 요청에 포함하지 않는다.
+Issue에 연결할 전체 `article_ids`는 Cluster 결과로부터 별도로 `ISSUE_CREATE` 이벤트에 넣는다.
 
 ### LLM 출력
 
@@ -681,7 +689,9 @@ DB Writer는 해당 이벤트를 소비하여 신규 Issue를 생성하고 Clust
 
 Spark에서 생성한 최종 이벤트는 `news.event.v1` Kafka Topic으로 발행한다.
 
-Database Writer는 `news.event.v1`을 구독하고, `event_type`에 따라 PostgreSQL의 데이터를 생성하거나 갱신한다.
+백엔드 Database Writer는 `news.event.v1`을 구독하고, `event_type`에 따라
+PostgreSQL의 데이터를 생성하거나 갱신한다. Spark의 책임은 이벤트 발행까지이며
+PostgreSQL을 직접 수정하지 않는다.
 
 ```text
 Spark
@@ -887,6 +897,11 @@ COMMIT;
 
 이미 같은 Issue에 할당된 기사들이라면 중복 이벤트로 판단하여 건너뛴다. 일부만
 할당됐거나 서로 다른 Issue에 할당된 경우에는 충돌로 처리하고 자동 생성하지 않는다.
+
+백엔드 Writer는 `ARTICLE_ISSUE_ASSIGNED` 처리 시에도 기사 행을 잠근 뒤 현재
+`issue_id`가 `NULL`이거나 같은 이슈인 경우에만 반영해야 한다. 이미 다른 이슈가
+붙은 기사는 후발 이벤트로 덮어쓰지 않고 충돌로 기록하며, Kafka offset은 DB
+transaction commit 이후에만 commit해야 한다.
 
 ---
 

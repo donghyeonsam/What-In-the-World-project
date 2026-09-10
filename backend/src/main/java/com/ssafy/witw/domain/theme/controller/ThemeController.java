@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Locale;
 
 @RestController
 @RequiredArgsConstructor
@@ -39,8 +41,10 @@ public class ThemeController {
     public ResponseEntity<BaseResponse<ThemeOverviewResponse>> getThemeOverview(
             @Parameter(description = "테마 ID", example = "1") @PathVariable @Positive Long themeId,
             @Parameter(description = "주요 이슈 개수 (1~10)") @RequestParam(defaultValue = "3") @Min(1) @Max(10) int issueLimit,
-            @Parameter(description = "대표 기사 개수 (1~10)") @RequestParam(defaultValue = "10") @Min(1) @Max(10) int articleLimit) {
+            @Parameter(description = "대표 기사 개수 (1~10)") @RequestParam(defaultValue = "10") @Min(1) @Max(10) int articleLimit,
+            @Parameter(description = "대표 기사 발행 국가 코드") @RequestParam(required = false) @Pattern(regexp = "[a-zA-Z]{2}") String countryCode) {
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS,
-                themeService.getThemeOverview(themeId, issueLimit, articleLimit));
+                themeService.getThemeOverview(themeId, issueLimit, articleLimit,
+                        countryCode == null ? null : countryCode.toUpperCase(Locale.ROOT)));
     }
 }

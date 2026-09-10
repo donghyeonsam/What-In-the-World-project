@@ -34,6 +34,14 @@ target/
 hs_err_pid*
 replay_pid*
 
+### Python ###
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Codex가 로컬 검증 중 생성하는 임시 의존성 캐시
+.codex-tmp/
+
 ### 민감 정보 / 환경 설정 ###
 .env
 .env.*
@@ -72,6 +80,15 @@ bin/
 !.claude/skills/
 CLAUDE.local.md
 .mcp.json
+codex/
 
 ### NLP worker에서 사용되는 모델까지 올라가는 것 방지
 bigdata/nlp-worker/models/
+
+### 파이썬 캐시
+__pycache__/
+*.py[cod]
+*$py.class
+
+### 도커 이미지 파일 방지
+*.tar*

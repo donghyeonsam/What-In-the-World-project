@@ -1,0 +1,9 @@
+# 오프라인 학습 전용. 배포되지 않는다 (무거움).
+torch>=2.1
+transformers>=4.44
+tokenizers>=0.19
+sentencepiece>=0.1.99          # mDeBERTa 토크나이저
+accelerate>=0.30
+numpy>=1.24
+PyYAML>=6.0
+pytest>=7.4                    # text.py / scoring.py 는 HF 없이 테스트됨

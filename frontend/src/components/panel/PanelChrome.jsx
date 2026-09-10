@@ -35,10 +35,16 @@ export function SubHeading({ title, desc }) {
 }
 
 /** 섹션 제목 — 오른쪽에 보조 설명 또는 '전체 보기' 버튼 */
-export function SectionTitle({ title, note, action }) {
+export function SectionTitle({ title, note, action, help }) {
   return (
     <div className={s.sectionTitle}>
-      <h3>{title}</h3>
+      <div className={s.sectionTitleMain}>
+        <h3>{title}</h3>
+        {help && <span className={s.helpWrap} aria-label={help}>
+          <span className={s.helpIcon} aria-hidden="true">!</span>
+          <span className={s.helpTooltip} role="tooltip">{help}</span>
+        </span>}
+      </div>
       {action ? (
         <button type="button" onClick={action.onClick}>
           {action.label}
@@ -90,13 +96,13 @@ export function TaxonomyPath({ items }) {
 }
 
 /** 국가 아이덴티티 — 큰 국기 + 국명 + 매체 수 */
-export function CountryIdentity({ flag, name, meta }) {
+export function CountryIdentity({ flag, flagImage, name, meta }) {
   return (
     <div className={s.identity}>
-      <span className={s.largeFlag}>{flag}</span>
+      <span className={s.largeFlag}>{flagImage ? <img src={flagImage} alt="" /> : flag}</span>
       <div>
         <h2>{name}</h2>
-        <p>{meta}</p>
+        {meta && <p>{meta}</p>}
       </div>
     </div>
   );

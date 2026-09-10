@@ -1,44 +1,61 @@
-"""
-NLP Worker 실행 진입점.
+"""news.raw.v1 → archive → NLP → acknowledged news.enriched.v1 → commit."""
+import logging
+import signal
 
-Kafka의 news.raw.v1 토픽에서 원본 뉴스를 배치 단위로 읽고,
-원본 데이터를 저장한 뒤 NLP 처리 결과를 추가하여
-news.enriched.v1 토픽으로 전송한다.
-"""
-
-from pipeline import process_article
+from pipeline import InvalidArticle, process_article
 from storage.raw_archive import archive_batch
-from consumer import create_consumer, consume_batch
-from producer import (
-    create_producer,
-    send_enriched_article,
-    flush_producer,
-)
+from consumer import create_consumer, consume_batch, commit_batch
+from producer import create_producer, send_enriched_article, flush_producer
+
+logger = logging.getLogger(__name__)
 
 
-# Kafka에서 읽어온 기사 배치를 NLP 파이프라인에 전달하고 처리 결과를 반환한다.
 def process_batch(batch):
-    processed_articles = []
-
+    processed = []
     for item in batch:
-        article = item["article"]
+        message = item["message"]
+        try:
+            if item.get("invalid_reason"):
+                raise InvalidArticle(item["invalid_reason"])
+            processed.append(process_article(item["article"]))
+        except InvalidArticle as exc:
+            logger.warning(
+                "Discarding invalid article topic=%s partition=%s offset=%s: %s",
+                message.topic(), message.partition(), message.offset(), exc,
+            )
+    return processed
 
-        processed_article = process_article(article)
 
-        processed_articles.append(processed_article)
+def handle_batch(consumer, producer, batch):
+    if not batch:
+        return
+    # archive 실패는 기존 동작대로 종료. 부분 append/재처리 중복은 가능하다.
+    archive_batch(batch)
+    articles = process_batch(batch)
+    for article in articles:
+        send_enriched_article(producer, article)
+    flush_producer(producer)
+    commit_batch(consumer)
+    logger.info("Batch committed: consumed=%d enriched=%d invalid=%d",
+                len(batch), len(articles), len(batch) - len(articles))
 
-    return processed_articles
+
+def _stop_worker(signum, frame):
+    raise KeyboardInterrupt
 
 
-# NLP Worker를 실행하고 Kafka Consumer/Producer 처리 루프를 관리한다.
 def main():
+    logging.basicConfig(level=logging.INFO)
     consumer = create_consumer()
-    producer = create_producer()
-
-    print("NLP Worker started.")
-
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
     try:
+        signal.signal(signal.SIGTERM, _stop_worker)
+        producer = create_producer()
+        logger.info("NLP Worker started; sentiment uses fixed dummy score 50.0")
         while True:
+<<<<<<< HEAD
+            handle_batch(consumer, producer, consume_batch(consumer))
+=======
             # Kafka에서 최대 NLP_BATCH_SIZE개의 기사를 읽는다.
             batch = consume_batch(consumer)
 
@@ -66,14 +83,19 @@ def main():
 
             print(f"Processed batch: {len(batch)} articles")
 
+>>>>>>> master
     except KeyboardInterrupt:
-        print("NLP Worker stopped.")
-
+        logger.info("Worker interrupted; unfinished batch will be replayed")
+    except Exception:
+        logger.exception("Worker failed; unfinished batch offsets are not committed")
+        raise
     finally:
-        # 프로그램 종료 시 Kafka Consumer 연결을 안전하게 종료한다.
-        consumer.close()
+        # auto.commit=False이므로 close가 미완료 배치를 commit하지 않는다.
+        try:
+            consumer.close()
+        finally:
+            signal.signal(signal.SIGTERM, previous_sigterm)
 
 
-# 이 파일을 직접 실행했을 때 main() 함수를 시작한다.
 if __name__ == "__main__":
     main()

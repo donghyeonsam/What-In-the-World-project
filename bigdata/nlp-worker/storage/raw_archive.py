@@ -1,57 +1,39 @@
-"""
-원본 뉴스 아카이브 저장 모듈.
-
-Kafka의 news.raw.v1 토픽에서 읽어온 원본 기사 데이터를
-nlp-worker/data/raw 디렉토리 아래 날짜별 JSONL 파일로 저장한다.
-"""
-
+"""원본 JSONL 보존. 저장 실패는 전파하며 재처리 시 중복 append를 허용한다."""
+import base64
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-
-# nlp-worker/data/raw 디렉토리에 원본 기사 데이터를 저장한다.
-RAW_DATA_DIR = (
-        Path(__file__).resolve().parent.parent
-        / "data"
-        / "raw"
-)
+RAW_DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "raw"
 
 
-# 현재 UTC 날짜를 기준으로 저장할 JSONL 파일 경로를 반환한다.
 def get_archive_file_path():
-    current_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-    return RAW_DATA_DIR / f"{current_date}.jsonl"
+    return RAW_DATA_DIR / f"{datetime.now(timezone.utc):%Y-%m-%d}.jsonl"
 
 
-# Kafka에서 읽어온 기사 배치를 날짜별 JSONL 파일에 이어서 저장한다.
 def archive_batch(batch):
-    # data/raw 디렉토리가 없으면 자동으로 생성한다.
-    RAW_DATA_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    archive_file = get_archive_file_path()
-
-    # append 모드로 열어 기존 데이터 뒤에 계속 추가한다.
-    with archive_file.open(
-            "a",
-            encoding="utf-8",
-    ) as file:
-
-        for item in batch:
-            article = item["article"]
-
-            # 기사 하나를 JSON 한 줄로 저장한다.
-            file.write(
-                json.dumps(
-                    article,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )
-            )
-
-            # JSONL 형식을 위해 기사마다 줄바꿈한다.
-            file.write("\n")
+    if not batch:
+        return
+    # 직렬화는 파일을 열기 전에 완료해 직렬화 오류에 의한 부분 쓰기를 방지한다.
+    lines = []
+    for item in batch:
+        if item.get("invalid_reason"):
+            message = item["message"]
+            raw = message.value()
+            record = {
+                "topic": message.topic(), "partition": message.partition(),
+                "offset": message.offset(), "invalid_reason": item["invalid_reason"],
+                "raw_value_base64": (
+                    base64.b64encode(raw).decode("ascii") if raw is not None else None
+                ),
+            }
+        else:
+            record = item["article"]
+        lines.append(json.dumps(record, ensure_ascii=False, separators=(",", ":"),
+                               allow_nan=False) + "\n")
+    RAW_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with get_archive_file_path().open("a", encoding="utf-8") as file:
+        file.write("".join(lines))
+        file.flush()
+        os.fsync(file.fileno())

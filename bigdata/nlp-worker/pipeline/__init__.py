@@ -1,18 +1,65 @@
-"""
-NLP 처리 파이프라인 패키지.
-
-언어 감지, 국가 추출, 임베딩 생성,
-도메인/테마 분류, 감성 분석 등의 NLP 로직을 관리한다.
-"""
-
+"""Collector 필드를 보존하면서 실제 NLP 결과를 추가한다."""
+import json
 from datetime import datetime, timezone
 
-# 임시 함수!!!!!
-# 하나의 기사에 NLP 처리 결과를 추가하고 가공된 기사를 반환한다.
+from .language import detect_language
+from .country import get_country_code, extract_mentioned_countries
+from .embedding import create_article_embedding
+from .classifier import classify_theme
+from .sentiment import analyze_sentiment
+
+
+class InvalidArticle(ValueError):
+    """재시도로 정상화되지 않는 입력 오류. 모델 오류와 구분한다."""
+
+
+def validate_article(article):
+    if not isinstance(article, dict):
+        raise InvalidArticle("article must be a JSON object")
+    for key in ("article_id", "source_name", "article_url", "title",
+                "country", "published_at", "discovered_at"):
+        if not isinstance(article.get(key), str) or not article[key].strip():
+            raise InvalidArticle(f"{key} must be a non-empty string")
+    if article.get("body") is not None and not isinstance(article["body"], str):
+        raise InvalidArticle("body must be a string or null")
+    for key in ("published_at", "discovered_at"):
+        try:
+            parsed = datetime.fromisoformat(article[key].strip().replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                raise ValueError("timezone required")
+        except ValueError as exc:
+            raise InvalidArticle(f"{key} must be an ISO-8601 timestamp with timezone") from exc
+    try:
+        json.dumps(article, allow_nan=False, ensure_ascii=False).encode("utf-8")
+    except (TypeError, ValueError, UnicodeError) as exc:
+        raise InvalidArticle("article must contain finite, UTF-8 JSON values") from exc
+    country_code = get_country_code(article["country"])
+    if country_code is None:
+        raise InvalidArticle(f"Unsupported publishing country: {article['country']}")
+    return country_code
+
+
 def process_article(article):
-    article["nlp_worker_data"] = {
+    country_code = validate_article(article)
+    language_code = detect_language(article)
+    if not language_code:
+        raise RuntimeError("Language model returned no language for a non-empty article")
+    mentioned = extract_mentioned_countries(article, language_code)
+    embedding = create_article_embedding(article)
+    if embedding is None:
+        raise RuntimeError("Embedding model returned no vector for a non-empty article")
+    theme = classify_theme(embedding)
+    # 원본 dict를 덮어쓰지 않아 archive/재처리 입력과 collector 필드를 보존한다.
+    enriched = dict(article)
+    enriched["nlp_worker_data"] = {
+        "country_code": country_code,
+        "language_code": language_code,
+        "field_id": theme["field_id"],
+        "theme_id": theme["theme_id"],
+        "mentioned_countries": mentioned,
+        "sentiment": analyze_sentiment(article),
+        "article_embedding": embedding,
         "processed_at": datetime.now(timezone.utc).isoformat(),
         "version": "v1",
     }
-
-    return article
+    return enriched

@@ -9,6 +9,7 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY collection_kafka_producer_v2.py /app/collection_kafka_producer_v2.py
+COPY crawl_quality_v5.py /app/crawl_quality_v5.py
 COPY healthcheck.py /app/healthcheck.py
 COPY registry.csv /app/registry.csv
 

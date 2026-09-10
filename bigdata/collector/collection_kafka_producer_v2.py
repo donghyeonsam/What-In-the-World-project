@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-"""
-PoC 2 v3
+"""Kafka news collector with v5 quality controls.
 
-Fixes:
+Core guarantees:
 - RSS / Sitemap / Latest Page supported.
 - Endpoint-level baseline seeding.
 - If an endpoint fails warm-up, its first later success is BASELINE ONLY.
@@ -14,6 +13,10 @@ Fixes:
 - final baseline refresh immediately before experiment_start.
 - resume mode skips baseline refresh so downtime articles are not lost.
 - SQLite state makes restart safe.
+- publisher-local timestamps are normalized to UTC and future dates are guarded.
+- source names are canonical domains; title suffix and body-prefix duplicates are removed.
+- section and publication provenance are added without removing legacy event fields.
+- summary.json explicitly marks whether the required 24-hour window is complete.
 """
 
 from __future__ import annotations
@@ -42,8 +45,25 @@ import xml.etree.ElementTree as ET
 
 import feedparser
 import requests
-import trafilatura
 from bs4 import BeautifulSoup
+
+from crawl_quality_v5 import (
+    body_prefix_hash,
+    extract_body as extract_quality_body,
+    extract_published_at,
+    extract_section,
+    extract_site_names,
+    extract_title as extract_quality_title,
+    has_long_line,
+    is_wall_content,
+    parse_datetime as parse_quality_datetime,
+    read_jsonld,
+    strip_title_suffix,
+    title_body_matches,
+    title_hash,
+    title_suffix_candidate,
+    timezone_for_country,
+)
 
 try:
     from confluent_kafka import Producer
@@ -72,6 +92,15 @@ class Source:
     article_url_regex: str
     body_selector: str
     ingestion_status: str
+    max_articles_per_day: int = 300
+    max_items_per_poll: int = 0
+    max_sitemap_urls_per_poll: int = 0
+    domain_max_concurrency: int = 2
+    min_request_interval_seconds: float = 1.5
+    domain_adapter: str = ""
+    display_name: str = ""
+    timezone_name: str = "UTC"
+    coverage_focus: str = ""
 
 
 @dataclass
@@ -84,6 +113,13 @@ class Article:
     published_at: Optional[str]
     discovery_type: str
     endpoint_url: str
+    feed_title: str = ""
+    feed_categories: tuple[str, ...] = ()
+    published_at_source: str = ""
+    published_at_estimated: bool = False
+    section: str = ""
+    section_source: str = ""
+    title_suffix_aliases: tuple[str, ...] = ()
 
 
 def utc_now():
@@ -142,6 +178,29 @@ def normalize_url(url):
     return urlunsplit((scheme, host, path, urlencode(qs), ""))
 
 
+COUNTRY_TLDS = {
+    "Germany": (".de",),
+    "Japan": (".jp",),
+    "South Korea": (".kr",),
+    "United Kingdom": (".uk",),
+    "United States": (".us",),
+}
+DOMAIN_COUNTRY_OVERRIDES = {
+    "theguardian.com": "United Kingdom",
+}
+
+
+def country_domain_mismatch(source):
+    domain = source.domain.lower().removeprefix("www.")
+    expected = DOMAIN_COUNTRY_OVERRIDES.get(domain)
+    if expected:
+        return source.country != expected
+    for country, suffixes in COUNTRY_TLDS.items():
+        if domain.endswith(suffixes):
+            return source.country != country
+    return False
+
+
 
 def make_article_id(normalized_url):
     """Create a deterministic article id from the normalized URL."""
@@ -157,38 +216,11 @@ def extract_article_title(html_text):
         return ""
 
     soup = BeautifulSoup(html_text, "html.parser")
-
-    # Prefer metadata intended for article/social previews.
-    candidates = [
-        ("meta", {"property": "og:title"}, "content"),
-        ("meta", {"name": "twitter:title"}, "content"),
-        ("meta", {"property": "twitter:title"}, "content"),
-    ]
-    for tag_name, attrs, value_attr in candidates:
-        node = soup.find(tag_name, attrs=attrs)
-        if node:
-            value = safe(node.get(value_attr))
-            if value:
-                return value
-
-    # Then prefer the page's main heading.
-    h1 = soup.find("h1")
-    if h1:
-        value = safe(h1.get_text(" ", strip=True))
-        if value:
-            return value
-
-    # Last fallback: HTML <title>.
-    if soup.title:
-        value = safe(soup.title.get_text(" ", strip=True))
-        if value:
-            return value
-
-    return ""
+    return extract_quality_title(soup, read_jsonld(soup))
 
 
 def build_raw_article_event(article, fetched, discovered_at):
-    """Build the exact collector payload used by news.raw.v1."""
+    """Build the backward-compatible payload used by news.raw.v1."""
     return {
         "article_id": make_article_id(article.normalized_url),
         "source_id": article.source_id,
@@ -206,6 +238,10 @@ def build_raw_article_event(article, fetched, discovered_at):
         "body_length": fetched["body_length"],
         "elapsed_ms": fetched["elapsed_ms"],
         "error": fetched["error"],
+        "published_at_estimated": article.published_at_estimated,
+        "published_at_source": article.published_at_source,
+        "section": article.section or None,
+        "section_source": article.section_source or None,
     }
 
 
@@ -320,6 +356,59 @@ def get_session():
     return s
 
 
+class DomainLimiter:
+    """Enforce the registry's per-domain concurrency and request interval."""
+
+    def __init__(self, sources):
+        self.lock = threading.Lock()
+        policies = {}
+        for source in sources:
+            domain = source.domain.lower().removeprefix("www.")
+            current = policies.get(domain)
+            policy = (
+                source.domain_max_concurrency,
+                source.min_request_interval_seconds,
+            )
+            if current:
+                policy = (min(current[0], policy[0]), max(current[1], policy[1]))
+            policies[domain] = policy
+        self.semaphores = {
+            domain: threading.BoundedSemaphore(policy[0])
+            for domain, policy in policies.items()
+        }
+        self.intervals = {domain: policy[1] for domain, policy in policies.items()}
+        self.next_allowed = {}
+
+    def run(self, source, function, *args, **kwargs):
+        domain = source.domain.lower().removeprefix("www.")
+        semaphore = self.semaphores[domain]
+        with semaphore:
+            with self.lock:
+                now = time.monotonic()
+                request_at = max(now, self.next_allowed.get(domain, now))
+                self.next_allowed[domain] = request_at + self.intervals[domain]
+            wait = request_at - now
+            if wait > 0:
+                time.sleep(wait)
+            return function(*args, **kwargs)
+
+
+def source_get(source, args, url, **kwargs):
+    headers = dict(kwargs.pop("headers", {}) or {})
+    if source.domain_adapter == "GOLEM_CONSENT":
+        headers.setdefault("Cookie", "consent=true; cookieconsent_status=allow")
+    limiter = getattr(args, "domain_limiter", None)
+    if limiter is None:
+        return get_session().get(url, headers=headers, **kwargs)
+    return limiter.run(
+        source,
+        get_session().get,
+        url,
+        headers=headers,
+        **kwargs,
+    )
+
+
 SCHEMA = """
 PRAGMA journal_mode=WAL;
 PRAGMA synchronous=NORMAL;
@@ -356,6 +445,63 @@ CREATE TABLE IF NOT EXISTS seen_articles (
     seen_reason TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS accepted_title_hashes (
+    title_hash TEXT PRIMARY KEY,
+    normalized_url TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    accepted_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS accepted_body_hashes (
+    body_hash TEXT PRIMARY KEY,
+    normalized_url TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    accepted_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS title_suffix_counts (
+    suffix_hash TEXT PRIMARY KEY,
+    suffix_text TEXT NOT NULL,
+    occurrence_count INTEGER NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS source_daily_accepts (
+    normalized_url TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    published_day TEXT NOT NULL,
+    accepted_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_source_daily_accepts
+ON source_daily_accepts(source_id, published_day);
+
+CREATE TABLE IF NOT EXISTS quality_samples (
+    normalized_url TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    title_hash TEXT,
+    title_body_match INTEGER NOT NULL,
+    has_long_line INTEGER NOT NULL,
+    published_at_present INTEGER NOT NULL,
+    wall_content INTEGER NOT NULL,
+    sampled_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_quality_samples_source
+ON quality_samples(source_id);
+
+CREATE TABLE IF NOT EXISTS quality_source_status (
+    source_id TEXT PRIMARY KEY,
+    sample_count INTEGER NOT NULL,
+    top_title_ratio REAL NOT NULL,
+    title_body_match_ratio REAL NOT NULL,
+    long_line_ratio REAL NOT NULL,
+    published_at_missing_ratio REAL NOT NULL,
+    status TEXT NOT NULL,
+    reasons TEXT,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS articles (
     normalized_url TEXT PRIMARY KEY,
     source_id TEXT NOT NULL,
@@ -363,6 +509,10 @@ CREATE TABLE IF NOT EXISTS articles (
     country TEXT NOT NULL,
     original_url TEXT NOT NULL,
     published_at TEXT,
+    published_at_estimated INTEGER NOT NULL DEFAULT 0,
+    published_at_source TEXT,
+    section TEXT,
+    section_source TEXT,
     discovered_at TEXT NOT NULL,
     discovery_type TEXT NOT NULL,
     endpoint_url TEXT NOT NULL,
@@ -403,8 +553,26 @@ class DB:
     def __init__(self, path):
         self.conn = sqlite3.connect(path, timeout=30, check_same_thread=False)
         self.conn.executescript(SCHEMA)
+        self._ensure_column(
+            "articles",
+            "published_at_estimated",
+            "INTEGER NOT NULL DEFAULT 0",
+        )
+        self._ensure_column("articles", "published_at_source", "TEXT")
+        self._ensure_column("articles", "section", "TEXT")
+        self._ensure_column("articles", "section_source", "TEXT")
         self.conn.commit()
         self.lock = threading.Lock()
+
+    def _ensure_column(self, table, column, definition):
+        columns = {
+            row[1]
+            for row in self.conn.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        if column not in columns:
+            self.conn.execute(
+                f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+            )
 
     def close(self):
         with self.lock:
@@ -509,20 +677,255 @@ class DB:
             self.conn.commit()
             return cur.rowcount == 1
 
+    def clean_title_suffix(
+        self,
+        source,
+        title,
+        minimum_occurrences,
+        suffix_aliases=(),
+    ):
+        suffix, _head = title_suffix_candidate(title)
+        if not suffix:
+            return safe(title)
+        suffix_digest = title_hash(suffix)
+        with self.lock:
+            self.conn.execute(
+                """
+                INSERT INTO title_suffix_counts(
+                    suffix_hash, suffix_text, occurrence_count, updated_at
+                ) VALUES (?, ?, 1, ?)
+                ON CONFLICT(suffix_hash) DO UPDATE SET
+                    occurrence_count=occurrence_count + 1,
+                    suffix_text=excluded.suffix_text,
+                    updated_at=excluded.updated_at
+                """,
+                (suffix_digest, suffix, iso(utc_now())),
+            )
+            count = self.conn.execute(
+                "SELECT occurrence_count FROM title_suffix_counts "
+                "WHERE suffix_hash=?",
+                (suffix_digest,),
+            ).fetchone()[0]
+            self.conn.commit()
+
+        domain_label = source.domain.split(".", 1)[0]
+        known_suffixes = (
+            source.source_name,
+            source.display_name,
+            source.domain,
+            domain_label,
+            *suffix_aliases,
+        )
+        return strip_title_suffix(
+            title,
+            known_suffixes=known_suffixes,
+            observed_count=count,
+            minimum_occurrences=minimum_occurrences,
+        )
+
+    def record_quality_sample(self, article, fetched, minimum_sample):
+        title = safe(fetched.get("title"))
+        body = safe(fetched.get("body"))
+        digest = title_hash(title) if title else None
+        wall = safe(fetched.get("error")).startswith("WALL_")
+
+        with self.lock:
+            self.conn.execute(
+                """
+                INSERT OR REPLACE INTO quality_samples(
+                    normalized_url, source_id, title_hash, title_body_match,
+                    has_long_line, published_at_present, wall_content, sampled_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    article.normalized_url,
+                    article.source_id,
+                    digest,
+                    1 if title and body and title_body_matches(title, body) else 0,
+                    1 if has_long_line(body) else 0,
+                    1 if article.published_at and not article.published_at_estimated else 0,
+                    1 if wall else 0,
+                    iso(utc_now()),
+                ),
+            )
+            totals = self.conn.execute(
+                """
+                SELECT COUNT(*), COALESCE(SUM(title_body_match), 0),
+                       COALESCE(SUM(has_long_line), 0),
+                       COALESCE(SUM(published_at_present), 0),
+                       COALESCE(SUM(wall_content), 0)
+                FROM quality_samples WHERE source_id=?
+                """,
+                (article.source_id,),
+            ).fetchone()
+            top_title_count = self.conn.execute(
+                """
+                SELECT COALESCE(MAX(article_count), 0)
+                FROM (
+                    SELECT COUNT(*) AS article_count
+                    FROM quality_samples
+                    WHERE source_id=? AND title_hash IS NOT NULL
+                    GROUP BY title_hash
+                )
+                """,
+                (article.source_id,),
+            ).fetchone()[0]
+
+            count, match_count, long_count, published_count, wall_count = totals
+            top_ratio = top_title_count / count if count else 0.0
+            match_ratio = match_count / count if count else 0.0
+            long_ratio = long_count / count if count else 0.0
+            missing_ratio = 1 - (published_count / count) if count else 0.0
+            reasons = []
+            if count >= minimum_sample:
+                if top_ratio >= 0.30:
+                    reasons.append("TOP_TITLE_RATIO_GTE_30_PERCENT")
+                if match_ratio < 0.60:
+                    reasons.append("TITLE_BODY_MATCH_RATIO_LT_60_PERCENT")
+                if published_count == 0:
+                    reasons.append("PUBLISHED_AT_REAL_MISSING_100_PERCENT")
+                if wall_count:
+                    reasons.append("WALL_OR_ERROR_CONTENT")
+
+            hard_reasons = {
+                "TOP_TITLE_RATIO_GTE_30_PERCENT",
+                "TITLE_BODY_MATCH_RATIO_LT_60_PERCENT",
+                "WALL_OR_ERROR_CONTENT",
+            }
+            if any(reason in hard_reasons for reason in reasons):
+                status = "QUARANTINE"
+            elif reasons:
+                status = "REVIEW"
+            else:
+                status = "PASS"
+
+            self.conn.execute(
+                """
+                INSERT INTO quality_source_status(
+                    source_id, sample_count, top_title_ratio,
+                    title_body_match_ratio, long_line_ratio,
+                    published_at_missing_ratio, status, reasons, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_id) DO UPDATE SET
+                    sample_count=excluded.sample_count,
+                    top_title_ratio=excluded.top_title_ratio,
+                    title_body_match_ratio=excluded.title_body_match_ratio,
+                    long_line_ratio=excluded.long_line_ratio,
+                    published_at_missing_ratio=excluded.published_at_missing_ratio,
+                    status=excluded.status,
+                    reasons=excluded.reasons,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    article.source_id,
+                    count,
+                    top_ratio,
+                    match_ratio,
+                    long_ratio,
+                    missing_ratio,
+                    status,
+                    "|".join(reasons),
+                    iso(utc_now()),
+                ),
+            )
+            self.conn.commit()
+            return status, reasons
+
+    def reserve_delivery(
+        self,
+        article,
+        title,
+        body,
+        discovered_at,
+        daily_limit,
+    ):
+        digest = title_hash(title)
+        body_digest = body_prefix_hash(body)
+        published = parse_iso(article.published_at) or parse_iso(discovered_at) or utc_now()
+        published_day = published.date().isoformat()
+        with self.lock:
+            if self.conn.execute(
+                "SELECT 1 FROM accepted_title_hashes WHERE title_hash=?",
+                (digest,),
+            ).fetchone():
+                return False, "EXACT_TITLE_DUPLICATE"
+            if body_digest and self.conn.execute(
+                "SELECT 1 FROM accepted_body_hashes WHERE body_hash=?",
+                (body_digest,),
+            ).fetchone():
+                return False, "BODY_HASH_DUPLICATE"
+            accepted = self.conn.execute(
+                """
+                SELECT COUNT(*) FROM source_daily_accepts
+                WHERE source_id=? AND published_day=?
+                """,
+                (article.source_id, published_day),
+            ).fetchone()[0]
+            if accepted >= daily_limit:
+                return False, f"SOURCE_DAILY_CAP_{daily_limit}"
+
+            accepted_at = iso(utc_now())
+            try:
+                self.conn.execute(
+                    """
+                    INSERT INTO accepted_title_hashes(
+                        title_hash, normalized_url, source_id, accepted_at
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (digest, article.normalized_url, article.source_id, accepted_at),
+                )
+                self.conn.execute(
+                    """
+                    INSERT INTO accepted_body_hashes(
+                        body_hash, normalized_url, source_id, accepted_at
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        body_digest,
+                        article.normalized_url,
+                        article.source_id,
+                        accepted_at,
+                    ),
+                )
+                self.conn.execute(
+                    """
+                    INSERT INTO source_daily_accepts(
+                        normalized_url, source_id, published_day, accepted_at
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        article.normalized_url,
+                        article.source_id,
+                        published_day,
+                        accepted_at,
+                    ),
+                )
+                self.conn.commit()
+                return True, ""
+            except sqlite3.IntegrityError:
+                self.conn.rollback()
+                return False, "QUALITY_RESERVATION_DUPLICATE"
+
     def save_article(self, article, fetched, discovered_at):
         with self.lock:
             self.conn.execute(
                 """
                 INSERT OR REPLACE INTO articles(
                     normalized_url, source_id, source_name, country, original_url,
-                    published_at, discovered_at, discovery_type, endpoint_url,
+                    published_at, published_at_estimated, published_at_source,
+                    section, section_source,
+                    discovered_at, discovery_type, endpoint_url,
                     fetch_success, http_status, body_length,
                     fetch_elapsed_ms, fetch_error
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     article.normalized_url, article.source_id, article.source_name,
                     article.country, article.url, article.published_at,
+                    1 if article.published_at_estimated else 0,
+                    article.published_at_source,
+                    article.section,
+                    article.section_source,
                     discovered_at, article.discovery_type, article.endpoint_url,
                     1 if fetched["success"] else 0,
                     fetched["http_status"], fetched["body_length"],
@@ -557,9 +960,13 @@ class DB:
 def load_sources(path, include_review):
     df = pd_read_csv(path)
     sources = []
+    seen_ids = set()
 
     for _, r in df.iterrows():
         status = safe(r.get("ingestion_status")).upper()
+        crawl_enabled = safe(r.get("crawl_enabled")).lower()
+        if crawl_enabled and crawl_enabled != "true":
+            continue
         if status != "ACTIVE" and not (include_review and status == "REVIEW"):
             continue
 
@@ -576,11 +983,37 @@ def load_sources(path, include_review):
         if not rss_urls and not sitemap_urls and not latest_urls:
             continue
 
-        sources.append(Source(
-            country=safe(r.get("country")),
-            source_id=safe(r.get("source_id")),
-            source_name=safe(r.get("source_name")),
-            domain=safe(r.get("domain")),
+        source_id = safe(r.get("source_id"))
+        if not source_id:
+            raise ValueError("Active registry row has an empty source_id.")
+        if source_id in seen_ids:
+            raise ValueError(f"Duplicate active source_id in registry: {source_id}")
+        seen_ids.add(source_id)
+
+        def int_value(name, default):
+            try:
+                return int(float(safe(r.get(name)) or default))
+            except (TypeError, ValueError):
+                return default
+
+        def float_value(name, default):
+            try:
+                return float(safe(r.get(name)) or default)
+            except (TypeError, ValueError):
+                return default
+
+        country = safe(r.get("country"))
+        domain = safe(r.get("domain")).lower().removeprefix("www.")
+        if not domain:
+            raise ValueError(f"Active registry row has no domain: {source_id}")
+        display_name = safe(r.get("source_name")) or domain
+        source = Source(
+            country=country,
+            source_id=source_id,
+            # source_name is a stable machine-facing identifier.  Human-facing
+            # registry labels remain available internally as display_name.
+            source_name=domain,
+            domain=domain,
             homepage=safe(r.get("homepage")),
             rss_urls=rss_urls,
             sitemap_urls=sitemap_urls,
@@ -588,10 +1021,36 @@ def load_sources(path, include_review):
             article_url_regex=safe(r.get("article_url_regex")),
             body_selector=safe(r.get("body_selector")),
             ingestion_status=status,
-        ))
+            max_articles_per_day=max(1, int_value("max_articles_per_day", 300)),
+            max_items_per_poll=max(0, int_value("max_items_per_poll", 0)),
+            max_sitemap_urls_per_poll=max(
+                0,
+                int_value("max_sitemap_urls_per_poll", 0),
+            ),
+            domain_max_concurrency=max(
+                1,
+                int_value("domain_max_concurrency", 2),
+            ),
+            min_request_interval_seconds=max(
+                0.0,
+                float_value("min_request_interval_seconds", 1.5),
+            ),
+            domain_adapter=safe(r.get("domain_adapter")),
+            display_name=display_name,
+            timezone_name=(
+                safe(r.get("timezone")) or timezone_for_country(country)
+            ),
+            coverage_focus=safe(r.get("coverage_focus")).upper(),
+        )
+        if country_domain_mismatch(source):
+            print(
+                f"[REGISTRY SKIP] country/domain mismatch: "
+                f"{source.source_id} {source.country} {source.domain}"
+            )
+            continue
+        sources.append(source)
 
-    unique = {s.source_id: s for s in sources}
-    return list(unique.values())
+    return sources
 
 
 def pd_read_csv(path):
@@ -599,7 +1058,7 @@ def pd_read_csv(path):
     return pd.read_csv(path, encoding="utf-8-sig")
 
 
-def conditional_get(url, db, timeout):
+def conditional_get(source, url, db, args):
     etag, last_modified = db.get_http_state(url)
     headers = {}
     if etag:
@@ -608,10 +1067,12 @@ def conditional_get(url, db, timeout):
         headers["If-Modified-Since"] = last_modified
 
     try:
-        r = get_session().get(
+        r = source_get(
+            source,
+            args,
             url,
             headers=headers,
-            timeout=timeout,
+            timeout=args.timeout_seconds,
             allow_redirects=True,
         )
         db.save_http_state(
@@ -627,7 +1088,7 @@ def conditional_get(url, db, timeout):
 
 def parse_feed_endpoint(source, endpoint, db, args):
     db.ensure_endpoint(endpoint, source.source_id, "RSS")
-    r, err = conditional_get(endpoint, db, args.timeout_seconds)
+    r, err = conditional_get(source, endpoint, db, args)
 
     if err:
         db.set_endpoint_error(endpoint, err)
@@ -643,20 +1104,45 @@ def parse_feed_endpoint(source, endpoint, db, args):
 
     feed = feedparser.parse(r.content)
     out = []
-    for e in feed.entries[:args.max_feed_entries]:
+    item_limit = source.max_items_per_poll or args.max_feed_entries
+    for e in feed.entries[:item_limit]:
         link = safe(e.get("link"))
         if not link:
             continue
 
         published = None
-        for key in ("published_parsed", "updated_parsed"):
-            t = e.get(key)
-            if t:
-                try:
-                    published = datetime(*t[:6], tzinfo=timezone.utc).isoformat()
-                except Exception:
-                    pass
+        published_source = ""
+        # Parse the original timestamp before feedparser's struct_time so a
+        # timezone-less KST/JST value is interpreted in the publisher's zone.
+        for key in ("published", "updated", "created"):
+            published = parse_quality_datetime(
+                e.get(key),
+                source.timezone_name,
+            )
+            if published:
+                published_source = f"rss:{key}"
                 break
+        if not published:
+            for key in ("published_parsed", "updated_parsed"):
+                t = e.get(key)
+                if t:
+                    try:
+                        published = datetime(
+                            *t[:6],
+                            tzinfo=timezone.utc,
+                        ).isoformat()
+                        published_source = f"rss:{key}"
+                    except Exception:
+                        pass
+                    break
+
+        categories = tuple(
+            dict.fromkeys(
+                safe(tag.get("term"))
+                for tag in (e.get("tags") or [])
+                if safe(tag.get("term"))
+            )
+        )
 
         out.append(Article(
             source_id=source.source_id,
@@ -667,6 +1153,9 @@ def parse_feed_endpoint(source, endpoint, db, args):
             published_at=published,
             discovery_type="RSS",
             endpoint_url=endpoint,
+            feed_title=safe(e.get("title")),
+            feed_categories=categories,
+            published_at_source=published_source,
         ))
 
     return out, r.status_code, None
@@ -729,7 +1218,7 @@ def extract_sitemap_records(data):
 
 def parse_sitemap_endpoint(source, endpoint, db, args):
     db.ensure_endpoint(endpoint, source.source_id, "SITEMAP")
-    r, err = conditional_get(endpoint, db, args.timeout_seconds)
+    r, err = conditional_get(source, endpoint, db, args)
     if err:
         db.set_endpoint_error(endpoint, err)
         return [], None, err
@@ -752,19 +1241,22 @@ def parse_sitemap_endpoint(source, endpoint, db, args):
     out = []
 
     def add_url(url, date_value, endpoint_url):
+        published = parse_quality_datetime(date_value, source.timezone_name)
         out.append(Article(
             source_id=source.source_id,
             source_name=source.source_name,
             country=source.country,
             url=url,
             normalized_url=normalize_url(url),
-            published_at=parse_iso(date_value).isoformat() if parse_iso(date_value) else None,
+            published_at=published,
             discovery_type="SITEMAP",
             endpoint_url=endpoint_url,
+            published_at_source="sitemap" if published else "",
         ))
 
     if records and records[0][0] == "url":
-        for _, url, date_value in records[:args.max_sitemap_urls]:
+        sitemap_limit = source.max_sitemap_urls_per_poll or args.max_sitemap_urls
+        for _, url, date_value in records[:sitemap_limit]:
             add_url(url, date_value, endpoint)
         return out, r.status_code, None
 
@@ -774,7 +1266,7 @@ def parse_sitemap_endpoint(source, endpoint, db, args):
 
     for _, child_url, _ in children:
         db.ensure_endpoint(child_url, source.source_id, "SITEMAP")
-        cr, cerr = conditional_get(child_url, db, args.timeout_seconds)
+        cr, cerr = conditional_get(source, child_url, db, args)
         if cerr:
             db.set_endpoint_error(child_url, cerr)
             errors.append(cerr)
@@ -788,7 +1280,8 @@ def parse_sitemap_endpoint(source, endpoint, db, args):
             continue
         try:
             child_records = extract_sitemap_records(xml_bytes(cr))
-            for kind, url, date_value in child_records[:args.max_sitemap_urls]:
+            sitemap_limit = source.max_sitemap_urls_per_poll or args.max_sitemap_urls
+            for kind, url, date_value in child_records[:sitemap_limit]:
                 if kind == "url":
                     add_url(url, date_value, child_url)
         except Exception as e:
@@ -862,7 +1355,7 @@ def parse_latest_endpoint(source, endpoint, db, args):
         db.set_endpoint_error(endpoint, err)
         return [], None, err
 
-    r, err = conditional_get(endpoint, db, args.timeout_seconds)
+    r, err = conditional_get(source, endpoint, db, args)
     if err:
         db.set_endpoint_error(endpoint, err)
         return [], None, err
@@ -893,8 +1386,10 @@ def parse_latest_endpoint(source, endpoint, db, args):
             published_at=None,
             discovery_type="LATEST_PAGE",
             endpoint_url=endpoint,
+            feed_title=safe(a.get_text(" ", strip=True)),
         ))
-        if len(out) >= args.max_feed_entries:
+        item_limit = source.max_items_per_poll or args.max_feed_entries
+        if len(out) >= item_limit:
             break
 
     return out, r.status_code, None
@@ -962,7 +1457,9 @@ def fetch_article(article, source, args):
         }
 
     try:
-        r = get_session().get(
+        r = source_get(
+            source,
+            args,
             article.url,
             timeout=args.timeout_seconds,
             allow_redirects=True,
@@ -979,47 +1476,89 @@ def fetch_article(article, source, args):
                 "error": f"HTTP {r.status_code}",
             }
 
-        # Title is extracted independently so sitemap-discovered articles also have it.
-        title = extract_article_title(r.text)
+        soup = BeautifulSoup(r.text, "html.parser")
+        jsonld = read_jsonld(soup)
+        article.title_suffix_aliases = extract_site_names(soup, jsonld)
 
-        # Primary extraction: Trafilatura.
-        body = (trafilatura.extract(
-            r.text,
-            url=r.url,
-            include_comments=False,
-            include_tables=False,
-        ) or "").strip()
+        # Legacy Kafka/output fields remain intact; quality metadata is added
+        # separately for downstream auditing and section pre-estimation.
+        title = extract_quality_title(soup, jsonld, article.feed_title)
+        body = extract_quality_body(r.text, r.url, source.body_selector)
+        page_published_at, page_published_source = extract_published_at(
+            soup,
+            jsonld,
+            default_timezone=source.timezone_name,
+        )
+        discovered_published_at = article.published_at
+        discovered_published_source = article.published_at_source
+        if page_published_at:
+            article.published_at = page_published_at
+            article.published_at_source = page_published_source
+            article.published_at_estimated = False
+        elif discovered_published_at:
+            article.published_at = discovered_published_at
+            article.published_at_source = (
+                discovered_published_source or "discovery_endpoint"
+            )
+            article.published_at_estimated = False
+        else:
+            article.published_at = iso(utc_now())
+            article.published_at_source = "collection_time_fallback"
+            article.published_at_estimated = True
 
-        # Fallback extraction when Trafilatura returns too little text.
-        if len(body) < args.min_body_chars:
-            soup = BeautifulSoup(r.text, "html.parser")
-            for x in soup(["script", "style", "noscript", "nav", "footer", "header", "aside"]):
-                x.decompose()
+        # A bad upstream timezone must never put an article in the future.
+        # Prefer the independently discovered feed/sitemap timestamp; if that
+        # is also invalid or absent, use an explicitly flagged collection time.
+        reference_time = utc_now()
+        future_tolerance = timedelta(
+            minutes=getattr(args, "published_future_tolerance_minutes", 10)
+        )
+        published_dt = parse_iso(article.published_at)
+        if published_dt and published_dt > reference_time + future_tolerance:
+            discovered_dt = parse_iso(discovered_published_at)
+            if (
+                discovered_dt
+                and discovered_dt <= reference_time + future_tolerance
+            ):
+                article.published_at = iso(discovered_dt)
+                article.published_at_source = (
+                    discovered_published_source or "discovery_endpoint"
+                ) + ":future_page_rejected"
+                article.published_at_estimated = False
+            else:
+                article.published_at = iso(reference_time)
+                article.published_at_source = "collection_time_future_guard"
+                article.published_at_estimated = True
 
-            selectors = []
-            if source.body_selector:
-                selectors.append(source.body_selector)
-            selectors += [
-                '[itemprop="articleBody"]', 'article', 'main article',
-                '.article-body', '.story-body', '.entry-content', 'main'
-            ]
+        section, section_source = extract_section(
+            soup,
+            jsonld,
+            r.url,
+            article.feed_categories,
+        )
+        if not section and source.coverage_focus in {
+            "POLITICS",
+            "ECONOMY",
+            "SOCIETY",
+            "TECHNOLOGY",
+            "CULTURE",
+            "SPORTS",
+        }:
+            section = source.coverage_focus
+            section_source = "registry_coverage_focus"
+        article.section = safe(section)
+        article.section_source = safe(section_source)
 
-            best = body
-            for sel in selectors:
-                try:
-                    for node in soup.select(sel):
-                        text = "\n".join(
-                            p.get_text(" ", strip=True)
-                            for p in node.find_all("p")
-                            if len(p.get_text(" ", strip=True)) >= 25
-                        ).strip()
-                        if len(text) > len(best):
-                            best = text
-                except Exception:
-                    pass
-            body = best
-
-        success = len(body) >= args.min_body_chars
+        wall, wall_reason = is_wall_content(title, body)
+        if not title:
+            error = "TITLE_MISSING"
+        elif wall:
+            error = wall_reason
+        elif len(body) < args.min_body_chars:
+            error = f"BODY_TOO_SHORT({len(body)})"
+        else:
+            error = None
+        success = error is None
         return {
             "success": success,
             "http_status": r.status_code,
@@ -1027,7 +1566,7 @@ def fetch_article(article, source, args):
             "body": body,
             "body_length": len(body),
             "elapsed_ms": int((time.perf_counter() - started) * 1000),
-            "error": None if success else f"BODY_TOO_SHORT({len(body)})",
+            "error": error,
         }
 
     except Exception as e:
@@ -1250,6 +1789,65 @@ def poll_round(round_no, sources, db, args, experiment_start, kafka_producer):
             for future in as_completed(futures):
                 article, source = futures[future]
                 fetched = future.result()
+
+                if fetched.get("title"):
+                    fetched["title"] = db.clean_title_suffix(
+                        source,
+                        fetched["title"],
+                        args.title_suffix_min_occurrences,
+                        article.title_suffix_aliases,
+                    )
+
+                quality_status = "PASS"
+                quality_reasons = []
+                if fetched.get("http_status") == 200:
+                    quality_status, quality_reasons = db.record_quality_sample(
+                        article,
+                        fetched,
+                        args.quality_min_source_sample,
+                    )
+
+                # Latest pages often have no discovery timestamp.  Once the
+                # article page supplies one, apply the same old-article guard
+                # that RSS/sitemap candidates already passed through.
+                published_dt = parse_iso(article.published_at)
+                if (
+                    fetched["success"]
+                    and published_dt
+                    and published_dt < guard_cutoff
+                ):
+                    fetched["success"] = False
+                    fetched["error"] = "OLD_PUBLISHED_AFTER_FETCH"
+                    old_filtered += 1
+
+                if fetched["success"] and not has_long_line(fetched["body"]):
+                    fetched["success"] = False
+                    fetched["error"] = "NO_BODY_LINE_OVER_40_CHARS"
+
+                if fetched["success"] and country_domain_mismatch(source):
+                    fetched["success"] = False
+                    fetched["error"] = "COUNTRY_DOMAIN_MISMATCH"
+
+                if fetched["success"] and quality_status == "QUARANTINE":
+                    fetched["success"] = False
+                    fetched["error"] = "SOURCE_QUALITY_GATE:" + "|".join(
+                        quality_reasons
+                    )
+
+                # Reserve both the cross-publisher title and the source/day
+                # capacity in one transaction immediately before delivery.
+                if fetched["success"]:
+                    allowed, reason = db.reserve_delivery(
+                        article,
+                        fetched["title"],
+                        fetched["body"],
+                        discovered_at,
+                        source.max_articles_per_day,
+                    )
+                    if not allowed:
+                        fetched["success"] = False
+                        fetched["error"] = reason
+
                 fetch_results[article.normalized_url] = fetched
                 db.save_article(article, fetched, discovered_at)
                 raw_event = build_raw_article_event(article, fetched, discovered_at)
@@ -1322,6 +1920,8 @@ def export_csvs(db, output_dir):
         article_rows = db.conn.execute(
             """
             SELECT source_id, source_name, country, original_url, published_at,
+                   published_at_estimated, published_at_source,
+                   section, section_source,
                    discovered_at, discovery_type, endpoint_url, fetch_success,
                    http_status, body_length, fetch_elapsed_ms, fetch_error
             FROM articles
@@ -1358,6 +1958,7 @@ def export_csvs(db, output_dir):
     write(
         "articles.csv",
         ["source_id","source_name","country","article_url","published_at",
+         "published_at_estimated","published_at_source","section","section_source",
          "discovered_at","discovery_type","endpoint_url","fetch_success",
          "http_status","body_length","fetch_elapsed_ms","fetch_error"],
         article_rows,
@@ -1378,8 +1979,22 @@ def export_csvs(db, output_dir):
     )
 
 
-def build_summary(db, sources, started_at, ended_at):
-    elapsed_seconds = max((ended_at - started_at).total_seconds(), 1)
+def build_summary(
+    db,
+    sources,
+    started_at,
+    ended_at,
+    required_window_hours=24.0,
+    active_runtime_seconds=None,
+):
+    wall_clock_seconds = max((ended_at - started_at).total_seconds(), 1)
+    elapsed_seconds = max(
+        active_runtime_seconds
+        if active_runtime_seconds is not None
+        else wall_clock_seconds,
+        1,
+    )
+    elapsed_hours = elapsed_seconds / 3600
     with db.lock:
         total = db.conn.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
         success = db.conn.execute(
@@ -1407,7 +2022,14 @@ def build_summary(db, sources, started_at, ended_at):
     return {
         "experiment_started_at_utc": iso(started_at),
         "experiment_ended_at_utc": iso(ended_at),
-        "elapsed_hours": elapsed_seconds / 3600,
+        "elapsed_hours": elapsed_hours,
+        "wall_clock_hours": wall_clock_seconds / 3600,
+        "required_window_hours": required_window_hours,
+        "window_complete": elapsed_hours >= required_window_hours,
+        "remaining_window_hours": round(
+            max(required_window_hours - elapsed_hours, 0),
+            3,
+        ),
         "sources": len(sources),
         "endpoints_ready": ready_ep,
         "endpoints_total": total_ep,
@@ -1438,6 +2060,7 @@ def print_summary(s):
     print(f"Articles / minute          : {s['articles_per_minute']:.2f}")
     print(f"Peak per polling round     : {s['peak_per_round']:,}")
     print(f"Poll error rate            : {s['poll_error_rate_pct']:.2f}%")
+    print(f"Required window complete   : {s['window_complete']}")
     print("\n[Country]")
     for row in s["by_country"]:
         print(f"  {row['country']:<20} {row['articles']:>8,}")
@@ -1465,6 +2088,10 @@ def parse_args():
     ap.add_argument("--warmup-retries", type=int, default=3)
     ap.add_argument("--warmup-retry-sleep", type=int, default=10)
     ap.add_argument("--published-tolerance-minutes", type=int, default=10)
+    ap.add_argument("--published-future-tolerance-minutes", type=int, default=10)
+    ap.add_argument("--quality-min-source-sample", type=int, default=10)
+    ap.add_argument("--title-suffix-min-occurrences", type=int, default=5)
+    ap.add_argument("--required-window-hours", type=float, default=24.0)
     ap.add_argument("--include-review", action="store_true")
     ap.add_argument("--reset", action="store_true")
     ap.add_argument(
@@ -1477,7 +2104,12 @@ def parse_args():
         default=os.getenv("KAFKA_RAW_TOPIC", "news.raw.v1"),
         help="Raw article Kafka topic",
     )
-    return ap.parse_args()
+    args = ap.parse_args()
+    if args.required_window_hours <= 0:
+        ap.error("--required-window-hours must be greater than zero")
+    if args.title_suffix_min_occurrences <= 0:
+        ap.error("--title-suffix-min-occurrences must be greater than zero")
+    return args
 
 
 def main():
@@ -1504,6 +2136,7 @@ def main():
     sources = load_sources(registry, args.include_review)
     if not sources:
         raise RuntimeError("No sources loaded from registry.")
+    args.domain_limiter = DomainLimiter(sources)
 
     print("=" * 100)
     print("Collector v1 - RAW ARTICLE COLLECTION")
@@ -1515,6 +2148,7 @@ def main():
     print(f"Run mode        : {'FOREVER' if args.run_forever else 'BOUNDED'}")
     print(f"Warmup retries  : {args.warmup_retries}")
     print(f"Published guard : {args.published_tolerance_minutes} min")
+    print(f"Required window : {args.required_window_hours:g}h")
     print(f"Kafka bootstrap : {args.kafka_bootstrap}")
     print(f"Kafka topic     : {args.kafka_topic}")
 
@@ -1567,10 +2201,25 @@ def main():
             started_at = utc_now()
             db.set_meta("experiment_started_at_utc", iso(started_at))
             db.set_meta("final_baseline_completed_at_utc", iso(started_at))
+            db.set_meta("active_runtime_seconds", "0")
 
         # Readiness is reported only after endpoint initialization and baseline
         # preparation have completed successfully.
         health_path.touch()
+
+        try:
+            prior_active_runtime = float(
+                db.get_meta("active_runtime_seconds") or 0
+            )
+        except (TypeError, ValueError):
+            prior_active_runtime = 0.0
+        session_started_at = utc_now()
+
+        def active_runtime_seconds():
+            return prior_active_runtime + max(
+                (utc_now() - session_started_at).total_seconds(),
+                0,
+            )
 
         if args.run_forever:
             deadline = None
@@ -1580,7 +2229,13 @@ def main():
                 if args.duration_minutes is not None
                 else args.duration_hours * 3600
             )
-            deadline = started_at + timedelta(seconds=duration_seconds)
+            remaining_runtime = max(
+                duration_seconds - prior_active_runtime,
+                0,
+            )
+            deadline = session_started_at + timedelta(
+                seconds=remaining_runtime
+            )
 
         with db.lock:
             r = db.conn.execute("SELECT COALESCE(MAX(round_no),0) FROM poll_logs").fetchone()
@@ -1592,6 +2247,21 @@ def main():
                 round_no, sources, db, args, started_at, kafka_producer
             )
             export_csvs(db, out)
+            snapshot_ended_at = utc_now()
+            active_seconds = active_runtime_seconds()
+            db.set_meta("active_runtime_seconds", str(active_seconds))
+            summary = build_summary(
+                db,
+                sources,
+                started_at,
+                snapshot_ended_at,
+                args.required_window_hours,
+                active_seconds,
+            )
+            summary_path.write_text(
+                json.dumps(summary, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
             health_path.touch()
             round_no += 1
 
@@ -1608,8 +2278,17 @@ def main():
                 time.sleep(sleep_for)
 
         if deadline is not None:
-            ended_at = min(utc_now(), deadline)
-            summary = build_summary(db, sources, started_at, ended_at)
+            ended_at = utc_now()
+            active_seconds = active_runtime_seconds()
+            db.set_meta("active_runtime_seconds", str(active_seconds))
+            summary = build_summary(
+                db,
+                sources,
+                started_at,
+                ended_at,
+                args.required_window_hours,
+                active_seconds,
+            )
             summary_path.write_text(
                 json.dumps(summary, ensure_ascii=False, indent=2),
                 encoding="utf-8",
@@ -1619,6 +2298,28 @@ def main():
 
     except KeyboardInterrupt:
         print("\nInterrupted. Run again WITHOUT --reset to resume.")
+        if "started_at" in locals():
+            interrupted_at = utc_now()
+            active_seconds = active_runtime_seconds()
+            db.set_meta("active_runtime_seconds", str(active_seconds))
+            summary = build_summary(
+                db,
+                sources,
+                started_at,
+                interrupted_at,
+                args.required_window_hours,
+                active_seconds,
+            )
+            summary_path.write_text(
+                json.dumps(summary, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            if not summary["window_complete"]:
+                print(
+                    "Collection window is incomplete: "
+                    f"{summary['elapsed_hours']:.2f}/"
+                    f"{summary['required_window_hours']:.2f} hours."
+                )
     finally:
         try:
             kafka_producer.close()

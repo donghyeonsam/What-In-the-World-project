@@ -41,6 +41,27 @@
 .sectionTitle { display: flex; align-items: center; justify-content: space-between; margin: 0 0 11px; }
 .sectionTitle h3 { font-size: 12px; margin: 0; }
 .sectionTitle span, .sectionTitle button { color: var(--wtw-muted); font-size: 9px; }
+.sectionTitleMain { display: flex; align-items: center; gap: 6px; }
+.helpWrap { position: relative; display: inline-flex; align-items: center; align-self: center; line-height: 1; outline: none; }
+.helpIcon {
+  width: 15px; height: 15px; border: 1px solid var(--wtw-line-strong); border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--wtw-muted); font-family: var(--wtw-body); font-size: 9px; font-weight: 700; line-height: 1;
+  cursor: default;
+}
+.helpTooltip {
+  position: absolute; z-index: 20; left: 50%; bottom: calc(100% + 8px);
+  width: max-content; max-width: 220px; padding: 7px 9px;
+  border-radius: 7px; background: #111827; color: #fff !important;
+  font-size: 10px !important; line-height: 1.4; white-space: nowrap;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.2);
+  opacity: 0; visibility: hidden; transform: translate(-50%, 3px);
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s;
+  pointer-events: none;
+}
+.helpWrap:hover .helpTooltip {
+  opacity: 1; visibility: visible; transform: translate(-50%, 0);
+}
 
 /* ── 이슈 카드 ── */
 .issueList { display: flex; flex-direction: column; gap: 7px; }
@@ -60,6 +81,42 @@
 .issueSide strong { display: block; color: var(--wtw-accent); font-size: 10px; margin-bottom: 6px; }
 .sparkline { width: 46px; height: 13px; fill: none; stroke: var(--wtw-accent); stroke-width: 1.5; }
 .taxonomyMini { display: block; margin-bottom: 4px; color: var(--wtw-accent); font-size: 9px; font-weight: 600; }
+
+/* 글로벌 동향: 제목 → 수집 통계 → 이슈 순으로 읽는 정보 계층 */
+.globalDashboard .heading { align-items: flex-start; flex-wrap: wrap; gap: 10px; }
+.globalDashboard .heading h2 { font-size: 26px; font-weight: 750; line-height: 1.25; }
+.globalDashboard .heading p { font-size: 13px; line-height: 1.6; }
+.globalDashboard .updated { font-size: 11px; padding-top: 8px; }
+.globalDashboard .kpiGrid { gap: 12px; margin: 24px 0 32px; }
+.globalDashboard .kpiCard { padding: 16px 18px; background: #f7f9fc; border-radius: 14px; }
+.globalDashboard .kpiCard:last-child { background: #eff5ff; border-color: #d5e4fb; }
+.globalDashboard .kpiCard small { font-size: 12px; margin-bottom: 12px; line-height: 1.5; }
+.globalDashboard .kpiCard strong { font-size: 28px; font-variant-numeric: tabular-nums; }
+.globalDashboard .kpiCard:last-child strong { color: var(--wtw-accent); }
+.globalDashboard .kpiCard strong em { font-size: 13px; margin-left: 5px; }
+.globalDashboard .sectionTitle { flex-wrap: wrap; gap: 8px 12px; margin-bottom: 16px; }
+.globalDashboard .sectionTitle h3 { font-size: 18px; font-weight: 750; line-height: 1.2; letter-spacing: -0.03em; }
+.globalDashboard .sectionTitle > span { font-size: 11px; }
+.globalDashboard .sectionTitleMain { gap: 8px; }
+.globalDashboard .helpWrap { top: 1.5px; }
+.globalDashboard .helpIcon { width: 18px; height: 18px; font-size: 11px; }
+.globalDashboard .issueList { gap: 10px; }
+.globalDashboard .issueCard {
+  grid-template-columns: 34px minmax(0, 1fr); gap: 14px;
+  min-height: 92px; padding: 14px 16px; border-radius: 14px;
+  transition: border-color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
+}
+.globalDashboard .issueCard:hover {
+  transform: none; background: #f7faff;
+  box-shadow: 0 4px 14px rgba(23, 55, 100, 0.07);
+}
+.globalDashboard .issueCard:focus-visible { outline: 2px solid var(--wtw-accent); outline-offset: 3px; }
+.globalDashboard .issueRank { font-size: 19px; line-height: 1.2; color: #8795a8; padding-top: 0; font-variant-numeric: tabular-nums; }
+.globalDashboard .issueCard:first-child { border-color: #c9dbf5; background: #f5f9ff; }
+.globalDashboard .issueCard:first-child .issueRank { color: var(--wtw-accent); }
+.globalDashboard .taxonomyMini { font-size: 11px; line-height: 1.5; margin-bottom: 6px; }
+.globalDashboard .issueMain strong { font-size: 14px; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; margin-bottom: 9px; letter-spacing: -0.02em; }
+.globalDashboard .issueMeta { font-size: 12px; line-height: 1.4; font-variant-numeric: tabular-nums; }
 
 /* ── 급상승 태그 ── */
 .rising { margin-top: 24px; }
@@ -116,8 +173,13 @@
 /* ── 국가 아이덴티티 ── */
 .identity { display: flex; gap: 12px; align-items: center; }
 .identity .largeFlag {
-  font-size: 34px; width: 49px; height: 49px; border-radius: 13px;
-  display: grid; place-items: center; background: var(--wtw-surface); border: 1px solid var(--wtw-line);
+  flex: 0 0 auto; width: 50px; height: 34px;
+  display: grid; place-items: center;
+}
+.identity .largeFlag img {
+  display: block; width: 50px; height: auto; aspect-ratio: 3 / 2;
+  object-fit: cover; border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12), 0 3px 8px rgba(15, 23, 42, 0.08);
 }
 .identity h2 { font-size: 23px; margin: 0 0 5px; }
 .identity p { margin: 0; font-size: 9px; color: var(--wtw-muted); }
@@ -129,16 +191,35 @@
 
 /* ── 테마 카드 (요약형) ── */
 .themeCard {
-  width: 100%; display: grid; grid-template-columns: 22px 1fr auto;
-  align-items: center; gap: 8px; padding: 12px 8px;
-  border-bottom: 1px solid var(--wtw-line); text-align: left;
+  width: 100%; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center; gap: 12px; padding: 14px 12px;
+  border: 1px solid transparent; border-bottom-color: var(--wtw-line);
+  border-radius: 10px; text-align: left;
+  transition: border-color 0.16s ease, background-color 0.16s ease;
 }
-.themeCard:hover { background: var(--wtw-bg-2, #f7f9fb); }
-.themeCard .rank { color: var(--wtw-faint); font-size: 10px; }
-.themeCard strong { display: block; font-size: 10px; margin-bottom: 5px; }
-.themeCard small { color: var(--wtw-muted); font-size: 8px; }
-.themeCard .rise { color: var(--wtw-accent); font-size: 10px; }
-.themeField { display: block; margin-bottom: 4px; color: var(--wtw-accent); font-size: 8px; font-weight: 650; }
+.themeCard:hover { border-color: #ccdaf0; background: #f7faff; }
+.themeCard .rank {
+  width: 32px; height: 32px; display: grid; place-items: center;
+  border-radius: 9px; background: var(--wtw-bg-2, #f7f9fb);
+  color: var(--wtw-muted); font-size: 12px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.themeCardMain { min-width: 0; }
+.themeCardTitle { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.themeCardTitle strong { min-width: 0; margin: 0; font-size: 15px; line-height: 1.45; }
+.themeField {
+  display: inline-flex; align-items: center; margin: 0; padding: 3px 6px;
+  border-radius: 5px; background: #eef4fd;
+  color: var(--wtw-accent); font-size: 10px; font-weight: 650; line-height: 1.3;
+}
+.themeCardIssue {
+  display: block; margin-top: 5px; color: var(--wtw-muted);
+  font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.themeCardMetric { min-width: 66px; text-align: right; }
+.themeCardMetric strong { display: block; margin: 0; font-size: 17px; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.themeCardMetric small { display: block; margin-top: 4px; color: var(--wtw-muted); font-size: 10px; white-space: nowrap; }
+.themeCardMetric b { display: block; margin-top: 3px; color: var(--wtw-accent); font-size: 10px; }
 .leading { display: block; margin-top: 7px; color: var(--wtw-text-2); font-size: 9px; }
 
 /* ── 테마 상세 카드 (막대 포함) ── */
@@ -352,32 +433,7 @@
 .toneAxis {
   display: flex; justify-content: space-between;
   font-family: var(--wtw-mono); font-size: 9px; color: var(--wtw-muted);
-  margin-bottom: 5px;
-}
-
-.spark { position: relative; display: block; height: 26px; }
-.spark.sparkMini { height: 16px; width: 64px; }
-.sparkRule { position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--wtw-line-strong); }
-.sparkMid { position: absolute; left: 50%; top: 3px; bottom: 3px; width: 1px; background: var(--wtw-line-strong); }
-.sparkDot {
-  position: absolute; top: 50%; width: 8px; height: 8px; border-radius: 50%;
-  transform: translate(-50%, -50%);
-}
-.sparkCountry { display: contents; }
-.sparkRange {
-  position: absolute;
-  top: 50%;
-  min-width: 3px;
-  height: 3px;
-  border-radius: 999px;
-  background: var(--wtw-text-2);
-  transform: translateY(-50%);
-}
-.sparkLowSample .sparkRange,
-.sparkLowSample .sparkDot { opacity: 0.35; }
-.sparkDot.sparkMe {
-  width: 12px; height: 12px;
-  box-shadow: 0 0 0 2px var(--wtw-panel), 0 0 0 3px var(--wtw-text);
+  margin: 0 0 8px;
 }
 
 .toneSummary {
@@ -437,13 +493,20 @@
 .toneN { font-family: var(--wtw-mono); font-size: 9px; color: var(--wtw-muted); text-align: right; }
 
 .toneTrack {
-  position: relative; height: 6px; border-radius: 3px;
-  background: linear-gradient(90deg, #f0b4ba, #dde0e6, #a8ddc6);
+  position: relative; height: 10px; overflow: hidden;
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgba(217, 75, 87, 0.1), rgba(138, 150, 168, 0.08) 50%, rgba(31, 157, 107, 0.1));
 }
-.toneBase { position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--wtw-muted); }
-.toneMark {
-  position: absolute; top: 50%; width: 10px; height: 10px; border-radius: 50%;
-  transform: translate(-50%, -50%); box-shadow: 0 0 0 2px var(--wtw-panel);
+.toneTrack::after {
+  content: ''; position: absolute; left: 50%; top: 0; bottom: 0;
+  width: 1px; background: var(--wtw-muted); opacity: 0.65;
+}
+.toneRange {
+  position: absolute; top: 2px; height: 6px;
+  opacity: 0.22;
+}
+.toneFill {
+  position: absolute; top: 3px; height: 4px;
 }
 .toneTrackOff {
   height: 6px; border-radius: 3px;
@@ -492,15 +555,10 @@
 }
 .crumb:hover { text-decoration-color: currentColor; }
 
-/* 패널 맨 위 이동 줄 — 뒤로가기 + 분류 경로 */
+/* 패널 이전 화면 이동 */
 .panelNav {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
   margin-bottom: 14px;
 }
-.panelNav > :global(nav) { margin: 0; }
 
 /* 분야 칩 — 분류 체계로 들어가는 문 */
 .fieldChip {
@@ -526,4 +584,89 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 공통 패널 위계: 화면 제목 26 / 섹션 18 / 본문 14 / 보조 12px */
+.panelContent { font-size: 14px; line-height: 1.6; }
+.themeList { margin-bottom: 28px; }
+.heading { align-items: flex-start; flex-wrap: wrap; }
+.heading h2, .subheading h2, .identity h2 {
+  font-size: 26px; font-weight: 750; line-height: 1.35;
+  letter-spacing: -0.04em; overflow-wrap: anywhere;
+}
+.identity h2 { margin: 0; }
+.heading p, .subheading p, .identity p { font-size: 13px; line-height: 1.6; }
+.updated { font-size: 11px; padding-top: 8px; }
+.subheading { margin: 0 0 24px; }
+.kpiGrid { gap: 12px; margin: 24px 0 32px; }
+.kpiCard { min-width: 0; padding: 16px 18px; border-radius: 14px; }
+.kpiCard small { font-size: 12px; line-height: 1.5; margin-bottom: 12px; }
+.kpiCard strong { font-size: 28px; font-variant-numeric: tabular-nums; }
+.kpiCard strong em { font-size: 13px; margin-left: 5px; }
+.sectionTitle { flex-wrap: wrap; gap: 8px 12px; margin-bottom: 16px; }
+.sectionTitle h3 { font-size: 18px; font-weight: 750; line-height: 1.35; letter-spacing: -0.03em; }
+.sectionTitle > span, .sectionTitle button { font-size: 12px; }
+.sectionTitleMain { min-width: 0; gap: 8px; }
+.helpIcon { flex-shrink: 0; width: 18px; height: 18px; font-size: 11px; }
+.helpTooltip { white-space: normal; font-size: 12px !important; line-height: 1.6; }
+.back { font-size: 12px; margin-bottom: 0; padding: 4px 0; }
+.panelNav { margin-bottom: 20px; }
+
+.themeCard strong, .themeDetailHead strong, .articleCard strong, .feedCard strong,
+.themeIssueList strong, .attentionRow strong, .rankRow strong { font-size: 14px; line-height: 1.6; }
+.themeDetailRank,
+.themeDetailMeta, .themeDetailHead b, .leading, .articleCard p,
+.feedCard > div, .feedCard > a, .feedCard > span, .attentionRow span:last-child,
+.rankNum, .count, .count b, .themeIssueList small, .themeIssueList > button > b,
+.issueType { font-size: 12px; line-height: 1.6; }
+.themeDetailCard { padding: 16px; grid-template-columns: 26px minmax(0, 1fr); }
+.themeDetailHead { align-items: flex-start; }
+.themeAnalysisList { gap: 10px; margin-bottom: 28px; }
+.themeIssueList { gap: 10px; margin-bottom: 28px; }
+.themeIssueList > button { padding: 14px; grid-template-columns: 48px minmax(0, 1fr) auto 8px; }
+.themeIssueList strong { white-space: normal; overflow-wrap: anywhere; }
+.attentionList { margin-bottom: 28px; }
+.attentionRow { padding: 13px 0; }
+.attentionRow strong { display: block; margin-bottom: 7px; }
+.rankRow { padding: 12px 0; }
+.directionSwitch button { font-size: 12px; padding: 10px 8px; }
+.attentionInsight small, .attentionInsight p { font-size: 12px; }
+.attentionInsight strong { font-size: 14px; }
+.articleCard { padding: 16px 0; }
+.feed { gap: 12px; }
+.feedCard { padding: 16px; border-radius: 12px; }
+.feedCard > div { flex-wrap: wrap; }
+.feedCard p { font-size: 14px; line-height: 1.7; }
+.feedCard > a { color: var(--wtw-accent); }
+.articleCard a:hover, .feedCard > a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+.filterTitle strong, .resultHead strong, .pickerHead strong { font-size: 14px; }
+.filterTitle span, .filterTitle button, .selectedTheme > span, .selectedTheme > strong,
+.quickThemeList button, .quickThemeList button b, .pickerHead span,
+.categories button, .pickerList strong, .pickerList small, .pickerList > button > b,
+.pickerNote, .filterBar > button, .toneFilter button, .resultHead span,
+.emptyArticles p { font-size: 12px; }
+.searchInput, .emptyArticles strong { font-size: 14px; }
+.toneFilter { margin-left: 0; flex-wrap: wrap; gap: 6px; }
+.toneFilter button { padding: 8px 12px; }
+.policy { text-align: left; font-family: var(--wtw-body); font-size: 12px; padding: 0; margin: 0 0 24px; color: var(--wtw-muted); }
+
+/* 국가명과 수치를 위에, 논조 막대를 아래에 배치해 좁은 패널에서도 읽히도록 한다. */
+.toneRow {
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  grid-template-areas: 'flag name count' 'track track badge' 'deviation deviation deviation';
+  gap: 8px 10px; padding: 14px 8px;
+}
+.toneRow .flag { grid-area: flag; font-size: 18px; }
+.toneName { grid-area: name; font-size: 14px; }
+.toneN { grid-area: count; font-size: 12px; }
+.toneTrack { grid-area: track; }
+.toneBadge { grid-area: badge; font-size: 12px; min-width: 64px; border-radius: 6px; }
+.toneWord { grid-area: deviation; font-size: 12px; }
+.toneAxis { font-size: 11px; }
+.method { font-size: 12px; margin-top: 12px; }
+.method summary { cursor: pointer; width: fit-content; color: var(--wtw-text-2); }
+.method p { margin: 10px 0 0; }
+.panelContent button:focus-visible, .panelContent a:focus-visible, .method summary:focus-visible {
+  outline: 2px solid var(--wtw-accent); outline-offset: 3px;
 }

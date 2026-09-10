@@ -9,7 +9,12 @@ test('screens render real DTO fields, empty states, and missing-data notices', a
   const vite = await createServer({ configFile: false, server: { middlewareMode: true }, appType: 'custom', esbuild: { jsx: 'automatic' }, optimizeDeps: { noDiscovery: true, include: [] } });
   try {
     const render = (Component, props) => renderToStaticMarkup(React.createElement(Component, props));
-    const { default: Feed } = await vite.ssrLoadModule('/src/components/panel/ArticleFeed.jsx');
+    const { default: Feed, ArticleFilterBar } = await vite.ssrLoadModule('/src/components/panel/ArticleFeed.jsx');
+    const filters = render(ArticleFilterBar, { tone: 'positive' });
+    assert.match(filters, /aria-label="기사 논조 필터"/);
+    assert.match(filters, /aria-pressed="true">긍정/);
+    const { CountryIdentity } = await vite.ssrLoadModule('/src/components/panel/PanelChrome.jsx');
+    assert.doesNotMatch(render(CountryIdentity, { flag: '🇰🇷', name: '대한민국' }), /<p/);
     const article = articleCard({ articleId: '1', articleTitle: '<script>제목</script>', articleTone: 'POSITIVE', articlePublisher: '매체', publishedAt: '2026-09-08T12:00:00' });
     const feed = render(Feed, { articles: [article] });
     assert.match(feed, /&lt;script&gt;/); assert.match(feed, /긍정/);
@@ -24,7 +29,10 @@ test('screens render real DTO fields, empty states, and missing-data notices', a
     const oneArticle = render(Tones, { rows: [{ country: { countryCode: 'US', countryName: '미국' }, toneAvg: 20, toneMin: 20, toneMax: 20, toneSd: 0, articleCount: 1 }] });
     assert.match(oneArticle, /편차 산출 불가/);
     assert.match(oneArticle, /최소 -0.60 \/ 평균 -0.60 \/ 최대 -0.60/);
-    assert.match(oneArticle, /sparkRange/);
+    assert.match(oneArticle, /toneRange/);
+    assert.match(oneArticle, /toneFill/);
+    assert.match(tone, /<details[^>]*><summary>논조 해석 기준<\/summary>/);
+    assert.doesNotMatch(tone, /<details[^>]*\bopen\b/);
     const smallSample = render(Tones, { rows: [{ country: { countryCode: 'JP', countryName: '일본' }, toneAvg: 40, toneMin: 30, toneMax: 50, toneSd: 5, articleCount: 2 }] });
     assert.match(smallSample, /σ 0.10 · 참고용/);
     const { default: Attention } = await vite.ssrLoadModule('/src/components/panel/AttentionPanel.jsx');
