@@ -4,4 +4,5 @@ requests
 trafilatura
 beautifulsoup4
 python-dateutil>=2.9
+tzdata>=2026.1
 confluent-kafka

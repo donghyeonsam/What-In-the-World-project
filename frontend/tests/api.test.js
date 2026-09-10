@@ -15,6 +15,25 @@ test('all seven existing endpoints use the documented query limits and response 
       '/api/v1/global/issues/11', '/api/v1/issues/11/overview?articleLimit=10']);
   } finally { globalThis.fetch = original; }
 });
+
+test('country-scoped theme and issue requests include the publisher country', async () => {
+  const calls = [];
+  const original = global.fetch;
+  global.fetch = async (url) => {
+    calls.push(url);
+    return { ok: true, json: async () => ({ data: {} }) };
+  };
+  try {
+    await api.theme(7, 'KR');
+    await api.overview(11, 'KR');
+    assert.deepEqual(calls, [
+      '/api/v1/themes/7/overview?issueLimit=10&articleLimit=10&countryCode=KR',
+      '/api/v1/issues/11/overview?articleLimit=10&countryCode=KR',
+    ]);
+  } finally {
+    global.fetch = original;
+  }
+});
 test('API errors, invalid envelopes, and cancellation do not become sample data', async () => {
   const original = globalThis.fetch;
   try {

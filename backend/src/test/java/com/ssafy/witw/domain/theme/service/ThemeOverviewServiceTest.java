@@ -21,6 +21,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 class ThemeOverviewServiceTest {
@@ -78,6 +79,22 @@ class ThemeOverviewServiceTest {
                 .as("테마의 대표 기사 목록")
                 .extracting(articleResponse -> articleResponse.articleTone())
                 .isEqualTo(ArticleTone.NEGATIVE);
+    }
+
+    @Test
+    @DisplayName("[테마 개요 조회] 국가 코드가 있으면 해당 국가 대표 기사만 조회한다")
+    void 국가별_대표_기사를_조회한다() {
+        Theme theme = new Theme();
+        theme.setId(THEME_ID);
+        theme.setName("기후 변화");
+        when(themeRepository.findById(THEME_ID)).thenReturn(Optional.of(theme));
+        when(issueRepository.getPrimaryIssuesByThemeId(THEME_ID, 3)).thenReturn(List.of());
+        when(articleRepository.getRepresentArticlesByThemeIdAndCountryCode(THEME_ID, "KR", 10))
+                .thenReturn(List.of());
+
+        service().getThemeOverview(THEME_ID, 3, 10, "KR");
+
+        verify(articleRepository).getRepresentArticlesByThemeIdAndCountryCode(THEME_ID, "KR", 10);
     }
 
     private ThemeService service() {

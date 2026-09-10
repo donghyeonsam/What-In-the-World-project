@@ -34,6 +34,21 @@ public interface ArticleRepository extends JpaRepository<Article, String> {
     List<RepresentArticleProjection> getRepresentArticlesByThemeId(
             @Param("themeId") Long themeId, @Param("limit") int limit);
 
+    @Query(value = """
+            SELECT a.id AS "articleId", a.translated_title AS "articleTitle",
+                   a.tone_score AS "articleToneScore", a.publisher AS "articlePublisher",
+                   a.published_at AS "publishedAt"
+            FROM article a
+            WHERE a.theme_id = :themeId
+              AND a.publisher_country_code = :countryCode
+              AND a.deleted_at IS NULL
+            ORDER BY a.theme_relevance_score DESC, a.id ASC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<RepresentArticleProjection> getRepresentArticlesByThemeIdAndCountryCode(
+            @Param("themeId") Long themeId, @Param("countryCode") String countryCode,
+            @Param("limit") int limit);
+
     interface RepresentArticleProjection {
         String getArticleId();
         String getArticleTitle();
@@ -53,6 +68,21 @@ public interface ArticleRepository extends JpaRepository<Article, String> {
             """, nativeQuery = true)
     List<RepresentArticleProjection> getRepresentArticlesByIssueId(
             @Param("issueId") Long issueId, @Param("limit") int limit);
+
+    @Query(value = """
+            SELECT a.id AS "articleId", a.translated_title AS "articleTitle",
+                   a.tone_score AS "articleToneScore", a.publisher AS "articlePublisher",
+                   a.published_at AS "publishedAt"
+            FROM article a
+            WHERE a.issue_id = :issueId
+              AND a.publisher_country_code = :countryCode
+              AND a.deleted_at IS NULL
+            ORDER BY a.issue_similarity DESC NULLS LAST, a.id ASC
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<RepresentArticleProjection> getRepresentArticlesByIssueIdAndCountryCode(
+            @Param("issueId") Long issueId, @Param("countryCode") String countryCode,
+            @Param("limit") int limit);
 
 
 

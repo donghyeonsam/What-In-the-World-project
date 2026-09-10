@@ -7,7 +7,7 @@ import s from './minimal.module.css';
  * 출처: 아카이브/index.html .command-palette + app.js openPalette()
  *
  * @param {{open: boolean, onClose: () => void,
- *          quick: {flag: string, name: string, count: string}[],
+ *          quick: {flag: string, flagImage?: string, name: string}[],
  *          onSelect: (name: string) => void, placeholder?: string}} props
  */
 export default function CommandPalette({
@@ -65,9 +65,9 @@ export default function CommandPalette({
               onClose();
             }}
           >
-            <span>{c.flag}</span>
+            <span>{c.flagImage ? <img src={c.flagImage} alt="" /> : c.flag}</span>
             <b>{c.name}</b>
-            <small>{c.count}</small>
+            <small>분석 보기 →</small>
           </button>
         ))}
       </div>
