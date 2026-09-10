@@ -32,6 +32,9 @@ services:
     build: .
     container_name: witw-backend
     restart: unless-stopped
+    # Kafka metadata가 반환하는 외부 hostname을 BigData EC2 사설 IP로 해석한다.
+    extra_hosts:
+      - "j15d203a.p.ssafy.io:172.26.11.46"
     environment:
       SPRING_PROFILES_ACTIVE: prod
       POSTGRESQL_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-witw}

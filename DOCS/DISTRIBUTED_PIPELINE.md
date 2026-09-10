@@ -154,6 +154,7 @@ NLP Worker에서는 다음 작업을 수행한다.
     "language_code": "ko",
     "domain_id": 3,
     "theme_id": 27,
+    "theme_relevance_score": 0.8123,
 
     "mentioned_countries": [
       {
@@ -271,6 +272,7 @@ Spark가 생성하는 최초 기사 저장 이벤트는 다음 계약을 사용�
     "article_id": "87fa2c9...",
     "publisher_country_code": "KR",
     "theme_id": 27,
+    "theme_relevance_score": 0.8123,
     "publisher": "Hankook Ilbo - South Korea (Korean)",
     "url": "https://www.hankooki.com/news/articleView.html?idxno=342372",
     "original_title": "국가철도공단, 정진혁 신임 이사장 취임…CEO 공백 종료",
@@ -283,8 +285,10 @@ Spark가 생성하는 최초 기사 저장 이벤트는 다음 계약을 사용�
 }
 ```
 
-Spark는 NLP 계약에 없는 값을 임의로 생성하지 않는다. `published_at`을 포함한
-필수 필드가 없거나 형식이 잘못된 메시지는 정합성 검사 실패로 처리한다.
+`theme_relevance_score`는 NLP Worker가 선택한 Top-1 Theme와 기사 Embedding의
+cosine similarity이며 범위는 -1부터 1이다. Spark는 NLP 계약에 없는 값을 임의로
+생성하지 않는다. `published_at`을 포함한 필수 필드가 없거나 형식이 잘못된
+메시지는 정합성 검사 실패로 처리한다.
 
 ### 5-2. 이슈 매칭 단계로 전달<hr>
 동시에 Spark에서 처리된 기사는 6. 이슈 매칭 단계로 전달된다.
