@@ -89,3 +89,6 @@ bigdata/nlp-worker/models/
 __pycache__/
 *.py[cod]
 *$py.class
+
+### 도커 이미지 파일 방지
+nlp-worker.tar
