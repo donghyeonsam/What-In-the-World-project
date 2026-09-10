@@ -1,0 +1,130 @@
+# 개발 FE·BE 로그 수집
+
+FE·BE와 같은 Linux Docker 호스트에서 실행한다. 서로 다른 호스트라면 이 Compose를
+그대로 양쪽에 실행하지 말고, 호스트별 Alloy와 중앙 Loki 연결 구성을 먼저 정한다.
+
+```text
+FE Nginx / BE Spring stdout·stderr
+→ 해당 호스트 Docker Engine
+→ docker.sock을 마운트한 Alloy
+→ Loki (7일 보관)
+→ Grafana Explore
+```
+
+## 구성
+
+| 항목 | 설정 |
+| --- | --- |
+| 수집 대상 | `logging=enabled`, `env=dev`, `service=fe` 또는 `be` |
+| Loki 라벨 | `service_name`, `env`, `host`, `container` |
+| Grafana | 서버의 `127.0.0.1:3002` → 컨테이너 `3000` |
+| Loki / Alloy | 호스트 포트 공개 없음 |
+| Docker 원본 로그 | FE·개발 BE 및 모니터링 컨테이너당 `10m × 3개` |
+| 영속 볼륨 | Alloy 읽기 위치, Loki 데이터·WAL·Compactor 상태, Grafana 설정 |
+
+FE는 `.gitlab/ci/front.yml`의 기존 배포 명령에 라벨을 추가했다.
+공유 명령을 사용하는 운영 FE에도 로그 로테이션은 적용되지만 `logging=disabled`로 수집하지 않는다.
+BE는 `backend/docker-compose.dev.yml`만 변경했다. 운영 BE, Bigdata, PostgreSQL, Valkey는 수집하지 않는다.
+기존 컨테이너에는 설정이 소급 적용되지 않으므로 개발 FE·BE를 재배포해야 한다.
+
+FE 로그는 Nginx 접근·오류 로그이며 브라우저 JavaScript 오류는 포함하지 않는다.
+BE는 현재 콘솔 로그를 수집하고, 날짜로 시작하는 로그를 기준으로 최대 256줄의 스택 트레이스를 묶는다.
+멀티라인 버퍼는 최대 3초 대기한다. 로그 형식을 바꾸면 `firstline`도 확인한다.
+컨테이너 내부 파일에만 쓰는 로그는 수집하지 않는다.
+
+## 서버 최초 설정
+
+EC2에 환경 파일만 최초 1회 생성한다. 설정 파일과 컨테이너 배포는 이후 CI가 처리한다.
+
+```bash
+sudo install -d /opt/witw-monitoring
+sudo touch /opt/witw-monitoring/.env
+sudo chmod 600 /opt/witw-monitoring/.env
+```
+
+`/opt/witw-monitoring/.env`에 `LOG_HOST`와 `GRAFANA_ADMIN_PASSWORD`를 입력한다.
+`$`, `#`가 들어 있는 값은 작은따옴표로 감싼다. `.env`는 Git에서 제외된다.
+관리자 계정 환경변수는 Grafana 데이터베이스 최초 생성 시 적용되므로,
+이후 비밀번호 변경은 Grafana에서 수행한다.
+
+`develop` 브랜치에서 `infra/monitoring/**`가 변경되면 `deploy-monitoring-dev`가
+설정을 `/opt/witw-monitoring`에 복사하고 검증한 뒤 `docker compose up -d`를 실행한다.
+
+`depends_on`은 시작 순서만 지정한다. 초기 Loki 준비 중 Alloy에서 연결 오류가 잠시 날 수 있으나,
+계속 반복되면 Loki 로그와 Grafana 데이터 소스 연결 상태를 확인한다.
+
+관리자 PC에서 SSH 터널을 연다 (`USER`, `SERVER`를 실제 값으로 변경).
+
+```bash
+ssh -N -L 3002:127.0.0.1:3002 USER@SERVER
+```
+
+브라우저에서 `http://localhost:3002`에 접속해 설정한 계정으로 로그인한다.
+Loki 데이터 소스는 자동 등록된다. 데이터 소스 화면에서 연결 테스트 후 Explore를 연다.
+
+## 수집 검증
+
+1. 변경 사항을 반영한 개발 FE·BE 배포 파이프라인을 실행한다.
+2. 서버에서 다음 명령으로 라벨과 원본 로그를 확인한다.
+
+```bash
+docker ps --filter label=logging=enabled --filter label=env=dev
+docker logs --tail=20 what-in-the-world-front-dev
+docker logs --tail=20 witw-backend-dev
+curl --fail http://127.0.0.1:3001/
+curl --fail http://127.0.0.1:3001/api/v1/themes/by-field
+```
+
+3. Grafana Explore에서 시간 범위를 최근 15분으로 선택하고 조회한다.
+
+```logql
+{env="dev", service_name="fe"}
+{env="dev", service_name="be"}
+{env="dev", service_name="be"} |= "ERROR"
+```
+
+FE에서는 방금 발생한 요청을, BE에서는 시작 로그와 실제로 출력된 애플리케이션 로그를 확인한다.
+API를 호출했다고 반드시 BE 요청 로그가 생기지는 않는다. 예외 로그가 발생하면 스택 트레이스가
+같은 이벤트에 포함되는지 확인한다. `/healthz`는 기존 Nginx 설정상 접근 로그가 없다.
+
+4. Alloy 재시작 후 새 요청 로그가 들어오는지 확인한다.
+
+```bash
+docker compose restart alloy
+```
+
+5. Loki·Grafana 재시작 후 기존 로그 조회와 로그인 설정 유지 여부를 확인한다.
+
+```bash
+docker compose restart loki grafana
+```
+
+6. 개발 FE·BE를 다시 배포한 뒤 새 컨테이너의 로그도 들어오는지 확인한다.
+7. 7일 운영 후 오래된 로그 삭제와 디스크 사용량을 확인한다. 삭제는 Compactor 주기와
+   2시간 삭제 지연에 따라 비동기로 수행되며, 7일 설정이 디스크 용량 상한을 의미하지는 않는다.
+
+## 운영 시 알아둘 점
+
+- Docker 소켓은 Alloy에만 마운트한다. `:ro`는 Docker API를 읽기 전용으로 제한하지 않으며,
+  일반적인 rootful Docker에서는 소켓 접근이 호스트 root 수준 권한으로 이어질 수 있다.
+- Loki에는 인증 계층이 없으므로 현재처럼 Docker 네트워크 안에서만 접근한다.
+- 앱 네트워크와 모니터링 네트워크를 연결할 필요는 없다. Alloy는 Docker API로 읽는다.
+- 읽기 위치 저장은 무손실 전송 보장이 아니다. 수집 전 컨테이너 삭제, 원본 로그 로테이션,
+  장시간 전송 실패, 멀티라인 버퍼가 남은 상태의 종료 등으로 누락될 수 있다.
+- Nginx URL 등 로그에 민감한 값이 포함될 수 있으므로 실제 수집 내용을 확인한다.
+- 로그량과 디스크 여유를 보고 원본 로그 크기와 보관 기간을 조정한다.
+
+중단할 때는 이 디렉터리에서 `docker compose down`을 실행한다.
+볼륨은 유지된다. `down -v`는 저장된 로그와 Grafana 설정까지 삭제하므로 사용하지 않는다.
+
+## 검증 범위와 참고
+
+로컬에서 모니터링·개발 BE의 Compose 설정 검증을 수행했다.
+로컬 Docker 엔진이 실행 중이지 않아 이미지 실행, Alloy/Loki 제품별 설정 검증,
+실제 로그 유입과 재시작 검증은 위 서버 절차로 수행해야 한다.
+
+- [Alloy Docker 수집](https://grafana.com/docs/alloy/latest/monitor/monitor-docker-containers/)
+- [Loki 보관 정책](https://grafana.com/docs/loki/latest/operations/storage/retention/)
+- [Alloy 1.19.2](https://github.com/grafana/alloy/releases/tag/v1.19.2)
+- [Loki 3.7.7](https://github.com/grafana/loki/releases/tag/v3.7.7)
+- [Grafana 13.2.1](https://github.com/grafana/grafana/releases/tag/v13.2.1)
