@@ -58,6 +58,10 @@ public class ThemeService {
     }
 
     public ThemeOverviewResponse getThemeOverview(Long themeId, int issueLimit, int articleLimit) {
+        return getThemeOverview(themeId, issueLimit, articleLimit, null);
+    }
+
+    public ThemeOverviewResponse getThemeOverview(Long themeId, int issueLimit, int articleLimit, String countryCode) {
         validateLimit(issueLimit);
         validateLimit(articleLimit);
 
@@ -71,8 +75,10 @@ public class ThemeService {
                         issue.getIssueId(), issue.getIssueTitle()))
                 .toList();
 
-        List<RepresentArticle> representArticles = articleRepository
-                .getRepresentArticlesByThemeId(themeId, articleLimit)
+        List<RepresentArticleProjection> articleRows = countryCode == null
+                ? articleRepository.getRepresentArticlesByThemeId(themeId, articleLimit)
+                : articleRepository.getRepresentArticlesByThemeIdAndCountryCode(themeId, countryCode, articleLimit);
+        List<RepresentArticle> representArticles = articleRows
                 .stream()
                 .map(this::toRepresentArticle)
                 .toList();

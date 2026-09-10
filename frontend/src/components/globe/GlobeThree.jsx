@@ -12,6 +12,9 @@ const FALLBACK_RAD = { kr: 2.6, us: 12, uk: 4, au: 14, me: 3.2, af: 7, br: 13 };
 
 const CYAN = 0x6fe7ff;
 const AMBER = 0xffb454;
+const IDLE_CAMERA_Z = 3.7;
+const FOCUS_FILL_RATIO = 0.88;
+const VISIBLE_GLOBE_RADIUS = 1.04;
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 
 /** 위경도 → 구면 좌표 */
@@ -42,8 +45,10 @@ const PITCH_LIMIT = 0.9;
 function orientTo(lat, lon) {
   const pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, (lat * Math.PI) / 180));
   const yaw = (-(lon + 90) * Math.PI) / 180;
-  return new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, yaw, 0, 'XYZ'));
+  return { pitch, yaw };
 }
+
+const shortestAngle = (from, to) => Math.atan2(Math.sin(to - from), Math.cos(to - from));
 
 /** 방사형 글로우 스프라이트용 캔버스 텍스처 */
 function glowTex() {
@@ -101,7 +106,7 @@ function disposeObj(o) {
  *          minSample?: number, focus?: string|null, highlight?: string|null,
  *          pinCities?: Record<string, [number, number][]>,
  *          pinsOf?: (country: object) => {title: string, tr: number}[],
- *          onSelectCountry?: (id: string) => void, onOpenCountry?: (id: string) => void,
+ *          onOpenCountry?: (id: string) => void,
  *          onSelectPin?: (pin: {cid: string, idx: number, title: string}) => void,
  *          showBeacons?: boolean, spinControl?: boolean,
  *          meteorInterval?: number, meteorTopics?: object[],
@@ -118,7 +123,6 @@ export default function GlobeThree({
   highlight = null,
   pinCities = {},
   pinsOf,
-  onSelectCountry,
   onOpenCountry,
   onSelectPin,
   showBeacons = false,
@@ -135,7 +139,7 @@ export default function GlobeThree({
 
   /* 콜백은 ref로 넘긴다 — 씬을 다시 만들지 않기 위해 */
   const cb = useRef({});
-  cb.current = { onSelectCountry, onOpenCountry, onSelectPin, onMeteorImpact, pinsOf };
+  cb.current = { onOpenCountry, onSelectPin, onMeteorImpact, pinsOf };
 
   /* ── 씬 생성 (마운트 1회) ── */
   useEffect(() => {
@@ -144,7 +148,7 @@ export default function GlobeThree({
 
     const scene = new THREE.Scene();
     const cam = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
-    cam.position.set(0, 0, 3.35);
+    cam.position.set(0, 0, IDLE_CAMERA_Z);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.outputEncoding = THREE.sRGBEncoding;
@@ -693,14 +697,21 @@ export default function GlobeThree({
     let dragging = false;
     let px = 0;
     let py = 0;
+    let dragDistance = 0;
     let vx = 0;
     let vy = 0;
     let spin = true;
-    let focusQ = null;
-    let targetZ = 3.35;
+    let focusRotation = null;
+    let targetZ = IDLE_CAMERA_Z;
     let focusedId = null;
     let highlightId = null; /* 목록만 좁힌 상태(줌 없이 윤곽만 강조) */
     const activeId = () => focusedId || highlightId;
+    const focusCameraZ = () => {
+      const verticalHalfFov = THREE.MathUtils.degToRad(cam.fov / 2);
+      const horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * cam.aspect);
+      const limitingHalfFov = Math.min(verticalHalfFov, horizontalHalfFov);
+      return VISIBLE_GLOBE_RADIUS / Math.sin(limitingHalfFov * FOCUS_FILL_RATIO);
+    };
 
     const hitTargets = () =>
       beacons.filter((b) => b.visible).concat(pinHeads, countryLabels, countryHoverTargets);
@@ -711,10 +722,11 @@ export default function GlobeThree({
       vy = 0;
       px = e.clientX;
       py = e.clientY;
+      dragDistance = 0;
       wrap.classList.add(s.dragging);
       spin = false;
       setAutoSpin(false);
-      focusQ = null;
+      focusRotation = null;
     };
     const onUp = () => {
       dragging = false;
@@ -722,8 +734,11 @@ export default function GlobeThree({
     };
     const onMove = (e) => {
       if (dragging) {
-        vx = (e.clientX - px) * 0.0045;
-        vy = (e.clientY - py) * 0.0045;
+        const dx = e.clientX - px;
+        const dy = e.clientY - py;
+        dragDistance += Math.hypot(dx, dy);
+        vx = dx * 0.0045;
+        vy = dy * 0.0045;
         globe.rotation.y += vx;
         globe.rotation.x = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, globe.rotation.x + vy));
         px = e.clientX;
@@ -745,7 +760,7 @@ export default function GlobeThree({
         if (u.type === 'pin') {
           tt = `📌 <b>${escapeHtml(u.title)}</b><br>클릭하면 기사로 이동`;
         } else {
-          tt = `${escapeHtml(u.flag)} <b>${escapeHtml(u.name)}</b> · 국가 윤곽 강조`;
+          tt = `${escapeHtml(u.flag)} <b>${escapeHtml(u.name)}</b> · 클릭하면 국가 분석으로 이동`;
           if (TONE.active && TONE.topic.t[u.id]) {
             const d = TONE.topic.t[u.id];
             const badge = d.s == null ? '분석 없음' : d.n != null && TONE.minN != null && d.n < TONE.minN ? '표본부족' : (d.s > 0 ? '+' : '') + d.s.toFixed(2);
@@ -760,12 +775,9 @@ export default function GlobeThree({
         wrap.classList.remove(s.pointing);
       }
     };
-    /* 결정표 2-C: 한 번 클릭과 더블클릭을 나눈다. 한 번 클릭을 240ms 미뤄 두 번째를 기다린다.
-       각 클릭이 무슨 뜻인지는 부르는 쪽이 정한다 — 지구본은 onSelectCountry / onOpenCountry만 쏜다.
-       (지금 App은 글로벌에서 한 번 클릭 = 지구본 표시, 그 아래에서는 = 국가 필터로 쓴다) */
-    let clickTimer = null;
     const onClick = () => {
-      if (Math.abs(vx) > 0.004 || Math.abs(vy) > 0.004) {
+      if (dragDistance >= 5) {
+        dragDistance = 0;
         vx = 0;
         vy = 0;
         return;
@@ -778,16 +790,7 @@ export default function GlobeThree({
         cb.current.onSelectPin?.(u);
         return;
       }
-      if (clickTimer) {
-        clearTimeout(clickTimer);
-        clickTimer = null;
-        cb.current.onOpenCountry?.(u.id);
-      } else {
-        clickTimer = setTimeout(() => {
-          clickTimer = null;
-          cb.current.onSelectCountry?.(u.id);
-        }, 240);
-      }
+      cb.current.onOpenCountry?.(u.id);
     };
 
     wrap.addEventListener('pointerdown', onDown);
@@ -803,6 +806,7 @@ export default function GlobeThree({
       renderer.setSize(w, h);
       cam.aspect = w / h;
       cam.updateProjectionMatrix();
+      if (focusedId) targetZ = focusCameraZ();
     };
     addEventListener('resize', resize);
     resize();
@@ -813,11 +817,17 @@ export default function GlobeThree({
       raf = requestAnimationFrame(loop);
       t += 0.016;
       if (spin && !reduced) globe.rotation.y += 0.0016;
-      if (focusQ) {
-        const cur = new THREE.Quaternion().setFromEuler(globe.rotation);
-        cur.slerp(focusQ, 0.06);
-        globe.rotation.setFromQuaternion(cur);
-        if (cur.angleTo(focusQ) < 0.005) focusQ = null;
+      if (focusRotation) {
+        globe.rotation.x += (focusRotation.pitch - globe.rotation.x) * 0.06;
+        globe.rotation.y += (focusRotation.yaw - globe.rotation.y) * 0.06;
+        globe.rotation.z += (0 - globe.rotation.z) * 0.06;
+        if (
+          Math.abs(focusRotation.pitch - globe.rotation.x) < 0.005
+          && Math.abs(focusRotation.yaw - globe.rotation.y) < 0.005
+        ) {
+          globe.rotation.set(focusRotation.pitch, focusRotation.yaw, 0);
+          focusRotation = null;
+        }
       }
       cam.position.z += (targetZ - cam.position.z) * 0.06;
       if (!reduced) {
@@ -860,8 +870,13 @@ export default function GlobeThree({
         focusedId = id;
         clearCountryFx();
         /* 나라를 정면에 세우되 북쪽은 위로 — 세계지도와 같은 자세다 */
-        focusQ = orientTo(c.lat, c.lon);
-        targetZ = 3.9;
+        const target = orientTo(c.lat, c.lon);
+        focusRotation = {
+          pitch: target.pitch,
+          yaw: globe.rotation.y + shortestAngle(globe.rotation.y, target.yaw),
+        };
+        /* 화면의 짧은 축 안에 지구본 외곽이 남는 범위까지만 확대한다. */
+        targetZ = focusCameraZ();
         spin = false;
         setAutoSpin(false);
         syncBeacons(id);
@@ -870,8 +885,8 @@ export default function GlobeThree({
       },
       reset() {
         focusedId = null;
-        focusQ = null;
-        targetZ = 3.35;
+        focusRotation = null;
+        targetZ = IDLE_CAMERA_Z;
         spin = true;
         setAutoSpin(true);
         clearCountryFx();
@@ -886,7 +901,7 @@ export default function GlobeThree({
       },
       setSpin(on) {
         spin = !!on;
-        focusQ = null;
+        focusRotation = null;
         setAutoSpin(!!on);
       },
       spawnMeteor,
@@ -894,7 +909,6 @@ export default function GlobeThree({
 
     return () => {
       cancelAnimationFrame(raf);
-      if (clickTimer) clearTimeout(clickTimer);
       removeEventListener('resize', resize);
       removeEventListener('pointerup', onUp);
       removeEventListener('pointermove', onMove);

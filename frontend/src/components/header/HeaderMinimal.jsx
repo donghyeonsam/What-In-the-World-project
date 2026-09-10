@@ -8,12 +8,12 @@ const SearchIcon = () => (
 );
 
 /**
- * 라이트 미니멀 상단바 — 제호 + 중앙 라우트 탭 + 검색 트리거 + 갱신 상태.
+ * 라이트 미니멀 상단바 — 제호 + 중앙 라우트 탭 + 검색 트리거.
  * 출처: 아카이브/index.html .topbar
  *
  * @param {{brand?: string, routes?: {id: string, label: string}[], route?: string,
  *          onRoute?: (id: string) => void, onSearch?: () => void,
- *          searchLabel?: string, shortcut?: string, status?: string}} props
+ *          searchLabel?: string, shortcut?: string}} props
  */
 export default function HeaderMinimal({
   brand = 'What In the World!',
@@ -26,15 +26,11 @@ export default function HeaderMinimal({
   onSearch,
   searchLabel = '국가 검색',
   shortcut = '⌘ K',
-  status = '10분 전 업데이트',
 }) {
   return (
     <header className={s.topbar}>
       <a className={s.brand} href="#" aria-label={`${brand} 홈`} onClick={(e) => e.preventDefault()}>
-        <span className={s.mark} aria-hidden="true">
-          <i />
-        </span>
-        <span>{brand}</span>
+        <img src="/witw_logo.png" alt={brand} />
       </a>
 
       <nav className={s.nav} aria-label="주요 메뉴">
@@ -56,10 +52,6 @@ export default function HeaderMinimal({
           <span>{searchLabel}</span>
           <kbd className={s.kbd}>{shortcut}</kbd>
         </button>
-        <div className={s.status}>
-          <span />
-          {status}
-        </div>
       </div>
     </header>
   );

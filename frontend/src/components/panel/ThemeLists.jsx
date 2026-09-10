@@ -9,7 +9,7 @@ import s from './panel.module.css';
 export function ThemeCardList({ themes, limit, onSelect }) {
   const list = limit ? themes.slice(0, limit) : themes;
   return (
-    <div>
+    <div className={s.themeList}>
       {list.map((theme, index) => (
         <button
           key={theme.name}
@@ -18,14 +18,18 @@ export function ThemeCardList({ themes, limit, onSelect }) {
           onClick={() => onSelect?.(index)}
         >
           <span className={s.rank}>{String(index + 1).padStart(2, '0')}</span>
-          <span>
-            <small className={s.themeField}>{theme.field}</small>
-            <strong>{theme.name}</strong>
-            <small>
-              최근 24시간 기사 {theme.count}{theme.leadingIssue ? ` · 주요 이슈: ${theme.leadingIssue}` : ''}
-            </small>
+          <span className={s.themeCardMain}>
+            <span className={s.themeCardTitle}>
+              <strong>{theme.name}</strong>
+              <small className={s.themeField}>{theme.field}</small>
+            </span>
+            {theme.leadingIssue && <small className={s.themeCardIssue}>주요 이슈 · {theme.leadingIssue}</small>}
           </span>
-          <span className={s.rise}>{theme.rise}</span>
+          <span className={s.themeCardMetric}>
+            <strong>{theme.count}</strong>
+            <small>최근 24시간</small>
+            {theme.rise && <b>{theme.rise}</b>}
+          </span>
         </button>
       ))}
     </div>
