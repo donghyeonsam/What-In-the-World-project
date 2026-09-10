@@ -91,4 +91,4 @@ __pycache__/
 *$py.class
 
 ### 도커 이미지 파일 방지
-nlp-worker.tar
+*.tar*
