@@ -7,6 +7,8 @@
     # Runner의 체크아웃 경로와 관계없이 동일한 Compose 프로젝트를 관리
     COMPOSE_PROJECT_NAME: news-bigdata-prod
     COMPOSE_FILE: docker-compose.prod.yml
+    MONITORING_COMPOSE_PROJECT_NAME: news-monitoring
+    MONITORING_COMPOSE_FILE: monitoring/docker-compose.yml
 
 
 # =========================================================
@@ -42,6 +44,7 @@ validate-bigdata:
     # -----------------------------------------------------
     - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" config --quiet
     - KAFKA_EXTERNAL_HOST=localhost KAFKA_BIND_HOST=127.0.0.1 docker compose -p news-bigdata-local -f docker-compose.local.yml config --quiet
+    - docker compose -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" config --quiet
 
     # -----------------------------------------------------
     # Kafka Topic 생성 스크립트 문법 검사
@@ -51,10 +54,11 @@ validate-bigdata:
     # -----------------------------------------------------
     # 애플리케이션 Docker 이미지 빌드 검증
     #
-    # Collector 의존성, Java consumer 컴파일/테스트, Spark Connector 내장 이미지의
-    # Dockerfile 및 COPY 경로 오류 등을 여기서 잡음
+    # Kafka JMX agent, Collector 의존성, Java consumer 컴파일/테스트,
+    # Spark Connector, HDFS exporter 이미지의 Dockerfile 및 COPY 경로 오류를 잡음
     # -----------------------------------------------------
-    - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" build collector bronze-writer silver-writer spark-master
+    - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" build kafka collector bronze-writer silver-writer spark-master
+    - docker compose -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" build hdfs-exporter
     - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" run --rm --no-deps --entrypoint test spark-master -f /opt/spark/jars/org.apache.spark_spark-sql-kafka-0-10_2.13-4.2.0.jar
     - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" run --rm --no-deps --entrypoint test spark-master -f /opt/spark/jars/org.postgresql_postgresql-42.7.7.jar
     - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" run --rm --no-deps collector --help
@@ -121,16 +125,17 @@ deploy-bigdata:
     # -----------------------------------------------------
     # 런타임에 그대로 사용하는 공식 이미지 업데이트
     #
-    # Collector, HDFS writer, Spark는 직접 build하는 서비스이므로 제외
+    # Kafka, Collector, HDFS writer, Spark는 직접 build하는 서비스이므로 제외
     # -----------------------------------------------------
-    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" pull kafka namenode datanode
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" pull namenode datanode
 
     # -----------------------------------------------------
     # 애플리케이션 이미지 빌드
     #
-    # Collector, Java Kafka-HDFS consumer, Connector 내장 Spark 이미지 변경사항 반영
+    # JMX agent 내장 Kafka, Collector, Java Kafka-HDFS consumer,
+    # Connector 내장 Spark 이미지 변경사항 반영
     # -----------------------------------------------------
-    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" build collector bronze-writer silver-writer spark-master
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" build kafka collector bronze-writer silver-writer spark-master
 
     # -----------------------------------------------------
     # Collector를 제외한 기반 서비스 실행
@@ -142,25 +147,45 @@ deploy-bigdata:
     # -----------------------------------------------------
     - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" run --rm kafka-init
 
-    # Topic 준비가 끝난 뒤 Collector, HDFS writer, Spark stream 시작
-    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" up -d --no-deps --wait --wait-timeout 900 collector bronze-writer silver-writer spark-enriched-stream
+    # Spark checkpoint 경로를 HDFS에 멱등 생성
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" run --rm hdfs-checkpoint-init
+
+    # Topic과 checkpoint 준비가 끝난 뒤 Collector, HDFS writer, Spark stream 시작
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" up -d --no-deps --wait --wait-timeout 900 collector bronze-writer silver-writer spark-enriched-stream spark-unclassified-issue-stream
+
+    # -----------------------------------------------------
+    # BigData Prometheus / Grafana / Exporter 배포
+    # -----------------------------------------------------
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" config --quiet
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" pull prometheus grafana kafka-exporter
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" build hdfs-exporter
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" up -d --wait --wait-timeout 180
 
     # -----------------------------------------------------
     # 배포 결과 확인
     # -----------------------------------------------------
     - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" ps
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" ps
 
     # 애플리케이션 컨테이너 health 확인
     - test "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' news-collector)" = "healthy"
     - test "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' news-bronze-writer)" = "healthy"
     - test "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' news-silver-writer)" = "healthy"
     - test "$(docker inspect -f '{{.State.Running}}' news-spark-enriched-stream)" = "true"
+    - test "$(docker inspect -f '{{.State.Running}}' news-spark-unclassified-issue-stream)" = "true"
+    - test "$(docker inspect -f '{{.State.Running}}' news-prometheus)" = "true"
+    - test "$(docker inspect -f '{{.State.Running}}' news-grafana)" = "true"
+    - test "$(docker inspect -f '{{.State.Running}}' news-kafka-exporter)" = "true"
+    - test "$(docker inspect -f '{{.State.Running}}' news-hdfs-exporter)" = "true"
 
     # 최근 Collector 로그 출력
     - docker logs --tail 50 news-collector
     - docker logs --tail 50 news-bronze-writer
     - docker logs --tail 50 news-silver-writer
     - docker logs --tail 50 news-spark-enriched-stream
+    - docker logs --tail 50 news-spark-unclassified-issue-stream
+    - docker logs --tail 50 news-prometheus
+    - docker logs --tail 50 news-hdfs-exporter
 
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
