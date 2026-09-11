@@ -89,7 +89,6 @@ public class DbWriterService {
         article.setUrl(requireMaxLength(payload.url(), "payload.url", 1000));
         article.setOriginalTitle(requireText(payload.originalTitle(), "payload.original_title"));
         article.setCrawledAt(toUtcLocalDateTime(require(payload.crawledAt(), "payload.crawled_at")));
-        article.setEmbedding(writeJson(requireNonEmpty(payload.embedding(), "payload.embedding")));
         article.setToneScore(requireRange(
                 payload.toneScore(), "payload.tone_score", BigDecimal.ZERO, BigDecimal.valueOf(100)
         ));
