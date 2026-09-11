@@ -3,6 +3,10 @@ spring:
     activate:
       on-profile: test
 
+  mail:
+    host: localhost
+    port: 3025
+
   # 스키마 주인은 Flyway. 운영 프로파일의 ddl-auto: update 를 덮어쓴다.
   jpa:
     hibernate:
