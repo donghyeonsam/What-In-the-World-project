@@ -20,7 +20,7 @@ services:
       - news-network
 
   grafana:
-    image: grafana/grafana-oss:13.2.1
+    image: grafana/grafana:13.2.1
     container_name: news-grafana
     restart: unless-stopped
     environment:
