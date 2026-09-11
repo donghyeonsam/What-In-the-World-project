@@ -1,0 +1,43 @@
+spring:
+  config:
+    activate:
+      on-profile: dev-prod
+  datasource:
+    url: ${POSTGRESQL_URL:jdbc:postgresql://localhost:5432/witw}
+    username: ${POSTGRESQL_USER:postgres}
+    password: ${POSTGRESQL_PASSWORD:1234}
+  data:
+    redis:
+      host: ${VALKEY_HOST:localhost}
+      port: ${VALKEY_HOST_PORT:6379}
+      password: ${VALKEY_PASSWORD:}
+  kafka:
+    bootstrap-servers: 172.26.11.46:19092
+    consumer:
+      group-id: db-writer-v1
+      auto-offset-reset: latest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: record
+
+server:
+  servlet:
+    session:
+      cookie:
+        secure: false
+
+app:
+  cors:
+    allowed-origins:
+      - ${CORS_ALLOWED_ORIGIN:http://localhost:5173}
+    allowed-methods:
+      - GET
+      - POST
+      - PUT
+      - PATCH
+      - DELETE
+      - OPTIONS
+    allowed-headers:
+      - "*"
