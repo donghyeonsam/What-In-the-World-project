@@ -47,7 +47,6 @@ services:
       - --kafka.server=kafka:29092
       - --topic.filter=^news\..*
       - --group.filter=^(nlp-worker-v1|news-.*-hdfs-.*)$
-      - --offset.show-all=true
     networks:
       - news-network
 
