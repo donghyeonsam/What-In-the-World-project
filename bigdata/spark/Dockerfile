@@ -28,6 +28,7 @@ COPY --from=spark-dependency-resolver /tmp/.ivy2/jars/ /opt/spark/jars/
 # 버전을 고정해 동일 입력의 군집 결과와 이미지 재현성을 유지한다.
 RUN python3 -m pip install --no-cache-dir \
         'numpy==1.26.4' \
-        'scikit-learn==1.6.1'
+        'scikit-learn==1.6.1' \
+        'prometheus-client==0.22.1'
 
 USER spark
