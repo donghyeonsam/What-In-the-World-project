@@ -105,7 +105,6 @@ class DbWriterServiceTest {
         assertThat(saved.getPublisherCountryCode()).isSameAs(korea);
         assertThat(saved.getTheme()).isSameAs(theme);
         assertThat(saved.getThemeRelevanceScore()).isEqualByComparingTo("0.8123");
-        assertThat(saved.getEmbedding()).isEqualTo("[0.031,-0.114]");
         assertThat(saved.getCrawledAt()).isEqualTo(
                 LocalDateTime.parse("2026-09-01T08:22:28.256121")
         );

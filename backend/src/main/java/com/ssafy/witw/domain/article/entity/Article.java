@@ -61,9 +61,6 @@ public class Article {
     @Column(name = "theme_relevance_score", nullable = false)
     private BigDecimal themeRelevanceScore;
 
-    @Column(name = "embedding", length = Integer.MAX_VALUE)
-    private String embedding;
-
     @Column(name = "issue_similarity")
     private BigDecimal issueSimilarity;
 
