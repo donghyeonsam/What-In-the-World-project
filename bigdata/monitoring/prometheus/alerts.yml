@@ -1,0 +1,162 @@
+groups:
+  - name: pipeline-recording
+    interval: 15s
+    rules:
+      - record: witw:kafka_retained_records
+        expr: sum by (topic) (kafka_topic_partition_current_offset - kafka_topic_partition_oldest_offset)
+
+      # NLP worker 직접 계측 대신 Kafka offset으로 처리 상태를 유추한다.
+      - record: witw:kafka_nlp_input_records_per_second
+        expr: clamp_min(sum(deriv(kafka_topic_partition_current_offset{topic="news.raw.v1"}[5m])), 0)
+
+      - record: witw:kafka_nlp_committed_records_per_second
+        expr: clamp_min(sum(deriv(kafka_consumergroup_current_offset{consumergroup="nlp-worker-v1",topic="news.raw.v1"}[5m])), 0)
+
+      - record: witw:kafka_nlp_output_records_per_second
+        expr: clamp_min(sum(deriv(kafka_topic_partition_current_offset{topic="news.enriched.v1"}[5m])), 0)
+
+      - record: witw:kafka_nlp_consumer_lag
+        expr: sum(kafka_consumergroup_lag{consumergroup="nlp-worker-v1",topic="news.raw.v1"}) or vector(0)
+
+      - record: witw:kafka_nlp_consumer_members
+        expr: sum(kafka_consumergroup_members{consumergroup="nlp-worker-v1"}) or vector(0)
+
+      - record: witw:spark_source_lag
+        expr: clamp_min(max by (topic, partition) (kafka_topic_partition_current_offset) - on (topic, partition) group_right witw_spark_streaming_source_offset, 0)
+
+  - name: pipeline-alerts
+    rules:
+      - alert: KafkaMetricsUnavailable
+        expr: up{job=~"kafka-offsets|kafka-broker"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kafka monitoring target is unavailable"
+          description: "{{ $labels.job }} target {{ $labels.instance }} has been down for 2 minutes."
+
+      - alert: KafkaConsumerLagHigh
+        expr: sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=~"nlp-worker-v1|news-.*-hdfs-.*"}) > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka consumer lag is sustained"
+          description: "{{ $labels.consumergroup }} on {{ $labels.topic }} has lag {{ $value }}."
+
+      - alert: KafkaConsumerLagGrowing
+        expr: sum by (consumergroup, topic) (deriv(kafka_consumergroup_lag{consumergroup=~"nlp-worker-v1|news-.*-hdfs-.*"}[10m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka consumer lag keeps growing"
+          description: "{{ $labels.consumergroup }} cannot keep up with {{ $labels.topic }}."
+
+      - alert: KafkaPartitionSkew
+        expr: max by (topic) (rate(kafka_topic_partition_current_offset[10m])) > 2 * clamp_min(avg by (topic) (rate(kafka_topic_partition_current_offset[10m])), 0.01)
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka partition traffic is skewed"
+          description: "One partition in {{ $labels.topic }} receives more than twice the topic average."
+
+      - alert: KafkaOfflinePartition
+        expr: kafka_controller_offlinepartitionscount > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kafka has offline partitions"
+          description: "Kafka reports {{ $value }} offline partitions."
+
+      - alert: NlpConsumerDisconnected
+        expr: (witw:kafka_nlp_consumer_members < 1) and on () (up{job="kafka-offsets"} == 1)
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "NLP consumer is disconnected"
+          description: "Kafka reports no active member in consumer group nlp-worker-v1."
+
+      - alert: NlpConsumerCommitStalled
+        expr: (witw:kafka_nlp_committed_records_per_second == 0) and on () (witw:kafka_nlp_consumer_lag > 0)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "NLP consumer is not committing pending records"
+          description: "Kafka lag is pending, but nlp-worker-v1 has made no offset progress."
+
+      - alert: SparkStreamingQueryDown
+        expr: witw_spark_streaming_query_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Spark streaming query stopped"
+          description: "{{ $labels.query }} is not running."
+
+      - alert: SparkMetricsUnavailable
+        expr: up{job=~"spark-master|spark-worker|spark-driver|spark-streaming"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Spark monitoring target is unavailable"
+          description: "{{ $labels.job }} target {{ $labels.instance }} has been down for 2 minutes."
+
+      - alert: SparkSourceLagHigh
+        expr: witw:spark_source_lag > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Spark streaming source lag is sustained"
+          description: "{{ $labels.app }} is behind {{ $labels.topic }} partition {{ $labels.partition }} by {{ $value }} records."
+
+      - alert: HdfsMetricsUnavailable
+        expr: up{job="hdfs"} == 0 or hdfs_exporter_scrape_success == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HDFS metrics are unavailable"
+          description: "The HDFS exporter cannot collect NameNode or DataNode data."
+
+      - alert: HdfsCapacityHigh
+        expr: 100 * hdfs_capacity_used_bytes / hdfs_capacity_total_bytes > 80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HDFS capacity is above 80%"
+          description: "HDFS usage is {{ $value | printf \"%.1f\" }}%."
+
+      - alert: HdfsDataNodeDown
+        expr: hdfs_dead_datanodes > 0 or hdfs_live_datanodes < 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HDFS DataNode is unavailable"
+          description: "HDFS reports no live DataNode or at least one dead DataNode."
+
+      - alert: HdfsMonitoredPathUnavailable
+        expr: hdfs_exporter_path_up == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A monitored HDFS path is unavailable"
+          description: "Content summary for {{ $labels.path }} cannot be collected."
+
+      - alert: HdfsMissingBlocks
+        expr: hdfs_missing_blocks > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HDFS has missing blocks"
+          description: "HDFS reports {{ $value }} missing blocks."

@@ -5,7 +5,10 @@ services:
   # =========================================================
   kafka:
     # 사용할 Kafka Docker 이미지
-    image: apache/kafka:4.3.1
+    build:
+      context: ./kafka
+      dockerfile: Dockerfile
+    image: news-kafka:4.3.1-monitored
 
     # Docker에서 보이는 컨테이너 이름
     container_name: news-kafka
@@ -27,6 +30,7 @@ services:
       - "127.0.0.1:19092:9092"
 
     environment:
+      KAFKA_OPTS: "-javaagent:/opt/news-monitoring/jmx_prometheus_javaagent.jar=7071:/opt/news-monitoring/jmx-exporter.yml"
       KAFKA_LOG_DIRS: "/var/lib/kafka/data"
 
       # ---------------------------------------------------------
@@ -116,11 +120,15 @@ services:
       # kafka-init에서 필요한 토픽을 명시적으로 생성
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
 
+    expose:
+      - "7071"
+
     # Kafka 상태 확인
     healthcheck:
       test:
         - CMD-SHELL
-        - /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list >/dev/null 2>&1
+        # CLI 자바 프로세스가 broker의 JMX agent 포트를 다시 열지 않도록 한다.
+        - KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list >/dev/null 2>&1
       interval: 10s
       timeout: 5s
       retries: 12
@@ -427,6 +435,7 @@ services:
     volumes:
       - ./hadoop/config:/opt/hadoop-conf:ro
       - ./spark/apps:/opt/spark/apps:ro
+      - ./spark/conf/metrics.properties:/opt/spark/conf/metrics.properties:ro
 
     command:
       - /opt/spark/bin/spark-class
@@ -465,6 +474,7 @@ services:
     volumes:
       - ./hadoop/config:/opt/hadoop-conf:ro
       - ./spark/apps:/opt/spark/apps:ro
+      - ./spark/conf/metrics.properties:/opt/spark/conf/metrics.properties:ro
 
     command:
       - /opt/spark/bin/spark-class
@@ -499,6 +509,8 @@ services:
 
     environment:
       HADOOP_CONF_DIR: /opt/hadoop-conf
+      SPARK_METRICS_HOST: 0.0.0.0
+      SPARK_METRICS_PORT: "9102"
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_ENRICHED_TOPIC: news.enriched.v1
       KAFKA_EVENT_TOPIC: news.event.v1
@@ -514,6 +526,11 @@ services:
     volumes:
       - ./hadoop/config:/opt/hadoop-conf:ro
       - ./spark/apps:/opt/spark/apps:ro
+      - ./spark/conf/metrics.properties:/opt/spark/conf/metrics.properties:ro
+
+    expose:
+      - "4040"
+      - "9102"
 
     command:
       - /opt/spark/bin/spark-submit
@@ -523,8 +540,12 @@ services:
       - client
       - --conf
       - spark.cores.max=1
+      - --conf
+      - spark.ui.prometheus.enabled=true
+      - --conf
+      - spark.sql.streaming.metricsEnabled=true
       - --py-files
-      - /opt/spark/apps/article_event.py,/opt/spark/apps/issue_matching.py
+      - /opt/spark/apps/article_event.py,/opt/spark/apps/issue_matching.py,/opt/spark/apps/streaming_metrics.py
       - /opt/spark/apps/enriched_article_stream.py
 
     depends_on:
@@ -557,6 +578,8 @@ services:
 
     environment:
       HADOOP_CONF_DIR: /opt/hadoop-conf
+      SPARK_METRICS_HOST: 0.0.0.0
+      SPARK_METRICS_PORT: "9102"
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_UNCLASSIFIED_TOPIC: news.unclassified.v1
       KAFKA_EVENT_TOPIC: news.event.v1
@@ -572,6 +595,11 @@ services:
     volumes:
       - ./hadoop/config:/opt/hadoop-conf:ro
       - ./spark/apps:/opt/spark/apps:ro
+      - ./spark/conf/metrics.properties:/opt/spark/conf/metrics.properties:ro
+
+    expose:
+      - "4040"
+      - "9102"
 
     command:
       - /opt/spark/bin/spark-submit
@@ -581,8 +609,12 @@ services:
       - client
       - --conf
       - spark.cores.max=1
+      - --conf
+      - spark.ui.prometheus.enabled=true
+      - --conf
+      - spark.sql.streaming.metricsEnabled=true
       - --py-files
-      - /opt/spark/apps/issue_clustering.py,/opt/spark/apps/gms_issue_generator.py
+      - /opt/spark/apps/issue_clustering.py,/opt/spark/apps/gms_issue_generator.py,/opt/spark/apps/streaming_metrics.py
       - /opt/spark/apps/unclassified_issue_stream.py
 
     depends_on:

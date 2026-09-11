@@ -12,6 +12,7 @@ from issue_matching import (
     build_issue_result,
     parse_issue_candidate,
 )
+from streaming_metrics import register_streaming_metrics
 from pyspark.sql import SparkSession
 from pyspark.sql.types import (
     ArrayType,
@@ -232,6 +233,7 @@ def main() -> None:
     # Driver가 Spark Standalone Cluster에 제출하는 Structured Streaming 앱이다.
     spark = SparkSession.builder.appName("news-enriched-article-events-v1").getOrCreate()
     spark.sparkContext.setLogLevel(os.getenv("SPARK_LOG_LEVEL", "WARN"))
+    register_streaming_metrics(spark, "news-enriched-article-events-v1")
 
     if not 0.0 <= ISSUE_MATCH_THRESHOLD <= 1.0:
         raise ValueError("이슈매칭 THRESHOLD값은 0~1사이여야 합니다.")
