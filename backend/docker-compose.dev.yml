@@ -46,7 +46,7 @@ services:
         max-size: "10m"
         max-file: "3"
     environment:
-      SPRING_PROFILES_ACTIVE: prod
+      SPRING_PROFILES_ACTIVE: dev-prod
       POSTGRESQL_URL: jdbc:postgresql://postgres:5432/witw_dev
       POSTGRESQL_USER: witw_dev
       POSTGRESQL_PASSWORD: ${DEV_POSTGRES_PASSWORD:?DEV_POSTGRES_PASSWORD is required}

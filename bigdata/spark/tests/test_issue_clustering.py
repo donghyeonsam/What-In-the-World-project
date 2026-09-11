@@ -17,14 +17,20 @@ from issue_clustering import (  # noqa: E402
     build_issue_events,
     cluster_articles,
     cluster_event_key,
+    merge_generated_issue_candidates,
     parse_unclassified_message,
 )
 
 
-def article(article_id: str, embedding=(1.0, 0.0), published_at="2026-09-03T03:35:24Z"):
+def article(
+    article_id: str,
+    embedding=(1.0, 0.0),
+    published_at="2026-09-03T03:35:24Z",
+    theme_id=12,
+):
     return UnclassifiedArticle(
         article_id=article_id,
-        theme_id=12,
+        theme_id=theme_id,
         embedding=embedding,
         title=f"title {article_id}",
         published_at=published_at,
@@ -94,6 +100,61 @@ class IssueEventTest(unittest.TestCase):
             event["payload"]["first_seen_at"], "2026-09-03T05:00:00+09:00"
         )
         self.assertEqual(key, cluster_event_key(self.cluster))
+
+    def test_merges_same_theme_and_normalized_name_before_event_creation(self):
+        first = ClusterCandidate(
+            theme_id=12,
+            articles=(article("a-1", (1.0, 0.0)),),
+            centroid=(1.0, 0.0),
+            representatives=(article("a-1"),),
+            membership_confidence=0.9,
+        )
+        second = ClusterCandidate(
+            theme_id=12,
+            articles=(article("a-2", (0.0, 1.0)),),
+            centroid=(0.0, 1.0),
+            representatives=(article("a-2", (0.0, 1.0)),),
+            membership_confidence=0.8,
+        )
+
+        merged = merge_generated_issue_candidates(
+            (
+                (first, GeneratedIssue("부동산  시장 동향", "첫 요약")),
+                (second, GeneratedIssue("부동산 시장 동향", "둘째 요약")),
+            )
+        )
+
+        self.assertEqual(len(merged), 1)
+        cluster, generated = merged[0]
+        self.assertEqual(generated.name, "부동산 시장 동향")
+        self.assertEqual([item.article_id for item in cluster.articles], ["a-1", "a-2"])
+        self.assertAlmostEqual(cluster.centroid[0], 2 ** -0.5)
+        self.assertAlmostEqual(cluster.centroid[1], 2 ** -0.5)
+
+    def test_does_not_merge_same_name_from_different_themes(self):
+        first = ClusterCandidate(
+            theme_id=12,
+            articles=(article("a-1", theme_id=12),),
+            centroid=(1.0, 0.0),
+            representatives=(article("a-1", theme_id=12),),
+            membership_confidence=0.9,
+        )
+        second = ClusterCandidate(
+            theme_id=13,
+            articles=(article("a-2", theme_id=13),),
+            centroid=(1.0, 0.0),
+            representatives=(article("a-2", theme_id=13),),
+            membership_confidence=0.9,
+        )
+
+        merged = merge_generated_issue_candidates(
+            (
+                (first, GeneratedIssue("같은 이름", "첫 요약")),
+                (second, GeneratedIssue("같은 이름", "둘째 요약")),
+            )
+        )
+
+        self.assertEqual(len(merged), 2)
 
 
 class HdbscanTransformationTest(unittest.TestCase):

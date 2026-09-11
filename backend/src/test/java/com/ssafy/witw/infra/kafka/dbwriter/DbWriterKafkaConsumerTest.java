@@ -2,13 +2,32 @@ package com.ssafy.witw.infra.kafka.dbwriter;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.assertj.core.api.Assertions.assertThat;
 
 class DbWriterKafkaConsumerTest {
+
+    @Test
+    void registersConsumerOnlyForDevelopmentDeployment() {
+        for (String profile : new String[]{"dev", "prod", "dev-prod"}) {
+            try (var context = new AnnotationConfigApplicationContext()) {
+                context.getEnvironment().setActiveProfiles(profile);
+                context.registerBean(ObjectMapper.class, () -> objectMapper);
+                context.registerBean(DbWriterService.class, () -> dbWriterService);
+                context.register(DbWriterKafkaConsumer.class);
+                context.refresh();
+
+                assertThat(context.getBeansOfType(DbWriterKafkaConsumer.class))
+                        .as("Kafka consumer beans for profile %s", profile)
+                        .hasSize(profile.equals("dev-prod") ? 1 : 0);
+            }
+        }
+    }
 
     private final ObjectMapper objectMapper = JsonMapper.builder()
             .findAndAddModules()
