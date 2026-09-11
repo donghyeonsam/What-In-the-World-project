@@ -2,9 +2,12 @@ package com.ssafy.witw.domain.auth.controller;
 
 import com.ssafy.witw.common.response.BaseResponse;
 import com.ssafy.witw.common.response.SuccessCode;
-import com.ssafy.witw.domain.auth.dto.EmailExistsResponse;
-import com.ssafy.witw.domain.auth.dto.SignupRequest;
+import com.ssafy.witw.domain.auth.dto.request.EmailRequest;
+import com.ssafy.witw.domain.auth.dto.response.EmailExistsResponse;
+import com.ssafy.witw.domain.auth.dto.request.SignupRequest;
+import com.ssafy.witw.domain.auth.dto.response.EmailSendResponse;
 import com.ssafy.witw.domain.auth.service.AuthService;
+import com.ssafy.witw.domain.auth.service.EmailVerificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -26,6 +29,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 @Tag(name = "인증", description = "회원가입 및 로그인 API")
 public class AuthController {
     private final AuthService authService;
+    private final EmailVerificationService emailVerificationService;
 
     @PostMapping("/signup")
     @Operation(summary = "이메일 회원가입")
@@ -47,6 +51,16 @@ public class AuthController {
         EmailExistsResponse response = authService.checkEmailExists(email);
 
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS, response);
+    }
+
+    @PostMapping("/email/send")
+    @Operation(summary = "회원가입 이메일 인증번호 전송")
+    public ResponseEntity<BaseResponse<EmailSendResponse>> sendEmailCode(
+            @Valid @RequestBody EmailRequest request
+    ){
+        EmailSendResponse response = emailVerificationService.sendCode(request);
+
+        return BaseResponse.success(SuccessCode.EMAIL_SEND_SUCCESS, response);
     }
 
 

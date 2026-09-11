@@ -2,9 +2,9 @@ package com.ssafy.witw.domain.auth.service;
 
 import com.ssafy.witw.common.exception.GlobalException;
 import com.ssafy.witw.common.response.ErrorCode;
-import com.ssafy.witw.domain.auth.dto.EmailExistsResponse;
+import com.ssafy.witw.domain.auth.dto.response.EmailExistsResponse;
 import com.ssafy.witw.domain.user.dao.UserRepository;
-import com.ssafy.witw.domain.auth.dto.SignupRequest;
+import com.ssafy.witw.domain.auth.dto.request.SignupRequest;
 import com.ssafy.witw.domain.user.entity.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;

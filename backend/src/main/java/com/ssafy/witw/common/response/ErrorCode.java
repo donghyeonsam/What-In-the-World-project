@@ -32,7 +32,9 @@ public enum ErrorCode {
     COUNTRY_NOT_FOUND(HttpStatus.NOT_FOUND, "CT01", "국가를 찾을 수 없습니다."),
 
     // AUTH
-    EMAIL_DUPLICATED(HttpStatus.CONFLICT, "AU01", "이미 사용 중인 이메일입니다.");
+    EMAIL_DUPLICATED(HttpStatus.CONFLICT, "AU01", "이미 사용 중인 이메일입니다."),
+    EMAIL_SEND_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "AU02", "인증번호 이메일 발송에 실패했습니다."),
+    EMAIL_SEND_LIMIT_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS, "AU03", "이메일 인증번호 발송 횟수를 초과했습니다.");
 
     private final HttpStatus status;
     private final String code;

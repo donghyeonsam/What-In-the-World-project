@@ -16,7 +16,8 @@ public enum SuccessCode {
     DELETE_SUCCESS(HttpStatus.OK, "성공적으로 삭제되었습니다."),
 
     // AUTH
-    SIGNUP_SUCCESS(HttpStatus.CREATED, "회원 가입에 성공했습니다.");
+    SIGNUP_SUCCESS(HttpStatus.CREATED, "회원 가입에 성공했습니다."),
+    EMAIL_SEND_SUCCESS(HttpStatus.OK, "인증번호가 발송되었습니다.");
 
     private final HttpStatus status;
     private final String message;
