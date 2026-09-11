@@ -520,14 +520,14 @@ article a-123
 
 최고 similarity를 기준으로 기존 Issue와의 매칭 여부를 판단한다.
 
-유사도가 기본 임계값 `0.90` 이상인지 판단해서 분기 처리한다. 운영 환경에서는
-`ISSUE_MATCH_THRESHOLD`로 임계값을 조정할 수 있다.
+유사도가 기본 임계값 `0.85` 이상인지 판단해서 분기 처리한다. 운영 환경에서는
+`ISSUE_MATCH_THRESHOLD`로 임계값을 조정할 수 있으며 기본값은 `0.85`다.
 
 ```
-similarity >= 0.90
+similarity >= 0.85
     → 기존 Issue 매칭
 
-similarity < 0.90
+similarity < 0.85
     → 미분류 기사
 ```
 
@@ -659,6 +659,10 @@ Issue에 연결할 전체 `article_ids`는 Cluster 결과로부터 별도로 `IS
 대표 기사와 클러스터 정보를 바탕으로 이슈명을 생성하고, Spark는 클러스터
 centroid를 Issue의 `embedding`으로 사용한다. LLM이 생성한 summary는 현재 Issue
 테이블에 저장하지 않는다.
+
+같은 Micro Batch에서 생성된 후보 중 정규화된 `name`과 `theme_id`가 모두 같은
+후보는 하나로 병합한다. 이때 `article_ids`는 합집합으로 만들고, 병합된 전체 기사
+embedding으로 centroid를 다시 계산한 뒤 `ISSUE_CREATE` 이벤트 하나만 발행한다.
 
 ## 7. Kafka(news.event.v1)
 # 7. 신규 Issue 생성 이벤트 발행

@@ -10,6 +10,7 @@ from issue_clustering import (
     UnclassifiedArticle,
     build_issue_events,
     cluster_articles,
+    merge_generated_issue_candidates,
     parse_unclassified_message,
 )
 from pyspark.sql import SparkSession, functions as F
@@ -224,6 +225,7 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
         ]
         processed_article_ids: set[str] = set()
         event_rows: list[tuple[str, str]] = []
+        generated_candidates = []
 
         if triggered_theme_ids:
             theme_names = _load_theme_names(spark, triggered_theme_ids)
@@ -251,8 +253,13 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
                 )
                 for cluster in clusters:
                     generated = generate_issue(GMS_CONFIG, theme_name, cluster)
-                    event_rows.extend(build_issue_events(cluster, generated))
+                    generated_candidates.append((cluster, generated))
                 processed_article_ids.update(selected_ids)
+
+        for cluster, generated in merge_generated_issue_candidates(
+            generated_candidates
+        ):
+            event_rows.extend(build_issue_events(cluster, generated))
 
         if event_rows:
             event_df = spark.createDataFrame(event_rows, schema=EVENT_SCHEMA)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable, Sequence
@@ -40,6 +41,12 @@ class ClusterCandidate:
 class GeneratedIssue:
     name: str
     summary: str
+
+
+def normalize_issue_name(name: str) -> str:
+    """Normalize harmless Unicode and whitespace differences before deduplication."""
+
+    return " ".join(unicodedata.normalize("NFKC", name).split())
 
 
 def _required_text(value: Any, field: str) -> str:
@@ -208,6 +215,63 @@ def cluster_articles(
 
     # HDBSCAN label values themselves are not a durable ordering contract.
     return tuple(sorted(clusters, key=lambda item: item.articles[0].article_id))
+
+
+def merge_generated_issue_candidates(
+    candidates: Sequence[tuple[ClusterCandidate, GeneratedIssue]],
+    representative_count: int = 3,
+) -> tuple[tuple[ClusterCandidate, GeneratedIssue], ...]:
+    """Merge candidates with the same theme and generated issue name."""
+
+    if representative_count < 1:
+        raise ValueError("representative_count must be positive")
+
+    grouped: dict[
+        tuple[int, str], list[tuple[ClusterCandidate, GeneratedIssue]]
+    ] = {}
+    for cluster, generated in candidates:
+        normalized_name = normalize_issue_name(generated.name)
+        if not normalized_name:
+            raise ValueError("generated issue name must not be blank")
+        grouped.setdefault((cluster.theme_id, normalized_name), []).append(
+            (cluster, generated)
+        )
+
+    merged: list[tuple[ClusterCandidate, GeneratedIssue]] = []
+    for (theme_id, normalized_name), group in sorted(grouped.items()):
+        articles_by_id: dict[str, UnclassifiedArticle] = {}
+        confidence_total = 0.0
+        confidence_weight = 0
+        for cluster, _ in group:
+            for article in cluster.articles:
+                articles_by_id.setdefault(article.article_id, article)
+            confidence_total += cluster.membership_confidence * len(cluster.articles)
+            confidence_weight += len(cluster.articles)
+
+        articles = tuple(articles_by_id[key] for key in sorted(articles_by_id))
+        centroid = _normalized_centroid([article.embedding for article in articles])
+
+        def representative_key(article: UnclassifiedArticle) -> tuple[float, str]:
+            similarity = cosine_similarity(article.embedding, centroid)
+            return (-(similarity if similarity is not None else -1.0), article.article_id)
+
+        representatives = tuple(
+            sorted(articles, key=representative_key)[:representative_count]
+        )
+        merged_cluster = ClusterCandidate(
+            theme_id=theme_id,
+            articles=articles,
+            centroid=centroid,
+            representatives=representatives,
+            membership_confidence=confidence_total / confidence_weight,
+        )
+        merged_issue = GeneratedIssue(
+            name=normalized_name,
+            summary=group[0][1].summary,
+        )
+        merged.append((merged_cluster, merged_issue))
+
+    return tuple(merged)
 
 
 def cluster_event_key(cluster: ClusterCandidate) -> str:
