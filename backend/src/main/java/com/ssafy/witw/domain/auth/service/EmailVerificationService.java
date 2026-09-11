@@ -3,6 +3,7 @@ package com.ssafy.witw.domain.auth.service;
 import com.ssafy.witw.common.exception.GlobalException;
 import com.ssafy.witw.common.response.ErrorCode;
 import com.ssafy.witw.domain.auth.dto.request.EmailRequest;
+import com.ssafy.witw.domain.auth.dto.request.EmailVerifyRequest;
 import com.ssafy.witw.domain.auth.dto.response.EmailSendResponse;
 import com.ssafy.witw.domain.user.dao.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +28,7 @@ public class EmailVerificationService {
 
     // try : 이메일 인증 시도 횟수, done : 이메일 성공 여부 저장
     private static final String TRY_KEY_PREFIX = "auth:email:signup:try:";
+    private static final String DONE_KEY_PREFIX = "auth:email:signup:done:";
 
     // 인증 코드 (알파벳 + 영어 7자리)
     private static final String CODE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -39,6 +41,11 @@ public class EmailVerificationService {
     private static final int SEND_LIMIT = 5;
     private static final Duration SEND_LIMIT_TTL = Duration.ofHours(1);
 
+    // 이메일 인증 최대 횟수 5회로 제한, 시도 횟수 TTL 또한 이메일 코드 TTL과 동일하게 설정
+    // 인증을 성공하게 된다면 해당 이메일 인증 성공 여부를 30분 동안 저장
+    private static final int TRY_LIMIT = 5;
+    private static final Duration TRY_LIMIT_TTL = Duration.ofSeconds(TIME_LIMIT_SECONDS);
+    private static final Duration DONE_TTL = Duration.ofMinutes(30);
 
     private final UserRepository userRepository;
     private final StringRedisTemplate redisTemplate;
@@ -69,6 +76,28 @@ public class EmailVerificationService {
         }
 
         return new EmailSendResponse(TIME_LIMIT_SECONDS);
+    }
+
+    public void verifyCode(EmailVerifyRequest request){
+        String email = request.email().trim().toLowerCase(Locale.ROOT);
+        String inputCode = request.code().trim().toUpperCase(Locale.ROOT);
+
+        String codeKey = CODE_KEY_PREFIX + email;
+        String tryKey = TRY_KEY_PREFIX + email;
+        String doneKey = DONE_KEY_PREFIX + email;
+
+        String savedCode = redisTemplate.opsForValue().get(codeKey);
+
+        if(savedCode == null) throw new GlobalException(ErrorCode.EMAIL_CODE_EXPIRED);
+
+        increaseTryCount(email, codeKey);
+
+        if(!savedCode.equals(inputCode)) throw new GlobalException(ErrorCode.EMAIL_CODE_INVALID);
+
+        redisTemplate.opsForValue().set(doneKey, "true", DONE_TTL);
+
+        redisTemplate.delete(codeKey);
+        redisTemplate.delete(tryKey);
     }
 
     private void increaseSendCount(String email) {
@@ -105,6 +134,20 @@ public class EmailVerificationService {
         + "인증번호는 5분안에 입력해주세요.");
 
         mailSender.send(message);
+    }
+
+    private void increaseTryCount(String email, String codeKey) {
+        String tryKey = TRY_KEY_PREFIX + email;
+        Long count = redisTemplate.opsForValue().increment(tryKey);
+
+        if (count == null) throw new GlobalException(ErrorCode.INTERNAL_SERVER_ERROR);
+
+        if (count == 1L) redisTemplate.expire(tryKey, TRY_LIMIT_TTL);
+
+        if (count > TRY_LIMIT) {
+            redisTemplate.delete(codeKey);
+            throw new GlobalException(ErrorCode.EMAIL_VERIFY_LIMIT_EXCEEDED);
+        }
     }
 
 
