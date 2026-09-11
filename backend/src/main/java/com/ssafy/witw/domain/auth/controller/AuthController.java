@@ -3,6 +3,7 @@ package com.ssafy.witw.domain.auth.controller;
 import com.ssafy.witw.common.response.BaseResponse;
 import com.ssafy.witw.common.response.SuccessCode;
 import com.ssafy.witw.domain.auth.dto.request.EmailRequest;
+import com.ssafy.witw.domain.auth.dto.request.EmailVerifyRequest;
 import com.ssafy.witw.domain.auth.dto.response.EmailExistsResponse;
 import com.ssafy.witw.domain.auth.dto.request.SignupRequest;
 import com.ssafy.witw.domain.auth.dto.response.EmailSendResponse;
@@ -61,6 +62,16 @@ public class AuthController {
         EmailSendResponse response = emailVerificationService.sendCode(request);
 
         return BaseResponse.success(SuccessCode.EMAIL_SEND_SUCCESS, response);
+    }
+
+    @PostMapping("/email/verify")
+    @Operation(summary = "회원가입 이메일 인증번호 검증")
+    public ResponseEntity<BaseResponse<Void>> verifyEmailCode(
+            @Valid @RequestBody EmailVerifyRequest request
+    ) {
+        emailVerificationService.verifyCode(request);
+
+        return BaseResponse.success(SuccessCode.EMAIL_VERIFY_SUCCESS);
     }
 
 
