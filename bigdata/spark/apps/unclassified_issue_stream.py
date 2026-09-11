@@ -13,6 +13,7 @@ from issue_clustering import (
     merge_generated_issue_candidates,
     parse_unclassified_message,
 )
+from streaming_metrics import register_streaming_metrics
 from pyspark.sql import SparkSession, functions as F
 from pyspark.sql.types import (
     ArrayType,
@@ -324,6 +325,7 @@ def main() -> None:
     _validate_config()
     spark = SparkSession.builder.appName("news-unclassified-issue-stream-v1").getOrCreate()
     spark.sparkContext.setLogLevel(os.getenv("SPARK_LOG_LEVEL", "WARN"))
+    register_streaming_metrics(spark, "news-unclassified-issue-stream-v1")
     stream = (
         spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS)
