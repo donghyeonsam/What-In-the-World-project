@@ -27,6 +27,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -186,14 +187,14 @@ class DbWriterServiceTest {
     @Test
     void issueCreateStoresIssueAndAssignsArticles() throws Exception {
         Theme theme = theme(12L);
+        Issue issue = new Issue();
+        issue.setId(205L);
         Article firstArticle = article("a-101");
         Article secondArticle = article("a-102");
         when(themeRepository.findById(12L)).thenReturn(Optional.of(theme));
-        when(issueRepository.saveAndFlush(any(Issue.class))).thenAnswer(invocation -> {
-            Issue saved = invocation.getArgument(0);
-            saved.setId(205L);
-            return saved;
-        });
+        when(jdbcTemplate.queryForObject(any(String.class), eq(Long.class), any(Object[].class)))
+                .thenReturn(205L);
+        when(issueRepository.findById(205L)).thenReturn(Optional.of(issue));
         when(articleRepository.findAllById(List.of("a-101", "a-102")))
                 .thenReturn(List.of(firstArticle, secondArticle));
 
@@ -213,11 +214,18 @@ class DbWriterServiceTest {
 
         dbWriterService.handle(event);
 
-        ArgumentCaptor<Issue> issueCaptor = ArgumentCaptor.forClass(Issue.class);
-        verify(issueRepository).saveAndFlush(issueCaptor.capture());
-        assertThat(issueCaptor.getValue().getName()).isEqualTo("New issue");
-        assertThat(firstArticle.getIssue()).isSameAs(issueCaptor.getValue());
-        assertThat(secondArticle.getIssue()).isSameAs(issueCaptor.getValue());
+        verify(jdbcTemplate).queryForObject(
+                any(String.class),
+                eq(Long.class),
+                eq(12L),
+                eq("New issue"),
+                eq("[0.031,-0.114]"),
+                eq(LocalDateTime.parse("2026-09-03T03:35:24")),
+                eq(LocalDateTime.parse("2026-09-03T06:50:00")),
+                eq(LocalDateTime.parse("2026-09-03T06:50:00"))
+        );
+        assertThat(firstArticle.getIssue()).isSameAs(issue);
+        assertThat(secondArticle.getIssue()).isSameAs(issue);
         verify(articleRepository).saveAll(List.of(firstArticle, secondArticle));
     }
 

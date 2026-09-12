@@ -30,6 +30,15 @@ public class DbWriterService {
     private static final String ARTICLE_UPSERT = "ARTICLE_UPSERT";
     private static final String ARTICLE_ISSUE_ASSIGNED = "ARTICLE_ISSUE_ASSIGNED";
     private static final String ISSUE_CREATE = "ISSUE_CREATE";
+    private static final String ISSUE_UPSERT = """
+            INSERT INTO issue
+                (theme_id, name, embedding, first_seen_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT (name) DO UPDATE
+            SET first_seen_at = LEAST(issue.first_seen_at, EXCLUDED.first_seen_at),
+                updated_at = GREATEST(issue.updated_at, EXCLUDED.updated_at)
+            RETURNING id
+            """;
 
     private final ObjectMapper objectMapper;
     private final ArticleRepository articleRepository;
@@ -159,21 +168,25 @@ public class DbWriterService {
     ) {
         require(payload, "payload");
         List<String> articleIds = distinctArticleIds(payload.articleIds());
-        Issue issue = new Issue();
-        issue.setTheme(findTheme(require(payload.themeId(), "payload.theme_id")));
+        Theme theme = findTheme(require(payload.themeId(), "payload.theme_id"));
         String name = requireText(payload.name(), "payload.name");
         if (name.length() > 50) {
             throw new IllegalArgumentException("payload.name exceeds 50 characters");
         }
-        issue.setName(name);
-        issue.setEmbedding(writeJson(requireNonEmpty(payload.embedding(), "payload.embedding")));
-        issue.setFirstSeenAt(toUtcLocalDateTime(
+        String embedding = writeJson(requireNonEmpty(payload.embedding(), "payload.embedding"));
+        LocalDateTime firstSeenAt = toUtcLocalDateTime(
                 require(payload.firstSeenAt(), "payload.first_seen_at")
-        ));
+        );
         LocalDateTime eventTime = toUtcLocalDateTime(occurredAt);
-        issue.setCreatedAt(eventTime);
-        issue.setUpdatedAt(eventTime);
-        issue = issueRepository.saveAndFlush(issue);
+        Long issueId = jdbcTemplate.queryForObject(
+                ISSUE_UPSERT,
+                Long.class,
+                theme.getId(), name, embedding, firstSeenAt, eventTime, eventTime
+        );
+        if (issueId == null) {
+            throw new IllegalStateException("Issue upsert did not return an id");
+        }
+        Issue issue = findIssue(issueId);
 
         List<Article> articles = articleRepository.findAllById(articleIds);
         if (articles.size() != articleIds.size()) {
