@@ -29,6 +29,8 @@ services:
     image: grafana/loki:3.7.7
     restart: unless-stopped
     command: ["-config.file=/etc/loki/config.yml"]
+    ports:
+      - "${LOKI_BIND_HOST:-127.0.0.1}:3100:3100"
     volumes:
       - ./loki/config.yml:/etc/loki/config.yml:ro
       - loki-data:/loki

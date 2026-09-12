@@ -4,7 +4,7 @@ discovery.docker "apps" {
 
   filter {
     name   = "label"
-    values = ["logging=enabled", "env=dev"]
+    values = ["logging=enabled"]
   }
 }
 
@@ -13,7 +13,7 @@ discovery.relabel "apps" {
 
   rule {
     source_labels = ["__meta_docker_container_label_service"]
-    regex         = "fe|be"
+    regex         = "fe|be|postgres"
     action        = "keep"
   }
   rule {
@@ -42,7 +42,7 @@ loki.source.docker "apps" {
 
 loki.process "apps" {
   stage.match {
-    selector = "{service_name=\"be\"}"
+    selector = "{service_name=~\"be|postgres\"}"
 
     stage.multiline {
       firstline     = "^\\d{4}-\\d{2}-\\d{2}[T ]"

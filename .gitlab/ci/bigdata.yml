@@ -24,6 +24,7 @@ validate-bigdata:
     POSTGRESQL_USER: validation
     POSTGRESQL_PASSWORD: validation
     GMS_API_KEY: validation
+    LOKI_URL: http://validation.invalid/loki/api/v1/push
 
   tags:
     - bigdata-deploy
@@ -157,8 +158,9 @@ deploy-bigdata:
     # BigData Prometheus / Grafana / Exporter 배포
     # -----------------------------------------------------
     - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" config --quiet
-    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" pull prometheus grafana kafka-exporter
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" pull alloy prometheus grafana kafka-exporter
     - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" build hdfs-exporter
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" run --rm --no-deps alloy validate /etc/alloy/config.alloy
     - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" up -d --wait --wait-timeout 180
 
     # -----------------------------------------------------
@@ -177,6 +179,7 @@ deploy-bigdata:
     - test "$(docker inspect -f '{{.State.Running}}' news-grafana)" = "true"
     - test "$(docker inspect -f '{{.State.Running}}' news-kafka-exporter)" = "true"
     - test "$(docker inspect -f '{{.State.Running}}' news-hdfs-exporter)" = "true"
+    - test "$(docker inspect -f '{{.State.Running}}' news-alloy)" = "true"
 
     # 최근 Collector 로그 출력
     - docker logs --tail 50 news-collector
