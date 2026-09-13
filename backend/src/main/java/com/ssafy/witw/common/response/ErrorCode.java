@@ -37,7 +37,8 @@ public enum ErrorCode {
     EMAIL_SEND_LIMIT_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS, "AU03", "이메일 인증번호 발송 횟수를 초과했습니다."),
     EMAIL_CODE_EXPIRED(HttpStatus.GONE, "AU04", "인증번호가 만료되었거나 존재하지 않습니다."),
     EMAIL_CODE_INVALID(HttpStatus.BAD_REQUEST, "AU05", "인증번호가 일치하지 않습니다."),
-    EMAIL_VERIFY_LIMIT_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS, "AU06", "이메일 인증 시도 횟수를 초과했습니다.");
+    EMAIL_VERIFY_LIMIT_EXCEEDED(HttpStatus.TOO_MANY_REQUESTS, "AU06", "이메일 인증 시도 횟수를 초과했습니다."),
+    EMAIL_NOT_VERIFIED(HttpStatus.FORBIDDEN, "AU07", "이메일 인증이 완료되지 않았습니다.");
 
 
     private final HttpStatus status;

@@ -19,6 +19,7 @@ import java.util.Locale;
 public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final EmailVerificationService emailVerificationService;
 
     // 회원가입
     @Transactional
@@ -26,12 +27,15 @@ public class AuthService {
         String email = normalizeEmail(request.email());
 
         validateDuplicateEmail(email);
+        emailVerificationService.validateVerified(email);
 
         String passwordHash = passwordEncoder.encode(request.password());
 
         User user = User.createLocal(email, passwordHash);
 
-        userRepository.save(user);
+        userRepository.saveAndFlush(user);
+
+        emailVerificationService.clearVerified(email);
 
     }
 
