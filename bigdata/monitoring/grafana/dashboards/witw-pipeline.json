@@ -9,7 +9,8 @@
   "panels": [
     {
       "type": "stat",
-      "title": "Monitoring targets UP",
+      "title": "정상 수집 대상 수",
+      "description": "Prometheus가 정상적으로 수집 중인 Kafka, HDFS, Spark 대상의 수입니다. 전체 9개가 정상이면 초록색으로 표시됩니다.",
       "id": 1,
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
@@ -19,7 +20,8 @@
     },
     {
       "type": "stat",
-      "title": "Total consumer lag",
+      "title": "전체 미처리 메시지 수",
+      "description": "선택한 Kafka 컨슈머 그룹이 아직 처리하지 못하고 밀려 있는 메시지의 총합입니다.",
       "id": 2,
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
@@ -29,18 +31,19 @@
     },
     {
       "type": "stat",
-      "title": "NLP committed throughput (Kafka inferred)",
-      "description": "Rate of nlp-worker-v1 committed offsets on news.raw.v1. This is inferred from Kafka and includes invalid records that were explicitly discarded before commit.",
+      "title": "NLP 워커 처리 속도 (Kafka 커밋 기준)",
+      "description": "NLP 워커가 news.raw.v1에서 읽고 처리를 끝내 Kafka에 커밋한 초당 메시지 수입니다. 유효하지 않아 폐기된 메시지도 커밋되므로 이 값에 포함됩니다.",
       "id": 3,
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
-      "targets": [{"expr": "witw:kafka_nlp_committed_records_per_second", "legendFormat": "committed records/s", "refId": "A"}],
+      "targets": [{"expr": "witw:kafka_nlp_committed_records_per_second", "legendFormat": "초당 처리 완료 건수", "refId": "A"}],
       "options": {"colorMode": "none", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
-      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []}
+      "fieldConfig": {"defaults": {"unit": "suffix: 건/초"}, "overrides": []}
     },
     {
       "type": "stat",
-      "title": "HDFS used",
+      "title": "HDFS 저장 공간 사용률",
+      "description": "HDFS 전체 저장 공간 중 현재 사용 중인 비율입니다.",
       "id": 4,
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
@@ -50,7 +53,8 @@
     },
     {
       "type": "timeseries",
-      "title": "Kafka retained records by topic",
+      "title": "토픽별 Kafka 보관 메시지 수",
+      "description": "각 Kafka 토픽에 현재 남아 있는 메시지 수입니다. 가장 오래된 오프셋부터 최신 오프셋까지의 차이로 계산합니다.",
       "id": 5,
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
@@ -60,122 +64,136 @@
     },
     {
       "type": "timeseries",
-      "title": "Kafka ingress rate",
+      "title": "토픽별 Kafka 유입 속도",
+      "description": "각 Kafka 토픽에 새 메시지가 들어오는 속도입니다. 최근 5분을 기준으로 초당 건수를 계산합니다.",
       "id": 6,
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
       "targets": [{"expr": "sum by (topic) (rate(kafka_topic_partition_current_offset{topic=~\"$topic\"}[5m]))", "legendFormat": "{{topic}}", "refId": "A"}],
-      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never"}}, "overrides": []},
+      "fieldConfig": {"defaults": {"unit": "suffix: 건/초", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never"}}, "overrides": []},
       "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"]}, "tooltip": {"mode": "multi", "sort": "desc"}}
     },
     {
       "type": "timeseries",
-      "title": "Consumer lag by group and topic",
+      "title": "컨슈머 그룹·토픽별 미처리 메시지 수",
+      "description": "각 컨슈머 그룹이 토픽에서 아직 처리하지 못한 메시지 수입니다. 값이 계속 증가하면 처리 속도가 유입 속도를 따라가지 못하는 상태입니다.",
       "id": 7,
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
-      "targets": [{"expr": "sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=~\"$group\",topic=~\"$topic\"})", "legendFormat": "{{consumergroup}} / {{topic}}", "refId": "A"}],
+      "targets": [{"expr": "sum by (consumergroup, topic) (kafka_consumergroup_lag{consumergroup=~\"$group\",topic=~\"$topic\"})", "legendFormat": "컨슈머 {{consumergroup}} / 토픽 {{topic}}", "refId": "A"}],
       "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never"}}, "overrides": []},
       "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"]}, "tooltip": {"mode": "multi", "sort": "desc"}}
     },
     {
       "type": "timeseries",
-      "title": "Partition lag",
+      "title": "파티션별 미처리 메시지 수",
+      "description": "Kafka 파티션별로 컨슈머가 아직 처리하지 못한 메시지 수입니다. 특정 파티션에만 작업이 몰리는지 확인할 수 있습니다.",
       "id": 8,
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
-      "targets": [{"expr": "kafka_consumergroup_lag{consumergroup=~\"$group\",topic=~\"$topic\"}", "legendFormat": "{{consumergroup}} {{topic}} p{{partition}}", "refId": "A"}],
+      "targets": [{"expr": "kafka_consumergroup_lag{consumergroup=~\"$group\",topic=~\"$topic\"}", "legendFormat": "{{consumergroup}} / {{topic}} / 파티션 {{partition}}", "refId": "A"}],
       "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 5, "showPoints": "never"}}, "overrides": []},
       "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"]}, "tooltip": {"mode": "multi", "sort": "desc"}}
     },
     {
       "type": "timeseries",
-      "title": "NLP input / commit / output rate (Kafka inferred)",
-      "description": "Compares raw-topic ingress, nlp-worker-v1 committed-offset progress, and enriched-topic output without scraping the NLP worker.",
+      "title": "NLP 처리 흐름 (초당 건수)",
+      "description": "원문 기사 유입, NLP 워커의 처리 완료 커밋, 분석 완료 기사 발행 속도를 비교합니다. NLP 워커를 직접 측정하지 않고 Kafka 오프셋으로 계산한 값입니다.",
       "id": 9,
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
       "targets": [
-        {"expr": "witw:kafka_nlp_input_records_per_second", "legendFormat": "raw input", "refId": "A"},
-        {"expr": "witw:kafka_nlp_committed_records_per_second", "legendFormat": "committed", "refId": "B"},
-        {"expr": "witw:kafka_nlp_output_records_per_second", "legendFormat": "enriched output", "refId": "C"}
+        {"expr": "witw:kafka_nlp_input_records_per_second", "legendFormat": "원문 기사 유입", "refId": "A"},
+        {"expr": "witw:kafka_nlp_committed_records_per_second", "legendFormat": "NLP 처리 완료", "refId": "B"},
+        {"expr": "witw:kafka_nlp_output_records_per_second", "legendFormat": "분석 완료 기사 발행", "refId": "C"}
       ],
-      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never"}}, "overrides": []},
+      "fieldConfig": {"defaults": {"unit": "suffix: 건/초", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never"}}, "overrides": []},
       "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"]}, "tooltip": {"mode": "multi", "sort": "desc"}}
     },
     {
       "type": "stat",
-      "title": "NLP consumer group status (Kafka inferred)",
-      "description": "Kafka-observed backlog and active consumer count for nlp-worker-v1. A disconnected consumer with pending lag indicates that the external GPU worker is unavailable.",
+      "title": "NLP 워커 연결 및 적체 상태",
+      "description": "NLP 워커가 처리하지 못하고 쌓인 메시지 수와 현재 연결된 워커 수입니다. 미처리 메시지가 있는데 연결된 워커가 0이면 외부 GPU 워커가 중단된 상태입니다.",
       "id": 10,
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
       "targets": [
-        {"expr": "witw:kafka_nlp_consumer_lag", "legendFormat": "pending lag", "refId": "A"},
-        {"expr": "witw:kafka_nlp_consumer_members", "legendFormat": "connected consumers", "refId": "B"}
+        {"expr": "witw:kafka_nlp_consumer_lag", "legendFormat": "미처리 메시지 수", "refId": "A"},
+        {"expr": "witw:kafka_nlp_consumer_members", "legendFormat": "연결된 워커 수", "refId": "B"}
       ],
       "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
       "options": {"colorMode": "none", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"}
     },
     {
       "type": "timeseries",
-      "title": "Spark input and processing rate",
+      "title": "Spark 스트림 유입·처리 속도",
+      "description": "기사 이벤트 처리는 NLP 분석이 끝난 기사를 이벤트로 변환하고 기존 이슈와 매칭합니다. 미분류 이슈 처리는 매칭되지 않은 기사를 모아 새 이슈 후보를 생성합니다. 유입은 Spark에 들어온 초당 행 수, 처리는 Spark가 처리 가능한 초당 행 수입니다.",
       "id": 11,
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 28},
       "targets": [
-        {"expr": "witw_spark_streaming_input_rows_per_second", "legendFormat": "{{app}} input", "refId": "A"},
-        {"expr": "witw_spark_streaming_processed_rows_per_second", "legendFormat": "{{app}} processed", "refId": "B"}
+        {"expr": "witw_spark_streaming_input_rows_per_second{app=\"news-enriched-article-events-v1\"}", "legendFormat": "기사 이벤트 처리 - 유입", "refId": "A"},
+        {"expr": "witw_spark_streaming_processed_rows_per_second{app=\"news-enriched-article-events-v1\"}", "legendFormat": "기사 이벤트 처리 - 처리", "refId": "B"},
+        {"expr": "witw_spark_streaming_input_rows_per_second{app=\"news-unclassified-issue-stream-v1\"}", "legendFormat": "미분류 이슈 처리 - 유입", "refId": "C"},
+        {"expr": "witw_spark_streaming_processed_rows_per_second{app=\"news-unclassified-issue-stream-v1\"}", "legendFormat": "미분류 이슈 처리 - 처리", "refId": "D"}
       ],
-      "fieldConfig": {"defaults": {"unit": "ops", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never"}}, "overrides": []},
+      "fieldConfig": {"defaults": {"unit": "suffix: 건/초", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never"}}, "overrides": []},
       "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"]}, "tooltip": {"mode": "multi", "sort": "desc"}}
     },
     {
       "type": "timeseries",
-      "title": "Spark source lag by partition",
+      "title": "Spark 파티션별 미처리 메시지 수",
+      "description": "각 Spark 스트림이 Kafka 파티션에서 아직 처리하지 못한 메시지 수입니다.",
       "id": 12,
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 28},
-      "targets": [{"expr": "witw:spark_source_lag{topic=~\"$topic\"}", "legendFormat": "{{app}} {{topic}} p{{partition}}", "refId": "A"}],
+      "targets": [
+        {"expr": "witw:spark_source_lag{app=\"news-enriched-article-events-v1\",topic=~\"$topic\"}", "legendFormat": "기사 이벤트 처리 / {{topic}} / 파티션 {{partition}}", "refId": "A"},
+        {"expr": "witw:spark_source_lag{app=\"news-unclassified-issue-stream-v1\",topic=~\"$topic\"}", "legendFormat": "미분류 이슈 처리 / {{topic}} / 파티션 {{partition}}", "refId": "B"}
+      ],
       "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never"}}, "overrides": []},
       "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"]}, "tooltip": {"mode": "multi", "sort": "desc"}}
     },
     {
       "type": "timeseries",
-      "title": "Kafka partition disk size",
+      "title": "Kafka 파티션별 디스크 사용량",
+      "description": "Kafka의 각 토픽 파티션이 디스크에서 차지하는 용량입니다.",
       "id": 13,
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 36},
-      "targets": [{"expr": "kafka_log_size_bytes{topic=~\"$topic\"}", "legendFormat": "{{topic}} p{{partition}}", "refId": "A"}],
+      "targets": [{"expr": "kafka_log_size_bytes{topic=~\"$topic\"}", "legendFormat": "{{topic}} / 파티션 {{partition}}", "refId": "A"}],
       "fieldConfig": {"defaults": {"unit": "bytes", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never"}}, "overrides": []},
       "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"]}, "tooltip": {"mode": "multi", "sort": "desc"}}
     },
     {
       "type": "timeseries",
-      "title": "HDFS path bytes and file count",
+      "title": "HDFS 경로별 용량·파일 수",
+      "description": "모니터링 중인 HDFS 경로별 저장 용량과 파일 개수입니다.",
       "id": 14,
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 36},
       "targets": [
-        {"expr": "hdfs_path_length_bytes", "legendFormat": "{{path}} bytes", "refId": "A"},
-        {"expr": "hdfs_path_files", "legendFormat": "{{path}} files", "refId": "B"}
+        {"expr": "hdfs_path_length_bytes", "legendFormat": "{{path}} / 저장 용량", "refId": "A"},
+        {"expr": "hdfs_path_files", "legendFormat": "{{path}} / 파일 수", "refId": "B"}
       ],
       "fieldConfig": {"defaults": {"custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 2, "fillOpacity": 10, "showPoints": "never"}}, "overrides": []},
       "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"]}, "tooltip": {"mode": "multi", "sort": "desc"}}
     },
     {
       "type": "timeseries",
-      "title": "Kafka retained records by partition",
+      "title": "Kafka 파티션별 보관 메시지 수",
+      "description": "Kafka 각 파티션에 현재 남아 있는 메시지 수입니다.",
       "id": 16,
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 44},
-      "targets": [{"expr": "kafka_topic_partition_current_offset{topic=~\"$topic\"} - kafka_topic_partition_oldest_offset{topic=~\"$topic\"}", "legendFormat": "{{topic}} p{{partition}}", "refId": "A"}],
+      "targets": [{"expr": "kafka_topic_partition_current_offset{topic=~\"$topic\"} - kafka_topic_partition_oldest_offset{topic=~\"$topic\"}", "legendFormat": "{{topic}} / 파티션 {{partition}}", "refId": "A"}],
       "fieldConfig": {"defaults": {"unit": "short", "custom": {"drawStyle": "line", "lineInterpolation": "linear", "lineWidth": 1, "fillOpacity": 5, "showPoints": "never"}}, "overrides": []},
       "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"]}, "tooltip": {"mode": "multi", "sort": "desc"}}
     },
     {
       "type": "table",
-      "title": "Active alerts",
+      "title": "현재 발생 중인 경고",
+      "description": "현재 조건을 충족해 활성화된 모니터링 경고 목록입니다.",
       "id": 15,
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 44},
@@ -189,15 +207,15 @@
   "tags": ["witw", "kafka", "spark", "hdfs", "nlp"],
   "templating": {
     "list": [
-      {"name": "topic", "label": "Kafka topic", "type": "query", "datasource": {"type": "prometheus", "uid": "prometheus"}, "query": {"query": "label_values(kafka_topic_partition_current_offset, topic)", "refId": "topic"}, "definition": "label_values(kafka_topic_partition_current_offset, topic)", "includeAll": true, "allValue": ".*", "multi": true, "refresh": 1, "current": {"text": "All", "value": "$__all"}},
-      {"name": "group", "label": "Consumer group", "type": "query", "datasource": {"type": "prometheus", "uid": "prometheus"}, "query": {"query": "label_values(kafka_consumergroup_lag, consumergroup)", "refId": "group"}, "definition": "label_values(kafka_consumergroup_lag, consumergroup)", "includeAll": true, "allValue": ".*", "multi": true, "refresh": 1, "current": {"text": "All", "value": "$__all"}}
+      {"name": "topic", "label": "Kafka 토픽", "type": "query", "datasource": {"type": "prometheus", "uid": "prometheus"}, "query": {"query": "label_values(kafka_topic_partition_current_offset, topic)", "refId": "topic"}, "definition": "label_values(kafka_topic_partition_current_offset, topic)", "includeAll": true, "allValue": ".*", "multi": true, "refresh": 1, "current": {"text": "전체", "value": "$__all"}},
+      {"name": "group", "label": "컨슈머 그룹", "type": "query", "datasource": {"type": "prometheus", "uid": "prometheus"}, "query": {"query": "label_values(kafka_consumergroup_lag, consumergroup)", "refId": "group"}, "definition": "label_values(kafka_consumergroup_lag, consumergroup)", "includeAll": true, "allValue": ".*", "multi": true, "refresh": 1, "current": {"text": "전체", "value": "$__all"}}
     ]
   },
   "time": {"from": "now-6h", "to": "now"},
   "timepicker": {},
   "timezone": "browser",
-  "title": "WITW Pipeline Overview",
+  "title": "WITW 데이터 처리 현황",
   "uid": "witw-pipeline",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }
