@@ -4,6 +4,7 @@ import com.ssafy.witw.common.response.BaseResponse;
 import com.ssafy.witw.common.response.SuccessCode;
 import com.ssafy.witw.domain.auth.dto.request.EmailRequest;
 import com.ssafy.witw.domain.auth.dto.request.EmailVerifyRequest;
+import com.ssafy.witw.domain.auth.dto.request.LoginRequest;
 import com.ssafy.witw.domain.auth.dto.response.EmailExistsResponse;
 import com.ssafy.witw.domain.auth.dto.request.SignupRequest;
 import com.ssafy.witw.domain.auth.dto.response.EmailSendResponse;
@@ -11,6 +12,8 @@ import com.ssafy.witw.domain.auth.service.AuthService;
 import com.ssafy.witw.domain.auth.service.EmailVerificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -72,6 +75,22 @@ public class AuthController {
         emailVerificationService.verifyCode(request);
 
         return BaseResponse.success(SuccessCode.EMAIL_VERIFY_SUCCESS);
+    }
+
+    @PostMapping("/login")
+    @Operation(summary = "이메일 로그인")
+    public ResponseEntity<BaseResponse<Void>> login(
+            @Valid @RequestBody LoginRequest loginRequest, HttpServletRequest httpRequest
+    ){
+        Long userId = authService.login(loginRequest);
+
+        HttpSession preSession = httpRequest.getSession(false);
+        if(preSession != null) preSession.invalidate();
+
+        HttpSession session = httpRequest.getSession(true);
+        session.setAttribute("userId", userId);
+
+        return BaseResponse.success(SuccessCode.LOGIN_SUCCESS);
     }
 
 
