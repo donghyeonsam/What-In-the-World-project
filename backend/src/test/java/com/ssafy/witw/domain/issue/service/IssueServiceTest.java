@@ -28,7 +28,9 @@ import static org.assertj.core.api.Assertions.within;
 @RepositoryTest
 class IssueServiceTest extends TestContainerSupport {
 
-    private static final String COUNTRY_A = "ZA";
+    // country는 V8 마이그레이션이 ISO 3166-1 전체를 시드하므로,
+    // 픽스처는 반드시 미할당 코드를 써야 한다. (ZA는 남아프리카공화국으로 실제 존재)
+    private static final String COUNTRY_A = "ZC";
     private static final String COUNTRY_B = "ZB";
     private static final long FIELD_ID = 900_001L;
     private static final long THEME_ID = 900_001L;
