@@ -34,9 +34,6 @@ public class User {
     @Column(nullable = false, length = 20)
     private UserRole role;
 
-    @Column(name = "created_at", nullable = false)
-    private LocalDateTime createdAt;
-
     @Column(name = "withdrawn_at")
     private LocalDateTime withdrawnAt;
 

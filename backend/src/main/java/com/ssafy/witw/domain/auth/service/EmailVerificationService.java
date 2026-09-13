@@ -100,6 +100,22 @@ public class EmailVerificationService {
         redisTemplate.delete(tryKey);
     }
 
+    public void validateVerified(String email){
+        String normalizedEmail = email.trim().toLowerCase(Locale.ROOT);
+
+        Boolean verified = redisTemplate.hasKey(DONE_KEY_PREFIX + normalizedEmail);
+
+        if(!Boolean.TRUE.equals(verified)){
+            throw new GlobalException(ErrorCode.EMAIL_NOT_VERIFIED);
+        }
+    }
+
+    public void clearVerified(String email){
+        String normalizedEmail = email.trim().toLowerCase(Locale.ROOT);
+
+        redisTemplate.delete(DONE_KEY_PREFIX + normalizedEmail);
+    }
+
     private void increaseSendCount(String email) {
         String key = SEND_KEY_PREFIX + email;
 
