@@ -14,8 +14,8 @@ spring:
   kafka:
     bootstrap-servers: 172.26.11.46:19092
     consumer:
-      group-id: db-writer-v1
-      auto-offset-reset: latest
+      group-id: ${KAFKA_CONSUMER_GROUP_ID:db-writer-prod-v1}
+      auto-offset-reset: earliest
       enable-auto-commit: false
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer

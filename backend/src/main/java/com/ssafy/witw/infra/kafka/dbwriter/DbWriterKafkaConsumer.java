@@ -18,7 +18,9 @@ public class DbWriterKafkaConsumer {
     private final ObjectMapper objectMapper;
     private final DbWriterService dbWriterService;
 
-    @KafkaListener(topics = "news.event.v1", groupId = "db-writer-v1")
+    // groupId는 프로파일별 application-*.yml의 spring.kafka.consumer.group-id를 따른다.
+    // 애너테이션 속성은 yml을 덮어쓰므로, 여기에 하드코딩하면 환경별 분리가 불가능하다.
+    @KafkaListener(topics = "news.event.v1")
     public void consume(ConsumerRecord<String, String> record) {
         DbWriterEvent event = deserialize(record.value());
         dbWriterService.handle(event);
