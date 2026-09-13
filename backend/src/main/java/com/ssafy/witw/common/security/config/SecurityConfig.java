@@ -29,7 +29,7 @@ public class SecurityConfig {
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .requestCache(AbstractHttpConfigurer::disable)
-                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
                 .build();
     }
 
@@ -41,6 +41,7 @@ public class SecurityConfig {
         configuration.setAllowedHeaders(properties.allowedHeaders());
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/v1/**", configuration);
+        configuration.setAllowCredentials(true);
         return source;
     }
 

@@ -2,9 +2,11 @@ package com.ssafy.witw.domain.auth.service;
 
 import com.ssafy.witw.common.exception.GlobalException;
 import com.ssafy.witw.common.response.ErrorCode;
+import com.ssafy.witw.domain.auth.dto.request.LoginRequest;
 import com.ssafy.witw.domain.auth.dto.response.EmailExistsResponse;
 import com.ssafy.witw.domain.user.dao.UserRepository;
 import com.ssafy.witw.domain.auth.dto.request.SignupRequest;
+import com.ssafy.witw.domain.user.entity.AuthProvider;
 import com.ssafy.witw.domain.user.entity.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -54,6 +56,22 @@ public class AuthService {
         boolean isDuplicate = userRepository.existsByEmailIgnoreCase(normalizeEmail);
 
         return new EmailExistsResponse(isDuplicate);
+    }
+
+    public Long login(LoginRequest request){
+        String email = normalizeEmail(request.email());
+
+        User user = userRepository.findByEmailIgnoreCase(email)
+                .orElseThrow(() -> new GlobalException(ErrorCode.LOGIN_FAILED));
+
+        if(user.isWithdrawn()) throw new GlobalException(ErrorCode.LOGIN_FAILED);
+
+        if(user.getAuthProvider() != AuthProvider.LOCAL) throw new GlobalException(ErrorCode.LOGIN_FAILED);
+
+        if(user.getPasswordHash() == null || !passwordEncoder.matches(request.password(), user.getPasswordHash()))
+            throw new GlobalException(ErrorCode.LOGIN_FAILED);
+
+        return user.getId();
     }
 
 }
