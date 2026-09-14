@@ -7,6 +7,21 @@ x-logging: &logging
     max-file: "3"
 
 services:
+  prometheus:
+    image: prom/prometheus:v3.13.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - default
+      - app
+    logging: *logging
+
   alloy:
     image: grafana/alloy:v1.19.2
     restart: unless-stopped
@@ -48,6 +63,7 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - loki
     logging: *logging
@@ -56,3 +72,9 @@ volumes:
   alloy-data:
   loki-data:
   grafana-data:
+  prometheus-data:
+
+networks:
+  app:
+    external: true
+    name: witw-dev-network

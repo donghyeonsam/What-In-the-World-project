@@ -18,9 +18,12 @@ deploy-monitoring-dev:
     - cp "$CI_PROJECT_DIR/infra/monitoring/alloy/config.alloy" "$MONITORING_DEPLOY_DIR/alloy/config.alloy"
     - cp "$CI_PROJECT_DIR/infra/monitoring/loki/config.yml" "$MONITORING_DEPLOY_DIR/loki/config.yml"
     - cp "$CI_PROJECT_DIR/infra/monitoring/grafana/provisioning/datasources/loki.yml" "$MONITORING_DEPLOY_DIR/grafana/provisioning/datasources/loki.yml"
+    - cp -R "$CI_PROJECT_DIR/infra/monitoring/prometheus" "$MONITORING_DEPLOY_DIR/"
+    - cp -R "$CI_PROJECT_DIR/infra/monitoring/grafana/." "$MONITORING_DEPLOY_DIR/grafana/"
     - cd "$MONITORING_DEPLOY_DIR"
     - docker compose --env-file "$MONITORING_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT" config --quiet
     - docker compose --env-file "$MONITORING_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT" pull
+    - docker compose --env-file "$MONITORING_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT" run --rm --no-deps --entrypoint promtool prometheus check config /etc/prometheus/prometheus.yml
     - docker compose --env-file "$MONITORING_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT" run --rm --no-deps alloy validate /etc/alloy/config.alloy
     - docker compose --env-file "$MONITORING_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT" run --rm --no-deps loki -config.file=/etc/loki/config.yml -verify-config=true
     - docker compose --env-file "$MONITORING_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT" up -d --wait --wait-timeout 180

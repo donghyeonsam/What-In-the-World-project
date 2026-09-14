@@ -26,6 +26,17 @@ services:
       timeout: 5s
       retries: 10
 
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.17.0
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_URI: postgres:5432/witw_dev?sslmode=disable
+      DATA_SOURCE_USER: witw_dev
+      DATA_SOURCE_PASS: ${DEV_POSTGRES_PASSWORD:?DEV_POSTGRES_PASSWORD is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   valkey:
     image: valkey/valkey:8-alpine
     container_name: witw-valkey-dev
