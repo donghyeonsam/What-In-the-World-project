@@ -158,7 +158,7 @@ deploy-bigdata:
     # BigData Prometheus / Grafana / Exporter 배포
     # -----------------------------------------------------
     - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" config --quiet
-    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" pull alloy prometheus grafana kafka-exporter
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" pull alloy prometheus grafana kafka-exporter node-exporter
     - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" build hdfs-exporter
     - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" run --rm --no-deps alloy validate /etc/alloy/config.alloy
     - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" up -d --wait --wait-timeout 180

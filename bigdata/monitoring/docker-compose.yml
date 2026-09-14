@@ -1,6 +1,25 @@
 name: news-monitoring
 
 services:
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    container_name: news-node-exporter
+    restart: unless-stopped
+    pid: host
+    command:
+      - --path.rootfs=/host
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --collector.disable-defaults
+      - --collector.cpu
+      - --collector.meminfo
+      - --collector.filesystem
+      - --collector.diskstats
+    volumes:
+      - /:/host:ro,rslave
+    networks:
+      - news-network
+
   alloy:
     image: grafana/alloy:v1.19.2
     container_name: news-alloy
@@ -28,7 +47,7 @@ services:
       - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
       - --web.enable-lifecycle
     ports:
-      - "${MONITORING_BIND_HOST:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"
+      - "${PROMETHEUS_BIND_HOST:-172.26.11.46}:${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro

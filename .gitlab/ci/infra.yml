@@ -20,6 +20,9 @@ deploy-monitoring-dev:
     - cp "$CI_PROJECT_DIR/infra/monitoring/grafana/provisioning/datasources/loki.yml" "$MONITORING_DEPLOY_DIR/grafana/provisioning/datasources/loki.yml"
     - cp -R "$CI_PROJECT_DIR/infra/monitoring/prometheus" "$MONITORING_DEPLOY_DIR/"
     - cp -R "$CI_PROJECT_DIR/infra/monitoring/grafana/." "$MONITORING_DEPLOY_DIR/grafana/"
+    - export BIGDATA_DASHBOARDS_PATH="$MONITORING_DEPLOY_DIR/grafana/bigdata"
+    - install -d "$BIGDATA_DASHBOARDS_PATH"
+    - cp "$CI_PROJECT_DIR/bigdata/monitoring/grafana/dashboards/"*.json "$BIGDATA_DASHBOARDS_PATH/"
     - cd "$MONITORING_DEPLOY_DIR"
     - docker compose --env-file "$MONITORING_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT" config --quiet
     - docker compose --env-file "$MONITORING_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT" pull
@@ -32,5 +35,6 @@ deploy-monitoring-dev:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
       changes:
         - infra/monitoring/**/*
+        - bigdata/monitoring/grafana/dashboards/**/*
         - .gitlab-ci.yml
         - .gitlab/ci/infra.yml
