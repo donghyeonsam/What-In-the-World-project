@@ -1,0 +1,53 @@
+# =========================================================
+# ML (모델 증류) — Test 전용
+#
+# 이 폴더는 서비스 런타임과 무관한 오프라인 증류 파이프라인이다.
+# 배포 대상이 없으므로 deploy job 을 두지 않고, CPU 단위 테스트만 돌린다.
+# =========================================================
+test-ml:
+  stage: validate
+  image: python:3.12-slim
+
+  # TODO: 이 러너가 임의 이미지를 허용하는 docker executor 인지 확인할 것.
+  #       불가하면 frontend-ci 로 바꾸거나 ml-ci 태그 러너를 새로 등록한다.
+  tags:
+    - backend-ci
+
+  timeout: 10m
+
+  variables:
+    PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+    PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    PYTHONDONTWRITEBYTECODE: "1"
+
+  cache:
+    key: ml-pip
+    paths:
+      - .cache/pip
+
+  script:
+    - cd "$CI_PROJECT_DIR/ml"
+    # 모델 의존성(torch 등)은 설치하지 않는다. requirements-dev.txt 주석 참고.
+    - pip install -r requirements-dev.txt
+    - pytest tests/ -v --junitxml=report.xml
+
+  artifacts:
+    when: always
+    expire_in: 1 week
+    reports:
+      junit: ml/report.xml
+
+  rules:
+    # develop / master 대상 MR → 테스트
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - ml/**/*
+        - .gitlab-ci.yml
+        - .gitlab/ci/ml.yml
+
+    # master / develop merge(push) → 테스트
+    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "master" || $CI_COMMIT_BRANCH == "develop")'
+      changes:
+        - ml/**/*
+        - .gitlab-ci.yml
+        - .gitlab/ci/ml.yml
