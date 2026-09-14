@@ -1,282 +1,215 @@
-"""분야별 NLI 가설. 이 프로젝트의 도메인 지식이 담긴 핵심 파일.
+"""분야별 톤 가설 — 이 프로젝트의 도메인 지식이 담긴 파일.
 
-NLI는 가설 '문구'에 예민하다. 하나만 쓰면 그 문구의 버릇이 그대로 라벨이 되고,
-student가 그 버릇을 통째로 학습한다. 증류에서는 특히 치명적인데
-student가 배우는 게 정답표가 아니라 '0.88이라는 숫자 자체'이기 때문이다.
+teacher(NLI) 에게 던지는 질문지다. 기사를 전제(premise) 로, 아래 문장을
+가설(hypothesis) 로 주고 entailment 확률을 받아 P(긍정) / P(부정) 을 만든다.
 
-- 분야: 분야당 가설 2개
-- 톤: 극성당 가설 3개 (긍정 3 + 부정 3)
+왜 분야마다 다른가
+  같은 표현이 분야에 따라 극성이 반대이기 때문이다.
+    "격차가 벌어졌다"   경제 → 부정 / 스포츠 → 그냥 경기 결과
+    "역대 최다"         재난 → 부정 / 관광   → 긍정
+  분야별로 가설을 달리 쓰면 그 차이가 각 student 모델의 가중치로 들어간다.
 
-ECONOMY·TECH 부정 가설에서 'risk'를 뺐다. 중립적인 경제 기사도 리스크·변동성을
-상투적으로 언급해서, 부정 가설이 중립 텍스트에 과하게 걸렸다.
+왜 극성당 3개인가 (앙상블)
+  NLI 는 가설 '문구' 에 예민하다. 하나만 쓰면 그 문구의 버릇이 그대로 라벨이
+  되고, student 가 그 버릇을 통째로 학습한다. 증류에서는 student 가 배우는 게
+  정답표가 아니라 0.88 이라는 숫자 자체라 특히 치명적이다.
+  3개를 평균내면 개별 문구의 편향이 상쇄된다.
+
+작성 원칙
+  · 세 문장이 같은 말을 바꿔 쓴 게 아니라 서로 다른 각도여야 한다
+    (서술 태도 / 사건의 방향 / 프레이밍)
+  · 중립 기사에 상투적으로 걸리는 단어를 피한다
+    예) ECONOMY 부정에서 "risk" 를 뺐다 — 평범한 경제 기사도 리스크를
+        의례적으로 언급해 부정 가설이 중립 텍스트에 과하게 걸렸다
+  · 특정 정파·국가·인물에 유리하거나 불리한 표현을 쓰지 않는다
+
+분야 코드는 NLP worker 의 theme_catalog.json field_id 와 같아야 한다.
+    1 POLITICS  2 ECONOMY  3 SOCIETY  4 TECH  5 SPORTS
 """
 from __future__ import annotations
 
-CATEGORIES = ["POLITICS", "ECONOMY", "SOCIETY", "TECH", "CULTURE", "SPORTS"]
+# =====================================================================
+# 영어 가설 (hypothesis_lang: en)
+#
+#   다국어 NLI teacher 는 전제가 한국어·일본어·독일어여도 영어 가설로
+#   채점할 수 있다. 가설을 한 언어로 고정하면 언어마다 문구가 달라져
+#   생기는 편차가 사라진다.
+# =====================================================================
+TONE_EN: dict[str, tuple[list[str], list[str]]] = {
 
-# --- 분야 가설 (분야당 2개) -------------------------------------------------
-CATEGORY_HYPOTHESES: dict[str, dict[str, list[str]]] = {
-    "en": {
-        "POLITICS": [
-            "This text is about politics, government, elections or diplomacy.",
-            "This text reports on lawmakers, political parties or public policy decisions.",
+    # -----------------------------------------------------------------
+    # 1. 정치 — 선거, 외교, 국방, 안보, 의회, 정당, 행정, 사법,
+    #           국제기구, 이민·난민, 지방정치, 인권
+    # -----------------------------------------------------------------
+    "POLITICS": (
+        [
+            "This article describes the political situation in a favorable light.",
+            "The article reports agreement, cooperation, or a resolved dispute.",
+            "This report frames the political development as a step forward.",
         ],
-        "ECONOMY": [
-            "This text is about the economy, business, markets or trade.",
-            "This text reports on companies, prices, employment or financial results.",
+        [
+            "This article describes the political situation in an unfavorable light.",
+            "The article reports conflict, breakdown, scandal, or abuse of power.",
+            "This report frames the political development as a step backward.",
         ],
-        "SOCIETY": [
-            "This text is about society, crime, accidents, health, education or welfare.",
-            "This text reports on an incident, court case or social issue affecting ordinary people.",
-        ],
-        "TECH": [
-            "This text is about technology, science, IT or research.",
-            "This text reports on software, semiconductors, artificial intelligence or scientific findings.",
-        ],
-        "CULTURE": [
-            "This text is about culture, entertainment, art, music, film or celebrities.",
-            "This text reports on a cultural work, performance, broadcast or artist.",
-        ],
-        "SPORTS": [
-            "This text is about sports, athletes or competitive matches.",
-            "This text reports on a game result, league standing or player transfer.",
-        ],
-    },
-    "ko": {
-        "POLITICS": [
-            "이 글은 정치, 정부, 선거 또는 외교에 관한 내용이다.",
-            "이 글은 국회의원, 정당 또는 정책 결정에 대해 보도한다.",
-        ],
-        "ECONOMY": [
-            "이 글은 경제, 기업, 시장 또는 무역에 관한 내용이다.",
-            "이 글은 기업 실적, 물가, 고용 또는 금융에 대해 보도한다.",
-        ],
-        "SOCIETY": [
-            "이 글은 사회, 범죄, 사고, 보건, 교육 또는 복지에 관한 내용이다.",
-            "이 글은 사건, 재판 또는 시민 생활과 관련된 사회 문제를 보도한다.",
-        ],
-        "TECH": [
-            "이 글은 기술, 과학, IT 또는 연구에 관한 내용이다.",
-            "이 글은 소프트웨어, 반도체, 인공지능 또는 과학적 발견에 대해 보도한다.",
-        ],
-        "CULTURE": [
-            "이 글은 문화, 연예, 예술, 음악, 영화 또는 유명인에 관한 내용이다.",
-            "이 글은 문화 작품, 공연, 방송 또는 예술가에 대해 보도한다.",
-        ],
-        "SPORTS": [
-            "이 글은 스포츠, 운동선수 또는 경기에 관한 내용이다.",
-            "이 글은 경기 결과, 리그 순위 또는 선수 이적을 보도한다.",
-        ],
-    },
-}
+    ),
 
-# --- 톤 가설 (극성당 3개) ---------------------------------------------------
-# 분야마다 '좋다/나쁘다'의 의미가 다르다. 같은 표현이 분야에 따라 논조가 반대다.
-# 예: "격차가 벌어졌다" — 경제에서는 부정, 스포츠에서는 그냥 경기 결과.
-TONE_HYPOTHESES: dict[str, dict[str, dict[str, list[str]]]] = {
-    "en": {
-        "POLITICS": {
-            "pos": [
-                "This text describes a political development in favorable or approving terms.",
-                "This text reports cooperation, agreement or successful governance.",
-                "This text presents the political actors or their decisions in a positive light.",
-            ],
-            "neg": [
-                "This text describes a political development in critical or disapproving terms.",
-                "This text reports conflict, scandal, corruption or failure of governance.",
-                "This text presents the political actors or their decisions in a negative light.",
-            ],
-        },
-        "ECONOMY": {
-            "pos": [
-                "This text describes an economic development as favorable or improving.",
-                "This text reports growth, recovery, profit or rising demand.",
-                "This text presents the economic outlook optimistically.",
-            ],
-            # 'risk' 계열 어휘 제외: 중립 기사도 리스크를 상투적으로 언급한다.
-            "neg": [
-                "This text describes an economic development as unfavorable or worsening.",
-                "This text reports losses, recession, layoffs or falling demand.",
-                "This text presents the economic outlook pessimistically.",
-            ],
-        },
-        "SOCIETY": {
-            "pos": [
-                "This text describes a social development in a hopeful or constructive way.",
-                "This text reports rescue, recovery, relief or an improvement in people's lives.",
-                "This text presents the situation as resolved or improving.",
-            ],
-            "neg": [
-                "This text describes a social development in a distressing or alarming way.",
-                "This text reports a crime, accident, death, illness or worsening hardship.",
-                "This text presents the situation as harmful or deteriorating.",
-            ],
-        },
-        "TECH": {
-            "pos": [
-                "This text describes a technological development as promising or beneficial.",
-                "This text reports a breakthrough, successful launch or improved performance.",
-                "This text presents the technology or its makers favorably.",
-            ],
-            # 'risk' 계열 어휘 제외 (ECONOMY와 같은 이유).
-            "neg": [
-                "This text describes a technological development as troubled or harmful.",
-                "This text reports a failure, defect, breach, outage or abandoned project.",
-                "This text presents the technology or its makers unfavorably.",
-            ],
-        },
-        "CULTURE": {
-            "pos": [
-                "This text describes a cultural work or figure approvingly.",
-                "This text reports acclaim, an award, popularity or a successful release.",
-                "This text presents the artist or work in a flattering light.",
-            ],
-            "neg": [
-                "This text describes a cultural work or figure disapprovingly.",
-                "This text reports criticism, controversy, poor reception or a cancellation.",
-                "This text presents the artist or work in an unflattering light.",
-            ],
-        },
-        "SPORTS": {
-            "pos": [
-                "This text describes a sporting outcome favorably for the subject of the article.",
-                "This text reports a victory, record, strong performance or return from injury.",
-                "This text presents the athlete or team in a positive light.",
-            ],
-            "neg": [
-                "This text describes a sporting outcome unfavorably for the subject of the article.",
-                "This text reports a defeat, injury, poor performance, suspension or dispute.",
-                "This text presents the athlete or team in a negative light.",
-            ],
-        },
-    },
-    "ko": {
-        "POLITICS": {
-            "pos": [
-                "이 글은 정치적 상황을 긍정적이거나 우호적으로 서술한다.",
-                "이 글은 협력, 합의 또는 성공적인 국정 운영을 보도한다.",
-                "이 글은 정치 주체나 그 결정을 좋게 평가한다.",
-            ],
-            "neg": [
-                "이 글은 정치적 상황을 비판적이거나 부정적으로 서술한다.",
-                "이 글은 갈등, 의혹, 부패 또는 국정 실패를 보도한다.",
-                "이 글은 정치 주체나 그 결정을 나쁘게 평가한다.",
-            ],
-        },
-        "ECONOMY": {
-            "pos": [
-                "이 글은 경제 상황을 좋아지는 것으로 서술한다.",
-                "이 글은 성장, 회복, 이익 또는 수요 증가를 보도한다.",
-                "이 글은 경제 전망을 낙관적으로 제시한다.",
-            ],
-            "neg": [
-                "이 글은 경제 상황을 나빠지는 것으로 서술한다.",
-                "이 글은 손실, 침체, 감원 또는 수요 감소를 보도한다.",
-                "이 글은 경제 전망을 비관적으로 제시한다.",
-            ],
-        },
-        "SOCIETY": {
-            "pos": [
-                "이 글은 사회적 상황을 희망적이거나 건설적으로 서술한다.",
-                "이 글은 구조, 회복, 지원 또는 생활 여건 개선을 보도한다.",
-                "이 글은 상황이 해결되거나 나아지고 있다고 제시한다.",
-            ],
-            "neg": [
-                "이 글은 사회적 상황을 우려스럽거나 심각하게 서술한다.",
-                "이 글은 범죄, 사고, 사망, 질병 또는 악화되는 어려움을 보도한다.",
-                "이 글은 상황이 해롭거나 나빠지고 있다고 제시한다.",
-            ],
-        },
-        "TECH": {
-            "pos": [
-                "이 글은 기술 개발을 유망하거나 이로운 것으로 서술한다.",
-                "이 글은 성과, 성공적인 출시 또는 성능 향상을 보도한다.",
-                "이 글은 그 기술이나 개발 주체를 좋게 평가한다.",
-            ],
-            "neg": [
-                "이 글은 기술 개발을 문제가 있거나 해로운 것으로 서술한다.",
-                "이 글은 실패, 결함, 유출, 장애 또는 개발 중단을 보도한다.",
-                "이 글은 그 기술이나 개발 주체를 나쁘게 평가한다.",
-            ],
-        },
-        "CULTURE": {
-            "pos": [
-                "이 글은 문화 작품이나 인물을 호의적으로 서술한다.",
-                "이 글은 호평, 수상, 인기 또는 성공적인 발표를 보도한다.",
-                "이 글은 예술가나 작품을 좋게 평가한다.",
-            ],
-            "neg": [
-                "이 글은 문화 작품이나 인물을 부정적으로 서술한다.",
-                "이 글은 비판, 논란, 저조한 반응 또는 취소를 보도한다.",
-                "이 글은 예술가나 작품을 나쁘게 평가한다.",
-            ],
-        },
-        "SPORTS": {
-            "pos": [
-                "이 글은 경기 결과를 기사의 주인공에게 유리하게 서술한다.",
-                "이 글은 승리, 기록, 좋은 활약 또는 부상 복귀를 보도한다.",
-                "이 글은 선수나 팀을 긍정적으로 평가한다.",
-            ],
-            "neg": [
-                "이 글은 경기 결과를 기사의 주인공에게 불리하게 서술한다.",
-                "이 글은 패배, 부상, 부진, 징계 또는 분쟁을 보도한다.",
-                "이 글은 선수나 팀을 부정적으로 평가한다.",
-            ],
-        },
-    },
+    # -----------------------------------------------------------------
+    # 2. 경제 — 금리, 물가, 환율, 증시, 부동산, 고용, 무역, 산업, 금융,
+    #           에너지, 기업, 투자, 공급망, 소비
+    # -----------------------------------------------------------------
+    "ECONOMY": (
+        [
+            "This article describes the economic situation or outlook optimistically.",
+            "The article reports growth, gains, or improving economic indicators.",
+            "This report frames the business or market news as good news.",
+        ],
+        [
+            # "risk" 를 뺐다 — 중립적인 경제 기사도 리스크·변동성을 상투적으로
+            # 언급해 부정 가설이 중립 텍스트에 과하게 걸렸다.
+            "This article describes the economic situation or outlook pessimistically.",
+            "The article reports contraction, losses, or worsening economic indicators.",
+            "This report frames the business or market news as bad news.",
+        ],
+    ),
+
+    # -----------------------------------------------------------------
+    # 3. 사회 — 범죄·수사, 재난·사고, 교육, 보건·의료, 복지, 노동, 교통,
+    #           환경, 인구, 주거, 관광, 문화·종교, 지역사회
+    #
+    #   주의: 이 분야에 재난·범죄와 문화·관광이 함께 들어 있다.
+    #   "역대 최다", "급증" 같은 표현의 극성이 테마에 따라 뒤집히므로,
+    #   사건의 방향(피해인가 개선인가)을 묻는 문장으로 구성했다.
+    # -----------------------------------------------------------------
+    "SOCIETY": (
+        [
+            "This article reports something that improved people's lives or well-being.",
+            "The article describes recovery, relief, achievement, or a community benefiting.",
+            "This report frames the event as welcome news for the public.",
+        ],
+        [
+            "This article reports harm, damage, or suffering affecting people.",
+            "The article describes an accident, crime, disaster, or worsening conditions.",
+            "This report frames the event as troubling news for the public.",
+        ],
+    ),
+
+    # -----------------------------------------------------------------
+    # 4. 기술 — AI, 반도체, 소프트웨어, 플랫폼, 사이버보안, 클라우드,
+    #           데이터, 통신, 로봇, 우주, 바이오, 모빌리티, 배터리,
+    #           양자기술, 디지털기기
+    # -----------------------------------------------------------------
+    "TECH": (
+        [
+            "This article describes the technology development as a success or advance.",
+            "The article reports a working product, a breakthrough, or growing adoption.",
+            "This report frames the technology news positively.",
+        ],
+        [
+            # ECONOMY 와 같은 이유로 "risk" 계열을 피했다.
+            "This article describes the technology development as a failure or setback.",
+            "The article reports a defect, outage, security breach, or abandoned project.",
+            "This report frames the technology news negatively.",
+        ],
+    ),
+
+    # -----------------------------------------------------------------
+    # 5. 스포츠 — 축구, 야구, 농구, 배구, 테니스, 배드민턴, 탁구, 골프,
+    #             모터스포츠, 격투기, 육상, 수영, 피트니스, 기타
+    # -----------------------------------------------------------------
+    "SPORTS": (
+        [
+            "This article reports a win, a record, or a strong performance.",
+            "The article describes an athlete or team succeeding.",
+            "This report frames the sports news as a triumph.",
+        ],
+        [
+            "This article reports a loss, an injury, or a poor performance.",
+            "The article describes an athlete or team failing, or a doping or misconduct case.",
+            "This report frames the sports news as a disappointment.",
+        ],
+    ),
 }
 
 
-def category_hypotheses(lang: str = "en") -> dict[str, list[str]]:
-    """분야 → 가설 2개."""
-    try:
-        return CATEGORY_HYPOTHESES[lang]
-    except KeyError:
-        raise ValueError(
-            f"지원하지 않는 hypothesis_lang: {lang} "
-            f"(가능: {sorted(CATEGORY_HYPOTHESES)})") from None
+# =====================================================================
+# 한국어 가설 — 검증용 대안.
+#
+#   hypothesis_lang: ko 로 바꾸면 이쪽을 쓴다. 400건 정도를 두 언어로
+#   각각 라벨링해 비교한 뒤 확정하면 된다. 기본은 en.
+# =====================================================================
+TONE_KO: dict[str, tuple[list[str], list[str]]] = {
+    "POLITICS": (
+        ["이 기사는 정치 상황을 긍정적으로 서술한다.",
+         "이 기사는 합의, 협력, 갈등 해소를 전한다.",
+         "이 기사는 해당 정치 사안을 진전으로 다룬다."],
+        ["이 기사는 정치 상황을 부정적으로 서술한다.",
+         "이 기사는 갈등, 결렬, 비리, 권한 남용을 전한다.",
+         "이 기사는 해당 정치 사안을 후퇴로 다룬다."],
+    ),
+    "ECONOMY": (
+        ["이 기사는 경제 상황이나 전망을 낙관적으로 서술한다.",
+         "이 기사는 성장, 이익, 지표 개선을 전한다.",
+         "이 기사는 해당 경제·기업 소식을 좋은 소식으로 다룬다."],
+        ["이 기사는 경제 상황이나 전망을 비관적으로 서술한다.",
+         "이 기사는 위축, 손실, 지표 악화를 전한다.",
+         "이 기사는 해당 경제·기업 소식을 나쁜 소식으로 다룬다."],
+    ),
+    "SOCIETY": (
+        ["이 기사는 사람들의 삶이나 복지가 나아진 일을 전한다.",
+         "이 기사는 회복, 구조, 성취, 지역사회의 혜택을 서술한다.",
+         "이 기사는 해당 사건을 반가운 소식으로 다룬다."],
+        ["이 기사는 사람들에게 피해나 고통이 생긴 일을 전한다.",
+         "이 기사는 사고, 범죄, 재난, 상황 악화를 서술한다.",
+         "이 기사는 해당 사건을 우려스러운 소식으로 다룬다."],
+    ),
+    "TECH": (
+        ["이 기사는 해당 기술 개발을 성공이나 진전으로 서술한다.",
+         "이 기사는 작동하는 제품, 돌파구, 확산되는 도입을 전한다.",
+         "이 기사는 해당 기술 소식을 긍정적으로 다룬다."],
+        ["이 기사는 해당 기술 개발을 실패나 차질로 서술한다.",
+         "이 기사는 결함, 장애, 보안 침해, 중단된 프로젝트를 전한다.",
+         "이 기사는 해당 기술 소식을 부정적으로 다룬다."],
+    ),
+    "SPORTS": (
+        ["이 기사는 승리, 기록, 좋은 경기력을 전한다.",
+         "이 기사는 선수나 팀의 성공을 서술한다.",
+         "이 기사는 해당 스포츠 소식을 쾌거로 다룬다."],
+        ["이 기사는 패배, 부상, 부진한 경기력을 전한다.",
+         "이 기사는 선수나 팀의 실패, 도핑·비위 사안을 서술한다.",
+         "이 기사는 해당 스포츠 소식을 실망스러운 일로 다룬다."],
+    ),
+}
 
 
-def tone_hypotheses(category: str, lang: str = "en") -> dict[str, list[str]]:
-    """분야 → {'pos': [3개], 'neg': [3개]}."""
-    if lang not in TONE_HYPOTHESES:
-        raise ValueError(f"지원하지 않는 hypothesis_lang: {lang}")
-    if category not in TONE_HYPOTHESES[lang]:
-        raise ValueError(f"알 수 없는 분야: {category}")
-    return TONE_HYPOTHESES[lang][category]
+def tone_hypotheses(lang: str, field: str) -> tuple[list[str], list[str]]:
+    """(긍정 가설 리스트, 부정 가설 리스트) 를 돌려준다.
+
+    lang  : "en" | "ko"   (config.teacher.hypothesis_lang)
+    field : "POLITICS" | "ECONOMY" | "SOCIETY" | "TECH" | "SPORTS"
+    """
+    table = TONE_KO if lang == "ko" else TONE_EN
+    if field not in table:
+        raise KeyError(
+            f"알 수 없는 분야: {field!r}. "
+            f"config.yaml 의 fields 와 이 파일이 어긋났습니다. "
+            f"사용 가능: {sorted(table)}"
+        )
+    pos, neg = table[field]
+    return list(pos), list(neg)
 
 
-def flat_category_pairs(lang: str = "en") -> list[tuple[str, str]]:
-    """[(분야, 가설), ...] 순서 고정. 채점 쪽에서 reshape로 되돌린다."""
-    h = category_hypotheses(lang)
-    return [(c, hyp) for c in CATEGORIES for hyp in h[c]]
-
-
-def flat_tone_hypotheses(category: str, lang: str = "en") -> tuple[list[str], int]:
-    """(긍정 3개 + 부정 3개, 극성당 개수). 순서: pos 먼저."""
-    h = tone_hypotheses(category, lang)
-    pos, neg = h["pos"], h["neg"]
-    if len(pos) != len(neg):
-        raise ValueError(f"{category}: 긍정·부정 가설 수가 다름 ({len(pos)} vs {len(neg)})")
-    return pos + neg, len(pos)
-
-
-def self_check() -> None:
-    """구조 검증. import 시점에 돈다."""
-    for lang, table in CATEGORY_HYPOTHESES.items():
-        assert set(table) == set(CATEGORIES), f"{lang}: 분야 누락"
-        for c, hyps in table.items():
-            assert len(hyps) == 2, f"{lang}/{c}: 분야 가설은 2개여야 함"
-    for lang, table in TONE_HYPOTHESES.items():
-        assert set(table) == set(CATEGORIES), f"{lang}: 톤 분야 누락"
-        for c, pol in table.items():
-            assert set(pol) == {"pos", "neg"}, f"{lang}/{c}: 극성 키 오류"
-            assert len(pol["pos"]) == len(pol["neg"]) == 3, f"{lang}/{c}: 극성당 3개"
-    for lang in ("en", "ko"):
-        for c in ("ECONOMY", "TECH"):
-            joined = " ".join(TONE_HYPOTHESES[lang][c]["neg"]).lower()
-            assert "risk" not in joined and "리스크" not in joined, \
-                f"{lang}/{c} 부정 가설에 risk 계열이 다시 들어옴"
-
-
-self_check()
+def check(fields: list[str], lang: str = "en") -> None:
+    """config 의 분야 목록과 이 파일이 맞는지 확인. 시작 시 1회 호출."""
+    table = TONE_KO if lang == "ko" else TONE_EN
+    missing = [f for f in fields if f not in table]
+    extra = [f for f in table if f not in fields]
+    if missing:
+        raise KeyError(f"가설이 없는 분야: {missing}")
+    if extra:
+        print(f"[경고] config 에 없는 분야가 hypotheses 에 있습니다: {extra}")
+    for f in fields:
+        pos, neg = table[f]
+        if len(pos) != len(neg):
+            print(f"[경고] {f}: 긍정 {len(pos)}개 / 부정 {len(neg)}개 — "
+                  f"개수가 다르면 축 간 기저율이 어긋날 수 있습니다.")

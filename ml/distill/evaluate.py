@@ -1,126 +1,113 @@
-"""[5] 평가. 분야 분류기 + 톤 student 6개를 val에서 이어 돌린다.
+"""[stage 5] 종합 평가 리포트 — work/report.md
 
-python -m distill.evaluate
+학습이 끝난 모델들을 모아 한 장으로 정리한다.
+  · 분야 배정: worker 분류기 재사용 (여기서 학습하는 모델이 아니다)
+  · 톤 student 5개: 언어별 MAE · 라벨 일치율 · 라벨 분포
+  · 경고: 조합당 표본이 적어 신뢰하기 어려운 셀
 
-teacher 라벨을 기준으로 student의 재현도를 본다 (사람 정답이 아님).
-언어별로 따로 출력한다 — 4개 언어 중 하나만 무너져도 서비스에서는 그 나라 색이 틀린다.
+실행
+    python -m distill.evaluate
 """
 from __future__ import annotations
 
-import argparse
 import json
-from collections import defaultdict
+from pathlib import Path
 
-import numpy as np
-import torch
-
-from .config import load_config, out_path, work_path
-from .io_utils import read_jsonl
-from .models import CategoryMLP, build_student
-from .scoring import decide_label, tone_point
-from .train_category import embed_texts, make_input_text, normalize
-from .train_tone import ToneDataset, collate
+from .config import load_config
 
 
-def eval_category(rows: list[dict], cfg, device: str) -> dict:
-    d = out_path(cfg, "category", "meta.json").parent
-    if not (d / "model.pt").exists():
-        return {"skipped": "artifacts/category/model.pt 없음"}
-    meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
-    cats = meta["categories"]
-    X = embed_texts([make_input_text(r, meta["max_body_chars"]) for r in rows],
-                    cfg, device)
-    cen = np.load(d / "centroid.npy") if meta.get("mean_center") else None
-    X = normalize(X, cen)
-    model = CategoryMLP(meta["in_dim"], meta["hidden"], len(cats),
-                        meta["dropout"]).to(device)
-    model.load_state_dict(torch.load(d / "model.pt", map_location=device))
-    model.eval()
-    with torch.no_grad():
-        pred = model(torch.tensor(X, dtype=torch.float32, device=device)).argmax(1).cpu().numpy()
-    y = np.array([cats.index(r["category"]) for r in rows])
-    per_lang, per_cat = {}, {}
-    for lg in sorted({r["lang"] for r in rows}):
-        m = np.array([r["lang"] == lg for r in rows])
-        per_lang[lg] = round(float((pred[m] == y[m]).mean()), 4)
-    for i, c in enumerate(cats):
-        m = y == i
-        if m.any():
-            per_cat[c] = round(float((pred[m] == y[m]).mean()), 4)
-    return {"accuracy": round(float((pred == y).mean()), 4),
-            "by_lang": per_lang, "by_category": per_cat, "n": len(rows)}
-
-
-def eval_tone(rows: list[dict], cfg, device: str) -> dict:
-    st = cfg.student
-    mbc = int(cfg.category_clf["max_body_chars"])
-    out: dict = {}
-    for c in cfg.categories:
-        d = out_path(cfg, "tone", c, "model.pt").parent
-        sub = [r for r in rows if r["category"] == c]
-        if not (d / "model.pt").exists() or not sub:
-            out[c] = {"skipped": True, "n": len(sub)}
-            continue
-        model, tok, max_len = build_student(cfg)
-        model.load_state_dict(torch.load(d / "model.pt", map_location="cpu"))
-        model.to(device).eval()
-        ds = ToneDataset(sub, tok, max_len, int(st["head_tokens"]),
-                         int(st["tail_tokens"]), mbc)
-        pad = tok.pad_token_id if tok.pad_token_id is not None else 0
-        agg: dict = defaultdict(lambda: {"mae": [], "ok": 0, "n": 0})
-        conf: dict = defaultdict(int)
-        for i in range(0, len(ds), int(st["batch_size"])):
-            b = collate([ds[j] for j in range(i, min(i + int(st["batch_size"]), len(ds)))], pad)
-            with torch.no_grad():
-                p = torch.sigmoid(model(b["input_ids"].to(device),
-                                        b["attention_mask"].to(device))).float().cpu().numpy()
-            t = b["target"].numpy()
-            for k in range(len(p)):
-                pred = decide_label(float(p[k, 0]), float(p[k, 1]))
-                mae = abs(tone_point(*p[k]) - tone_point(*t[k]))
-                for key in ("ALL", b["lang"][k]):
-                    a = agg[key]
-                    a["mae"].append(mae)
-                    a["ok"] += int(pred == b["label"][k])
-                    a["n"] += 1
-                conf[f"{b['label'][k]}→{pred}"] += 1
-        out[c] = {
-            "n": len(ds),
-            "point_mae": round(float(np.mean(agg["ALL"]["mae"])), 3),
-            "label_agree": round(agg["ALL"]["ok"] / agg["ALL"]["n"], 4),
-            "by_lang": {k: {"point_mae": round(float(np.mean(v["mae"])), 3),
-                            "label_agree": round(v["ok"] / v["n"], 4), "n": v["n"]}
-                        for k, v in sorted(agg.items()) if k != "ALL"},
-            "confusion": dict(sorted(conf.items(), key=lambda kv: -kv[1])[:8]),
-        }
-        print(f"  [{c}] mae={out[c]['point_mae']} agree={out[c]['label_agree']} "
-              f"{out[c]['by_lang']}")
-    return out
-
-
-def run(cfg) -> dict:
-    rows = list(read_jsonl(work_path(cfg, "val.jsonl")))
-    if not rows:
-        raise SystemExit("val.jsonl이 비었음")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"[evaluate] val {len(rows):,} device={device}")
-    print("\n분야 분류기")
-    cat = eval_category(rows, cfg, device)
-    print(f"  {cat}")
-    print("\n톤 student")
-    tone = eval_tone(rows, cfg, device)
-    rep = {"n_val": len(rows), "category": cat, "tone": tone}
-    p = out_path(cfg, "evaluation.json")
-    p.write_text(json.dumps(rep, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\n→ {p}")
-    return rep
+def _field_names(cfg) -> list[str]:
+    f = cfg.fields
+    if isinstance(f, dict):
+        return [f[k] for k in sorted(int(x) for x in f)]
+    return list(f)
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="[5] 평가")
-    ap.add_argument("--config", default=None)
-    a = ap.parse_args()
-    run(load_config(a.config))
+    cfg = load_config()
+    models_dir = cfg.data.work_dir / "models"
+    lines = ["# 증류 결과 리포트", ""]
+
+    # ---- 분야 배정 ----------------------------------------------------
+    # 분야 분류기는 학습하지 않는다. NLP worker 의 테마 분류기(68테마 → field_id)
+    # 결과를 그대로 쓴다. 학습 때 나눈 기준과 런타임 라우팅 기준이 같아야
+    # "자기 같은 기사를 본 적 없는 모델" 에게 채점받는 기사가 생기지 않는다.
+    lines += ["## 분야 배정", "",
+              "학습하지 않음 — NLP worker 의 테마 분류기를 그대로 사용한다.", ""]
+    centroid_p = cfg.data.work_dir / "centroid.npy"
+    lines += [f"- 카탈로그: `{cfg.assign.catalog}`",
+              f"- 임베딩: worker `pipeline/embedding.py` 직접 호출",
+              f"- centroid: `{centroid_p}` "
+              f"({'있음' if centroid_p.exists() else '**없음 — 중심화 안 됨**'})", ""]
+    if not centroid_p.exists():
+        lines += ["> centroid 없이 배정하면 1위-2위 마진이 0.005 수준이라 "
+                  "분야가 거의 무작위로 갈린다. `python -m distill.build_centroid` 확인.", ""]
+
+    # ---- 톤 student ---------------------------------------------------
+    lines += ["## 톤 student (분야별)", ""]
+    langs_all = set()
+    rows = []
+    for d in cfg.fields:
+        meta_p = models_dir / "tone" / d / "meta.json"
+        if not meta_p.exists():
+            rows.append((d, None)); continue
+        m = json.loads(meta_p.read_text())
+        rows.append((d, m))
+        langs_all |= set(m.get("val_per_lang", {}).keys())
+    langs = sorted(langs_all)
+
+    lines += ["### 라벨 일치율 (teacher vs student, val)", ""]
+    lines += ["| 분야 | " + " | ".join(langs) + " |",
+              "|---|" + "---|" * len(langs)]
+    for d, m in rows:
+        if m is None:
+            lines.append(f"| {d} | " + " | ".join("—" for _ in langs) + " |"); continue
+        cells = []
+        for l in langs:
+            v = m["val_per_lang"].get(l)
+            cells.append(f"{v['label_agree']:.3f} (n={v['n']})" if v else "—")
+        lines.append(f"| {d} | " + " | ".join(cells) + " |")
+    lines.append("")
+
+    lines += ["### MAE (확률 오차, 낮을수록 좋음)", ""]
+    lines += ["| 분야 | " + " | ".join(langs) + " |",
+              "|---|" + "---|" * len(langs)]
+    for d, m in rows:
+        if m is None:
+            lines.append(f"| {d} | " + " | ".join("—" for _ in langs) + " |"); continue
+        cells = []
+        for l in langs:
+            v = m["val_per_lang"].get(l)
+            cells.append(f"{v['mae']:.3f}" if v else "—")
+        lines.append(f"| {d} | " + " | ".join(cells) + " |")
+    lines.append("")
+
+    # ---- 경고 -----------------------------------------------------------
+    warn = []
+    for d, m in rows:
+        if m is None: continue
+        for l, v in m["val_per_lang"].items():
+            if v["n"] < cfg.split.min_per_cell // 3:
+                warn.append(f"- {d} × {l}: val {v['n']}건 — 표본이 적어 수치를 신뢰하기 어려움")
+            elif v["label_agree"] < 0.7:
+                warn.append(f"- {d} × {l}: 라벨 일치율 {v['label_agree']:.3f} — 이 조합은 재검토 필요")
+    lines += ["## 경고", ""] + (warn or ["없음"]) + [""]
+
+    lines += ["## 산출물", "",
+              f"- 톤 student: `{models_dir / 'tone' / '{FIELD}'}` "
+              f"(encoder/ · head.pt · meta.json) — 분야별 5개", "",
+              "NLP worker 에 넣을 때:", "",
+              "1. `tone/` 디렉터리 전체 → worker `models/tone-student/`",
+              "2. worker `pipeline/tone.py` 의 `ToneScorer._chunk_probs` 를 "
+              "student 추론으로 교체 (외부 계약 `score_article` 은 그대로)",
+              "3. `meta.json` 의 pooling·head/tail 절단 설정을 읽어 학습과 같은 방식으로 추론",
+              "4. `work/centroid.npy` 를 worker `resources/centroid.npy` 와 "
+              "**같은 파일로 유지** — 다르면 학습 때 나눈 분야와 런타임 라우팅이 어긋난다", ""]
+
+    out = cfg.data.work_dir / "report.md"
+    out.write_text("\n".join(lines), encoding="utf-8")
+    print("\n".join(lines))
+    print(f"\n→ {out}")
 
 
 if __name__ == "__main__":
