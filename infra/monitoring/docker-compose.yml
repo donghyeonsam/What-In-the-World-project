@@ -7,6 +7,23 @@ x-logging: &logging
     max-file: "3"
 
 services:
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    restart: unless-stopped
+    pid: host
+    command:
+      - --path.rootfs=/host
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --collector.disable-defaults
+      - --collector.cpu
+      - --collector.meminfo
+      - --collector.filesystem
+      - --collector.diskstats
+    volumes:
+      - /:/host:ro,rslave
+    logging: *logging
+
   prometheus:
     image: prom/prometheus:v3.13.1
     restart: unless-stopped
@@ -58,12 +75,14 @@ services:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
       GF_USERS_ALLOW_SIGN_UP: "false"
+      BIGDATA_PROMETHEUS_URL: ${BIGDATA_PROMETHEUS_URL:-http://172.26.11.46:9090}
     ports:
       - "127.0.0.1:3002:3000"
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ${BIGDATA_DASHBOARDS_PATH:-../../bigdata/monitoring/grafana/dashboards}:/var/lib/grafana/bigdata:ro
     depends_on:
       - loki
     logging: *logging

@@ -27,8 +27,9 @@ docker compose --env-file /opt/witw-backend-dev/.env -p witw-backend-dev -f back
 docker compose --env-file /opt/witw-monitoring/.env -f infra/monitoring/docker-compose.yml up -d
 ```
 
-대시보드 8개 패널: API 요청/초, 평균·p95 응답시간, 5xx 비율, JVM heap,
-Hikari 커넥션 사용·대기·최대, DB 전체 연결 수(idle 포함), 커밋·롤백/초, 최근 5분 데드락.
+대시보드 12개 패널: API 요청/초, 평균·p95 응답시간, 5xx 비율, JVM heap,
+Hikari 커넥션 사용·대기·최대, DB 전체 연결 수(idle 포함), 커밋·롤백/초, 최근 5분 데드락,
+EC2 CPU·메모리·디스크 사용률과 디스크 읽기·쓰기.
 API 지표는 `/api/**`만 집계한다. 실제 API를 여러 번 호출한 뒤 1분 이상 기다린다.
 요청이 없으면 응답시간·오류 비율은 비어 있을 수 있다. 데드락 증가는 구간 추정치라 소수일 수 있다.
 개별 SQL 실행시간 및 DB 컨테이너 CPU·메모리는 이 구성에 포함하지 않는다.
@@ -41,7 +42,28 @@ Prometheus 설정을 수정한 뒤에는 해당 서비스를 재시작한다.
 설정 근거: [Spring Boot metrics](https://docs.spring.io/spring-boot/reference/actuator/metrics.html),
 [postgres-exporter](https://github.com/prometheus-community/postgres_exporter).
 
-## 기존 로그 수집
+## 빅데이터 지표 조회
+
+앱 Grafana의 `BigData / WITW 데이터 처리 현황`에서 기존 파이프라인 지표와
+EC2 CPU·메모리·디스크 사용률·디스크 읽기/쓰기, Spark 배치 시간 p95를 조회한다.
+앱 Grafana가 빅데이터 Prometheus에 직접 질의하며 지표를 복제하지 않는다.
+
+- 빅데이터 Prometheus: 기본 `172.26.11.46:9090` 바인딩. 변경 시 빅데이터 배포 환경 파일에 `PROMETHEUS_BIND_HOST`를 설정한다.
+- 앱 Grafana: 기본 `http://172.26.11.46:9090`. 변경 시 `/opt/witw-monitoring/.env`에 `BIGDATA_PROMETHEUS_URL`을 설정한다.
+- 기존 `MONITORING_BIND_HOST`는 빅데이터 Grafana 바인딩에만 적용한다.
+- EC2 자원은 node-exporter가 Linux 호스트를 읽어서 제공한다. 컨테이너별 자원 지표는 아니다.
+- VPC 보안 그룹에서 앱 EC2 → 빅데이터 EC2 TCP 9090 접근이 허용되어야 한다.
+
+빅데이터 모니터링과 앱 모니터링을 모두 배포한다. CI가 공유 대시보드를 복사하므로
+별도 대시보드 import는 필요 없다. 배포 디렉터리에서 수동 Compose 명령을 사용할 때는
+`export BIGDATA_DASHBOARDS_PATH=/opt/witw-monitoring/grafana/bigdata`를 먼저 실행한다.
+저장소에서 실행할 때는 기본 상대 경로로 같은 대시보드를 읽는다.
+
+Grafana Explore에서 `Prometheus-BigData`를 선택하고 `up{job="node"}`가 1인지 확인한다.
+`node_memory_MemTotal_bytes`가 빅데이터 EC2 메모리와 맞는지도 확인한다.
+수집 설정을 반영하려면 기존 빅데이터 Prometheus를 재시작한다.
+
+## 기존 로그 수집 상세
 
 FE·BE와 같은 Linux Docker 호스트에서 실행한다. 서로 다른 호스트라면 이 Compose를
 그대로 양쪽에 실행하지 말고, 호스트별 Alloy와 중앙 Loki 연결 구성을 먼저 정한다.
