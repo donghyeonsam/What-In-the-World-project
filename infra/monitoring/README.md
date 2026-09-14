@@ -1,4 +1,47 @@
-# 개발 FE·BE 로그 수집
+# 개발 FE·BE 로그 및 Spring·DB 지표
+
+## Spring·PostgreSQL 최소 모니터링
+
+기존 Grafana를 재사용하고 Prometheus와 postgres-exporter만 추가한다.
+개발 EC2의 `dev-prod` Spring 및 `witw_dev` DB만 대상으로 한다.
+
+```text
+Prometheus → witw-backend-dev:9091/actuator/prometheus → Spring 지표
+Prometheus → postgres-exporter:9187/metrics → postgres:5432/witw_dev 통계
+Grafana → Prometheus → WITW · Spring & PostgreSQL 대시보드
+```
+
+15초마다 수집하고 7일 보관한다. 9091·9187·9090은 호스트에 공개하지 않는다.
+Prometheus만 기존 모니터링 네트워크와 `witw-dev-network` 양쪽에 연결한다.
+DB exporter는 개발 DB의 기존 계정과 `DEV_POSTGRES_PASSWORD`를 사용한다.
+별도 환경변수나 DB 확장은 필요하지 않다.
+
+1. 개발 백엔드를 재배포한다. Spring 이미지 재빌드와 postgres-exporter 시작이 필요하다.
+2. `deploy-monitoring-dev`로 모니터링을 배포한다. Prometheus 및 대시보드 파일도 자동 복사한다.
+3. 아래 SSH 터널로 기존 Grafana에 접속하고 `WITW · Spring & PostgreSQL`을 연다.
+
+수동 실행 시 기존 환경변수가 준비된 상태에서 저장소 루트에서 실행한다.
+
+```bash
+docker compose --env-file /opt/witw-backend-dev/.env -p witw-backend-dev -f backend/docker-compose.dev.yml up -d --build
+docker compose --env-file /opt/witw-monitoring/.env -f infra/monitoring/docker-compose.yml up -d
+```
+
+대시보드 8개 패널: API 요청/초, 평균·p95 응답시간, 5xx 비율, JVM heap,
+Hikari 커넥션 사용·대기·최대, DB 전체 연결 수(idle 포함), 커밋·롤백/초, 최근 5분 데드락.
+API 지표는 `/api/**`만 집계한다. 실제 API를 여러 번 호출한 뒤 1분 이상 기다린다.
+요청이 없으면 응답시간·오류 비율은 비어 있을 수 있다. 데드락 증가는 구간 추정치라 소수일 수 있다.
+개별 SQL 실행시간 및 DB 컨테이너 CPU·메모리는 이 구성에 포함하지 않는다.
+
+Grafana Explore에서 Prometheus를 선택해 `up`의 backend/postgres가 모두 1인지 확인한다.
+`pg_up`도 1이어야 실제 DB 연결이 정상이다. exporter 자체가 살아 있는 것과 구분한다.
+지표가 비면 `docker compose -f backend/docker-compose.dev.yml logs postgres-exporter`로 연결 오류를 확인한다.
+Prometheus 설정을 수정한 뒤에는 해당 서비스를 재시작한다.
+
+설정 근거: [Spring Boot metrics](https://docs.spring.io/spring-boot/reference/actuator/metrics.html),
+[postgres-exporter](https://github.com/prometheus-community/postgres_exporter).
+
+## 기존 로그 수집
 
 FE·BE와 같은 Linux Docker 호스트에서 실행한다. 서로 다른 호스트라면 이 Compose를
 그대로 양쪽에 실행하지 말고, 호스트별 Alloy와 중앙 Loki 연결 구성을 먼저 정한다.
@@ -108,7 +151,7 @@ docker compose restart loki grafana
 - Docker 소켓은 Alloy에만 마운트한다. `:ro`는 Docker API를 읽기 전용으로 제한하지 않으며,
   일반적인 rootful Docker에서는 소켓 접근이 호스트 root 수준 권한으로 이어질 수 있다.
 - Loki에는 인증 계층이 없으므로 현재처럼 Docker 네트워크 안에서만 접근한다.
-- 앱 네트워크와 모니터링 네트워크를 연결할 필요는 없다. Alloy는 Docker API로 읽는다.
+- Alloy는 Docker API로 로그를 읽는다. 지표를 수집하는 Prometheus만 앱 네트워크에도 연결한다.
 - 읽기 위치 저장은 무손실 전송 보장이 아니다. 수집 전 컨테이너 삭제, 원본 로그 로테이션,
   장시간 전송 실패, 멀티라인 버퍼가 남은 상태의 종료 등으로 누락될 수 있다.
 - Nginx URL 등 로그에 민감한 값이 포함될 수 있으므로 실제 수집 내용을 확인한다.
