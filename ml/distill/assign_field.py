@@ -189,6 +189,9 @@ def main() -> None:
     for i, r in enumerate(rows):
         m = metas[int(top1[i])]
         r = dict(r)
+        # body_raw 는 분야 배정 전용이다. 여기가 마지막 사용처이므로 버린다.
+        # 그대로 두면 label 샤드까지 따라가 디스크만 두 배로 먹는다.
+        r.pop("body_raw", None)
         r["theme_id"] = m["theme_id"]
         r["theme_code"] = m["code"]
         r["field_id"] = m["field_id"]

@@ -175,6 +175,15 @@ def main() -> None:
                 body = body[:max_body]
                 stats["truncated_long_body"] += 1
 
+            # 원문 본문 — 분야 배정 전용.
+            #   worker 는 런타임에 상용구를 제거하지 않고 공백만 합쳐 임베딩한다.
+            #   정제본으로 배정하면 worker 의 라우팅과 다른 분야가 나올 수 있다.
+            #   (실측: 기사 34%가 정제로 텍스트가 달라지고, 1.7%는 30% 이상 축소)
+            #   자르지 않는다 — worker 도 자르지 않는다.
+            body_raw = r.get("body") or ""
+            if body_raw != body:
+                stats["body_cleaned"] += 1
+
             # 8. 언어
             lang = cfg.data.country_to_lang.get(country)
             if not lang:
@@ -191,7 +200,8 @@ def main() -> None:
                 "published_at": r.get("published_at"),
                 "url": url,
                 "title": title,
-                "body": body,
+                "body": body,            # 정제본 — teacher 라벨링 / student 학습용
+                "body_raw": body_raw,    # 원문 — 분야 배정용 (worker 와 동일 입력)
                 # worker 가 이미 붙였다면 그대로 들고 간다 (assign_field 가 건너뜀)
                 "section": r.get("section"),
                 "field_id": r.get("field_id"),
@@ -210,6 +220,9 @@ def main() -> None:
             print(f"  - {k[5:]:<24}{stats[k]:>8,}")
     if stats["truncated_long_body"]:
         print(f"  (본문 상한 적용 {stats['truncated_long_body']:,}건)")
+    if stats["body_cleaned"]:
+        print(f"  (상용구 제거로 본문이 바뀐 기사 {stats['body_cleaned']:,}건 "
+              f"— 분야 배정에는 원문 body_raw 를 쓴다)")
     print(f"출력  {stats['kept']:>8,}건  ({stats['kept'] / max(stats['total'], 1):.1%})"
           f"  → {out_path}")
 
