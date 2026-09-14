@@ -93,5 +93,17 @@ public class AuthController {
         return BaseResponse.success(SuccessCode.LOGIN_SUCCESS);
     }
 
+    @PostMapping("/logout")
+    @Operation(summary = "로그아웃")
+    public ResponseEntity<BaseResponse<Void>> logout(
+            HttpServletRequest request
+    ){
+        HttpSession session = request.getSession(false);
+
+        if(session != null) session.invalidate();
+
+
+        return BaseResponse.success(SuccessCode.LOGOUT_SUCCESS);
+    }
 
 }
