@@ -1,81 +1,56 @@
-"""JSONL 스트리밍과 샤드 단위 재개. JupyterHub 24시간 제한 대응의 기반."""
+"""JSONL 읽기·쓰기, 샤드 단위 재시작."""
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable, Iterator
 from pathlib import Path
-from typing import Any, Iterable, Iterator
 
 
-def read_jsonl(path: str | Path, limit: int | None = None,
-               skip: int = 0) -> Iterator[dict]:
-    """깨진 줄은 건너뛴다. skip은 재개용 입력 오프셋."""
-    with open(path, "r", encoding="utf-8") as f:
-        yielded = 0
-        for i, line in enumerate(f):
-            if i < skip:
-                continue
+def read_jsonl(path: Path) -> Iterator[dict]:
+    with Path(path).open(encoding="utf-8") as f:
+        for line in f:
             line = line.strip()
             if not line:
                 continue
             try:
-                row = json.loads(line)
+                yield json.loads(line)
             except json.JSONDecodeError:
-                continue
-            yield row
-            yielded += 1
-            if limit is not None and yielded >= limit:
-                return
+                continue            # 깨진 줄은 조용히 건너뛴다
 
 
-def write_jsonl(path: str | Path, rows: Iterable[dict], mode: str = "w") -> int:
+def write_jsonl(path: Path, rows: Iterable[dict]) -> int:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     n = 0
-    with open(path, mode, encoding="utf-8") as f:
-        for row in rows:
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    with path.open("w", encoding="utf-8") as f:
+        for r in rows:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
             n += 1
     return n
 
 
-def count_jsonl(path: str | Path) -> int:
-    with open(path, "r", encoding="utf-8") as f:
+def count_lines(path: Path) -> int:
+    with Path(path).open(encoding="utf-8") as f:
         return sum(1 for line in f if line.strip())
 
 
-def shard_path(directory: str | Path, stem: str, idx: int) -> Path:
-    return Path(directory) / f"{stem}.{idx:05d}.jsonl"
+def shard_path(dir_: Path, idx: int) -> Path:
+    return Path(dir_) / f"shard_{idx:04d}.jsonl"
 
 
-def existing_shards(directory: str | Path, stem: str) -> list[Path]:
-    d = Path(directory)
-    if not d.exists():
-        return []
-    return sorted(d.glob(f"{stem}.[0-9]*.jsonl"))
-
-
-def resume_state(directory: str | Path, stem: str) -> tuple[int, int]:
-    """(다음에 쓸 샤드 번호, 이미 처리한 입력 행 수).
-
-    전제: 입력 1행 = 출력 1행. 그래서 label.py는 게이트 탈락분도
-    버리지 않고 gate_pass=false로 그대로 쓴다. 탈락률 실측과
-    재개 산수를 동시에 얻는 방식.
-    """
-    shards = existing_shards(directory, stem)
-    return len(shards), sum(count_jsonl(p) for p in shards)
-
-
-def read_shards(directory: str | Path, stem: str) -> Iterator[dict]:
-    for p in existing_shards(directory, stem):
-        yield from read_jsonl(p)
-
-
-def iter_batches(items: Iterable[Any], size: int) -> Iterator[list]:
-    buf: list = []
-    for x in items:
-        buf.append(x)
+def iter_shards(rows: Iterable[dict], size: int) -> Iterator[tuple[int, list[dict]]]:
+    """rows 를 size 개씩 묶어 (샤드 번호, 리스트) 로 낸다."""
+    buf: list[dict] = []
+    idx = 0
+    for r in rows:
+        buf.append(r)
         if len(buf) >= size:
-            yield buf
-            buf = []
+            yield idx, buf
+            buf, idx = [], idx + 1
     if buf:
-        yield buf
+        yield idx, buf
+
+
+def read_all_shards(dir_: Path) -> Iterator[dict]:
+    for p in sorted(Path(dir_).glob("shard_*.jsonl")):
+        yield from read_jsonl(p)

@@ -1,57 +1,63 @@
-"""[4] 톤 student 6개 학습 (분야별 1개) → 산출물 B
+"""[stage 4] 톤 student 학습 — 분야별 5개 → work/models/tone/{FIELD}/
 
-python -m distill.train_tone [--only ECONOMY TECH]
+teacher 가 청크를 나눠 집계한 (P긍정, P부정) 을 타깃으로,
+student 는 기사 전체(최대 4,096 토큰)를 한 번에 보고 같은 값을 내도록 배운다.
 
-입력: work/train.jsonl, work/val.jsonl
-출력: artifacts/tone/<CATEGORY>/{model.pt, meta.json}
+  · 손실   : BCEWithLogits, soft target (teacher 확률 그대로)
+  · 절단   : 4,096 초과 시 앞 3,072 + 뒤 1,024
+  · 배치   : 길이가 비슷한 기사끼리 묶음 (group_by_length) — 패딩 낭비·메모리 절약
+  · 메모리 : bf16 + gradient checkpointing
 
-손실은 소프트 타깃 BCEWithLogitsLoss다. teacher 확률이 그대로 타깃이며
-0/1이 아니다. student가 배우는 건 정답표가 아니라 '0.88이라는 숫자 자체'다.
+실행
+    python -m distill.train_tone                  # 6개 전부
+    python -m distill.train_tone --field ECONOMY # 하나만
 """
 from __future__ import annotations
 
 import argparse
-import json
-import math
+import collections
 
 import numpy as np
 import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
+from transformers import AutoTokenizer, Trainer, TrainingArguments
 
-from .config import load_config, out_path, work_path
+from .config import load_config, work_path
 from .io_utils import read_jsonl
-from .models import build_student
-from .scoring import decide_label, tone_point
-from .text import head_tail_ids
+from .models import ToneStudent, resolve_student_model
+from .scoring import decide_label
+from .text import build_text, head_tail
 
 
+# =====================================================================
+# 데이터셋
+# =====================================================================
 class ToneDataset(Dataset):
-    """__init__에서 토크나이즈한다 (특수토큰 제거 → 자르기 → 재부착)."""
+    """토큰화를 __init__ 에서 한 번에 끝낸다.
 
-    def __init__(self, rows: list[dict], tok, max_length: int,
-                 head_tokens: int, tail_tokens: int, max_body_chars: int):
+    group_by_length 가 길이를 알아야 하고, 학습 중 매 스텝 토큰화하면 느리다.
+    """
+
+    def __init__(self, rows: list[dict], tokenizer, max_length: int, head: int, tail: int) -> None:
+        self.rows = rows
         self.items: list[dict] = []
-        cls, sep = tok.cls_token_id, tok.sep_token_id
-        n_special = int(cls is not None) + int(sep is not None)
-        budget = max_length - n_special
-        head = min(head_tokens, budget)
-        tail = min(tail_tokens, max(0, budget - head))
-        for r in rows:
-            text = f"{r['title']}\n\n{r['body'][:max_body_chars]}"
-            ids = tok.encode(text, add_special_tokens=False)
-            ids = head_tail_ids(ids, budget, head, tail)
-            if cls is not None:
-                ids = [cls] + ids
-            if sep is not None:
-                ids = ids + [sep]
-            s = r["sentiment"]
+
+        texts = [build_text(r["title"], r["body"]) for r in rows]
+        # 특수 토큰 없이 인코딩 → 절단 → 특수 토큰 부착. 절단이 [CLS]/[SEP] 을 먹지 않게.
+        encoded = tokenizer(texts, add_special_tokens=False, truncation=False)["input_ids"]
+
+        # 특수 토큰 자리(보통 2개)를 빼고 절단 상한을 잡는다
+        n_special = tokenizer.num_special_tokens_to_add(pair=False)
+        body_max = max_length - n_special
+        head = min(head, body_max - tail)
+
+        for r, ids in zip(rows, encoded):
+            ids = head_tail(ids, body_max, head, tail)
+            ids = tokenizer.build_inputs_with_special_tokens(ids)
             self.items.append({
-                "ids": ids,
-                "target": [float(s["p_pos"]), float(s["p_neg"])],
-                "lang": r["lang"], "id": r["id"],
-                "label": s["label"], "score": float(s["score"]),
-                "n": len(ids),
+                "input_ids": ids,
+                "labels": [float(r["p_pos"]), float(r["p_neg"])],
+                "length": len(ids),
             })
 
     def __len__(self) -> int:
@@ -60,182 +66,148 @@ class ToneDataset(Dataset):
     def __getitem__(self, i: int) -> dict:
         return self.items[i]
 
-    def lengths(self) -> list[int]:
-        return [it["n"] for it in self.items]
+
+def make_collator(pad_id: int):
+    """배치 안에서 가장 긴 것에 맞춰 패딩. labels 는 (B, 2) float."""
+    def collate(batch: list[dict]) -> dict:
+        max_len = max(len(b["input_ids"]) for b in batch)
+        ids = torch.full((len(batch), max_len), pad_id, dtype=torch.long)
+        mask = torch.zeros((len(batch), max_len), dtype=torch.long)
+        for i, b in enumerate(batch):
+            n = len(b["input_ids"])
+            ids[i, :n] = torch.tensor(b["input_ids"])
+            mask[i, :n] = 1
+        labels = torch.tensor([b["labels"] for b in batch], dtype=torch.float)
+        return {"input_ids": ids, "attention_mask": mask, "labels": labels}
+    return collate
 
 
-def collate(batch: list[dict], pad_id: int) -> dict:
-    n = max(b["n"] for b in batch)
-    ids = torch.full((len(batch), n), pad_id, dtype=torch.long)
-    mask = torch.zeros((len(batch), n), dtype=torch.long)
-    for i, b in enumerate(batch):
-        ids[i, :b["n"]] = torch.tensor(b["ids"], dtype=torch.long)
-        mask[i, :b["n"]] = 1
-    return {
-        "input_ids": ids, "attention_mask": mask,
-        "target": torch.tensor([b["target"] for b in batch], dtype=torch.float32),
-        "lang": [b["lang"] for b in batch],
-        "label": [b["label"] for b in batch],
-    }
-
-
-def length_grouped_batches(lengths: list[int], batch_size: int,
-                           generator: torch.Generator) -> list[list[int]]:
-    """group_by_length. 긴 시퀀스에서 패딩 낭비를 줄인다."""
-    idx = torch.randperm(len(lengths), generator=generator).tolist()
-    mega = batch_size * 50
-    out: list[list[int]] = []
-    for i in range(0, len(idx), mega):
-        block = sorted(idx[i:i + mega], key=lambda j: lengths[j])
-        out.extend(block[j:j + batch_size] for j in range(0, len(block), batch_size))
-    order = torch.randperm(len(out), generator=generator).tolist()
-    return [out[i] for i in order]
+# =====================================================================
+# 평가 지표
+# =====================================================================
+def make_compute_metrics(lab):
+    def compute_metrics(eval_pred):
+        logits, targets = eval_pred
+        probs = 1.0 / (1.0 + np.exp(-logits))                 # sigmoid
+        mae = np.abs(probs - targets).mean()
+        # teacher 라벨과 student 라벨 일치율 — 같은 임계값으로 판정
+        t_lab = [decide_label(a, b, lab.mixed_threshold, lab.neutral_threshold) for a, b in targets]
+        s_lab = [decide_label(a, b, lab.mixed_threshold, lab.neutral_threshold) for a, b in probs]
+        agree = np.mean([t == s for t, s in zip(t_lab, s_lab)])
+        return {"mae": float(mae), "label_agree": float(agree)}
+    return compute_metrics
 
 
 @torch.no_grad()
-def evaluate_split(model, loader, device) -> dict:
+def predict(model: ToneStudent, ds: ToneDataset, collate, device: str, batch_size: int = 16) -> np.ndarray:
     model.eval()
-    per_lang: dict = {}
-    mae_all, lab_ok, n = [], 0, 0
-    for b in loader:
-        p = torch.sigmoid(model(b["input_ids"].to(device),
-                                b["attention_mask"].to(device))).float().cpu().numpy()
-        tgt = b["target"].numpy()
-        for i in range(len(p)):
-            pp, pn = float(p[i, 0]), float(p[i, 1])
-            tp, tn = float(tgt[i, 0]), float(tgt[i, 1])
-            mae = abs(tone_point(pp, pn) - tone_point(tp, tn))
-            ok = int(decide_label(pp, pn) == b["label"][i])
-            mae_all.append(mae)
-            lab_ok += ok
-            n += 1
-            d = per_lang.setdefault(b["lang"][i], {"mae": [], "ok": 0, "n": 0})
-            d["mae"].append(mae)
-            d["ok"] += ok
-            d["n"] += 1
-    return {
-        "point_mae": round(float(np.mean(mae_all)), 3) if mae_all else None,
-        "label_agree": round(lab_ok / n, 4) if n else None,
-        "n": n,
-        "by_lang": {k: {"point_mae": round(float(np.mean(v["mae"])), 3),
-                        "label_agree": round(v["ok"] / v["n"], 4), "n": v["n"]}
-                    for k, v in sorted(per_lang.items())},
-    }
+    out = []
+    for i in range(0, len(ds), batch_size):
+        batch = collate([ds[j] for j in range(i, min(i + batch_size, len(ds)))])
+        probs = model.predict_probs(batch["input_ids"].to(device), batch["attention_mask"].to(device))
+        out.append(probs.float().cpu().numpy())
+    return np.concatenate(out) if out else np.zeros((0, 2))
 
 
-def train_one(category: str, tr_rows: list[dict], va_rows: list[dict], cfg) -> dict:
-    st = cfg.student
+# =====================================================================
+# 분야 하나 학습
+# =====================================================================
+def train_field(cfg, field: str, model_name: str, model_max: int) -> None:
+    s = cfg.student
+    lab = cfg.labels
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model, tok, max_len = build_student(cfg)
-    model.to(device)
-    mbc = int(cfg.category_clf["max_body_chars"])
 
-    ds_tr = ToneDataset(tr_rows, tok, max_len, int(st["head_tokens"]),
-                        int(st["tail_tokens"]), mbc)
-    ds_va = ToneDataset(va_rows, tok, max_len, int(st["head_tokens"]),
-                        int(st["tail_tokens"]), mbc)
-    pad = tok.pad_token_id if tok.pad_token_id is not None else 0
-    va_loader = DataLoader(ds_va, batch_size=int(st["batch_size"]), shuffle=False,
-                           collate_fn=lambda b: collate(b, pad)) if len(ds_va) else None
+    train_rows = list(read_jsonl(work_path(cfg, "splits", field, "train.jsonl")))
+    val_rows = list(read_jsonl(work_path(cfg, "splits", field, "val.jsonl")))
+    if len(train_rows) < 50:
+        print(f"[{field}] train {len(train_rows)}건 — 너무 적어 건너뜀")
+        return
 
-    bs, ga = int(st["batch_size"]), int(st["grad_accum"])
-    epochs = int(st["epochs"])
-    steps = math.ceil(len(ds_tr) / bs / ga) * epochs
-    opt = torch.optim.AdamW(model.parameters(), lr=float(st["lr"]),
-                            weight_decay=float(st.get("weight_decay", 0.01)))
-    sched = torch.optim.lr_scheduler.OneCycleLR(
-        opt, max_lr=float(st["lr"]), total_steps=max(1, steps),
-        pct_start=float(st.get("warmup_ratio", 0.1)), anneal_strategy="cos")
-    lossf = nn.BCEWithLogitsLoss()               # 소프트 타깃
-    use_bf16 = bool(st.get("bf16")) and device == "cuda" and \
-        torch.cuda.is_bf16_supported()
-    gen = torch.Generator().manual_seed(int(cfg.get("seed", 42)))
-    lengths = ds_tr.lengths()
+    max_length = min(s.max_length, model_max)
+    print(f"\n[{field}] train {len(train_rows)} / val {len(val_rows)} / max_length {max_length}")
 
-    print(f"\n=== [{category}] train {len(ds_tr):,} / val {len(ds_va):,} "
-          f"토큰 중위 {int(np.median(lengths))} 최대 {max(lengths)} bf16={use_bf16}")
+    tok = AutoTokenizer.from_pretrained(model_name)
+    train_ds = ToneDataset(train_rows, tok, max_length, s.head_tokens, s.tail_tokens)
+    val_ds = ToneDataset(val_rows, tok, max_length, s.head_tokens, s.tail_tokens)
+    collate = make_collator(tok.pad_token_id)
 
-    for ep in range(1, epochs + 1):
-        model.train()
-        batches = (length_grouped_batches(lengths, bs, gen)
-                   if st.get("group_by_length", True)
-                   else [list(range(i, min(i + bs, len(ds_tr))))
-                         for i in range(0, len(ds_tr), bs)])
-        opt.zero_grad()
-        run_loss, seen = 0.0, 0
-        for k, bidx in enumerate(batches, 1):
-            b = collate([ds_tr[i] for i in bidx], pad)
-            ctx = (torch.autocast("cuda", dtype=torch.bfloat16) if use_bf16
-                   else torch.autocast("cpu", enabled=False))
-            with ctx:
-                logits = model(b["input_ids"].to(device), b["attention_mask"].to(device))
-                loss = lossf(logits.float(), b["target"].to(device))
-            (loss / ga).backward()
-            if k % ga == 0 or k == len(batches):
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                opt.step()
-                sched.step()
-                opt.zero_grad()
-            run_loss += float(loss) * len(bidx)
-            seen += len(bidx)
-            if k % 50 == 0:
-                print(f"  ep{ep} {k}/{len(batches)} loss={run_loss/seen:.4f}", flush=True)
-        line = f"  ep{ep} train_loss={run_loss/max(1,seen):.4f}"
-        if va_loader:
-            m = evaluate_split(model, va_loader, device)
-            line += f" val_mae={m['point_mae']} val_agree={m['label_agree']}"
-        print(line, flush=True)
+    lens = [it["length"] for it in train_ds.items]
+    print(f"  토큰 길이 p50 {int(np.percentile(lens, 50))} / p95 {int(np.percentile(lens, 95))} / "
+          f"절단 {sum(1 for l in lens if l >= max_length)}건")
 
-    metrics = evaluate_split(model, va_loader, device) if va_loader else {}
-    d = out_path(cfg, "tone", category, "model.pt").parent
-    torch.save(model.state_dict(), d / "model.pt")
-    meta = {
-        "category": category,
-        "base_model": getattr(model.encoder.config, "_name_or_path", st["model"]),
-        "max_length": max_len,
-        "head_tokens": int(st["head_tokens"]), "tail_tokens": int(st["tail_tokens"]),
-        "pooling": st.get("pooling", "mean"),
-        "loss": "BCEWithLogitsLoss(soft targets)",
-        "n_train": len(ds_tr), "n_val": len(ds_va),
-        "metrics": metrics,
-    }
-    (d / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2),
-                                 encoding="utf-8")
-    print(f"  → {d} / 언어별: {metrics.get('by_lang')}")
-    return meta
+    model = ToneStudent(model_name, pooling=s.pooling)
 
+    out_dir = cfg.data.work_dir / "models" / "tone" / field
+    args = TrainingArguments(
+        output_dir=str(out_dir / "_trainer"),
+        num_train_epochs=s.epochs,
+        learning_rate=s.lr,
+        per_device_train_batch_size=s.batch_size,
+        per_device_eval_batch_size=s.batch_size * 2,
+        gradient_accumulation_steps=s.grad_accum,
+        warmup_ratio=s.warmup_ratio,
+        weight_decay=s.weight_decay,
+        bf16=s.bf16 and device == "cuda",
+        gradient_checkpointing=s.gradient_checkpointing,
+        group_by_length=True,                 # 비슷한 길이끼리 배치 → 패딩·메모리 절약
+        eval_strategy="epoch",
+        save_strategy="no",                   # 저장은 아래에서 직접 (worker 로더 형식으로)
+        logging_steps=20,
+        report_to="none",
+        remove_unused_columns=False,          # torch Dataset 이라 컬럼 제거 로직 불필요
+        dataloader_num_workers=getattr(s, 'num_workers', 4),
+        seed=cfg.split.seed,
+    )
+    trainer = Trainer(
+        model=model, args=args,
+        train_dataset=train_ds, eval_dataset=val_ds,
+        data_collator=collate,
+        compute_metrics=make_compute_metrics(lab),
+    )
+    trainer.train()
 
-def run(cfg, only: list[str] | None = None) -> dict:
-    tr = list(read_jsonl(work_path(cfg, "train.jsonl")))
-    va = list(read_jsonl(work_path(cfg, "val.jsonl")))
-    if not tr:
-        raise SystemExit("train.jsonl이 비었음. 먼저 python -m distill.split 실행")
+    # ---- 언어별 평가 — 전체 평균에 묻히는 언어 성능 저하를 잡기 위해 ------
+    probs = predict(trainer.model, val_ds, collate, device)
+    targets = np.array([[r["p_pos"], r["p_neg"]] for r in val_rows])
+    langs = np.array([r["lang"] for r in val_rows])
 
-    cats = [c for c in cfg.categories if not only or c in only]
-    min_n = int(cfg.student.get("min_train_per_category", 50))
-    summary: dict = {}
-    for c in cats:
-        t = [r for r in tr if r["category"] == c]
-        v = [r for r in va if r["category"] == c]
-        if len(t) < min_n:
-            print(f"\n=== [{c}] train {len(t)} < {min_n} → 건너뜀 (수집 확대 필요)")
-            summary[c] = {"skipped": True, "n_train": len(t)}
-            continue
-        summary[c] = train_one(c, t, v, cfg)
+    print(f"\n  [{field}] 언어별 (val)")
+    print(f"    {'언어':<6}{'n':>6}{'MAE':>8}{'라벨일치':>10}")
+    per_lang = {}
+    for lang in sorted(set(langs)):
+        m = langs == lang
+        mae = float(np.abs(probs[m] - targets[m]).mean())
+        t_lab = [decide_label(a, b, lab.mixed_threshold, lab.neutral_threshold) for a, b in targets[m]]
+        s_lab = [decide_label(a, b, lab.mixed_threshold, lab.neutral_threshold) for a, b in probs[m]]
+        agree = float(np.mean([t == s for t, s in zip(t_lab, s_lab)]))
+        per_lang[lang] = {"n": int(m.sum()), "mae": round(mae, 4), "label_agree": round(agree, 4)}
+        print(f"    {lang:<6}{m.sum():>6}{mae:>8.4f}{agree:>10.4f}")
 
-    p = out_path(cfg, "tone", "summary.json")
-    p.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"\n[tone] {sum(1 for v in summary.values() if not v.get('skipped'))}"
-          f"/{len(cats)}개 학습 완료 → {p}")
-    return summary
+    # 라벨 분포 — student 가 한쪽으로 몰리지 않았는지
+    s_labels = collections.Counter(decide_label(a, b, lab.mixed_threshold, lab.neutral_threshold) for a, b in probs)
+    print(f"  student 라벨 분포: {dict(s_labels)}")
+
+    trainer.model.save(out_dir, tok, extra={
+        "field": field, "max_length": max_length,
+        "head_tokens": s.head_tokens, "tail_tokens": s.tail_tokens,
+        "val_per_lang": per_lang,
+        "mixed_threshold": lab.mixed_threshold, "neutral_threshold": lab.neutral_threshold,
+    })
+    print(f"  저장: {out_dir}")
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="[4] 톤 student 학습")
-    ap.add_argument("--config", default=None)
-    ap.add_argument("--only", nargs="*", default=None, help="특정 분야만")
-    a = ap.parse_args()
-    run(load_config(a.config), only=a.only)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--field", default=None, help="분야 하나만 (미지정 시 전부)")
+    args = ap.parse_args()
+
+    cfg = load_config()
+    model_name, model_max = resolve_student_model(cfg.student.model, cfg.student.fallback_model)
+    print(f"student 베이스: {model_name} (max {model_max})")
+
+    fields = [args.field] if args.field else _field_names(cfg)
+    for d in fields:
+        train_field(cfg, d, model_name, model_max)
 
 
 if __name__ == "__main__":
