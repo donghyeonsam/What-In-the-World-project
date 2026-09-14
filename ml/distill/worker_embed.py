@@ -85,9 +85,15 @@ def encode_articles(articles: list[dict], worker_path: str | Path,
     kept: list[int] = []
 
     for i, article in enumerate(articles):
+        # body_raw 가 있으면 그것을 쓴다. worker 는 런타임에 상용구를 제거하지
+        # 않으므로, 정제본으로 배정하면 worker 의 라우팅과 어긋난다.
+        body = article.get("body_raw")
+        if not body:
+            body = article.get("body", "") or ""
+
         inputs, weights = module._build_chunk_inputs(
             article.get("title", "") or "",
-            article.get("body", "") or "",
+            body,
         )
         if not inputs:
             continue
