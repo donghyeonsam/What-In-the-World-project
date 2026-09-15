@@ -27,9 +27,21 @@ class ToneStudent(nn.Module):
     그래야 "둘 다 높음(mixed)" 을 표현할 수 있다.
     """
 
-    def __init__(self, model_name: str, pooling: str = "mean", dropout: float = 0.1) -> None:
+    def __init__(self, model_name: str, pooling: str = "mean", dropout: float = 0.1,
+                 attn_implementation: str = "eager") -> None:
         super().__init__()
-        self.encoder = AutoModel.from_pretrained(model_name)
+        # attn_implementation
+        #   ModernBERT 계열(mmBERT)은 sdpa/flash 경로에서 bf16 + 패딩 마스크가
+        #   겹치면 softmax 가 전부 마스킹된 행을 만나 NaN 을 낸다.
+        #   실측: 5개 분야 전부 학습 중 loss=nan 으로 붕괴(lr 2e-06 에서도 발생).
+        #   eager 는 느리지만 마스킹을 명시적으로 처리해 그 경로를 피한다.
+        try:
+            self.encoder = AutoModel.from_pretrained(
+                model_name, attn_implementation=attn_implementation)
+        except (TypeError, ValueError) as exc:
+            print(f"[경고] attn_implementation={attn_implementation} 미지원 ({exc}) "
+                  f"→ 기본값으로 로드")
+            self.encoder = AutoModel.from_pretrained(model_name)
         hidden = self.encoder.config.hidden_size
         self.pooling = pooling
         self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(hidden, 2))

@@ -136,8 +136,8 @@ split:
 student:
   model: jhu-clsp/mmBERT-small
   fallback_model: xlm-roberta-base
-  max_length: 4096
-  head_tokens: 3072
+  max_length: 2048
+  head_tokens: 1024
   tail_tokens: 1024
   epochs: 4
   lr: 0.00002
@@ -145,8 +145,8 @@ student:
   # 16×2 에서 32×1 로 바꿔도 실효 배치가 같아 학습 결과는 동일하고,
   # 한 번에 GPU 로 밀어 넣는 양이 두 배가 된다.
   # (실측: 16×2 에서 GPU 사용률 7% — 연산보다 배치 준비가 병목이었다)
-  batch_size: 32                    # H200 기준. 메모리 여유 있으면 64 도 가능
-  grad_accum: 1
+  batch_size: 16                    # H200 기준. 메모리 여유 있으면 64 도 가능
+  grad_accum: 2
   warmup_ratio: 0.1
   weight_decay: 0.01
   bf16: true
