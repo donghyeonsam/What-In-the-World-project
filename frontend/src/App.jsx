@@ -140,7 +140,7 @@ export default function App() {
 
 function AttentionScreen({ data, direction, onDirection, linkCount }) {
   return <><SubHeading title={`${data.countryName}의 국가 관심도`} desc="최근 24시간 기사 내 국가명 언급 비율입니다. 방향별 상위 4개국을 표시합니다." />
-    <PolicyNote>{direction === 'outgoing' ? '청록색 실선: 선택 국가 → 언급한 국가' : '주황색 점선: 언급한 국가 → 선택 국가'} · 지구본에 상위 3개국 중 {linkCount}개 연결 표시. 좌표가 없는 국가는 목록에서만 표시합니다. 지구본을 드래그하면 반대편 연결도 볼 수 있습니다.</PolicyNote>
+    <PolicyNote>{direction === 'outgoing' ? '청록색 흐르는 점선: 선택 국가 → 언급한 국가' : '주황색 흐르는 점선: 언급한 국가 → 선택 국가'} · 지구본에 상위 3개국 중 {linkCount}개 연결 표시. 좌표가 없는 국가는 목록에서만 표시합니다. 지구본을 드래그하면 반대편 연결도 볼 수 있습니다.</PolicyNote>
     <AttentionPanel country={data.countryName} flag={flagOf(data.countryCode)} direction={direction} onDirection={onDirection}
       rows={mentionRows(direction === 'outgoing' ? data.sourceMentions : data.targetMentions)} /></>;
 }
