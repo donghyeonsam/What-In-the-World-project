@@ -13,6 +13,8 @@ const FALLBACK_RAD = { kr: 2.6, us: 12, uk: 4, au: 14, me: 3.2, af: 7, br: 13 };
 const CYAN = 0x6fe7ff;
 const AMBER = 0xffb454;
 const IDLE_CAMERA_Z = 3.7;
+const MIN_CAMERA_Z = 1.5;
+const WHEEL_ZOOM_SPEED = 0.0015;
 const FOCUS_FILL_RATIO = 0.88;
 const VISIBLE_GLOBE_RADIUS = 1.04;
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -70,8 +72,9 @@ function glowTex() {
 function labelTex(text) {
   const cv = document.createElement('canvas');
   const ctx = cv.getContext('2d');
-  cv.width = 256;
-  cv.height = 72;
+  cv.width = 512;
+  cv.height = 144;
+  ctx.scale(2, 2);
   ctx.font = '700 24px Pretendard, IBM Plex Sans KR, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -150,7 +153,8 @@ export default function GlobeThree({
     const cam = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
     cam.position.set(0, 0, IDLE_CAMERA_Z);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    // 일반 DPI 화면도 슈퍼샘플링하되 고밀도 화면에서는 GPU 부하를 제한한다.
+    renderer.setPixelRatio(Math.min(Math.max(window.devicePixelRatio || 1, 1.5), 2));
     renderer.outputEncoding = THREE.sRGBEncoding;
     wrap.appendChild(renderer.domElement);
 
@@ -168,7 +172,7 @@ export default function GlobeThree({
        방향광은 낮춰 낮/밤의 입체감만 남긴다. */
     globe.add(
       new THREE.Mesh(
-        new THREE.SphereGeometry(1, 64, 64),
+        new THREE.SphereGeometry(1, 128, 96),
         new THREE.MeshPhongMaterial({
           map: earthTex,
           emissive: 0xffffff,
@@ -703,6 +707,7 @@ export default function GlobeThree({
     let spin = true;
     let focusRotation = null;
     let targetZ = IDLE_CAMERA_Z;
+    let userZoomed = false;
     let focusedId = null;
     let highlightId = null; /* 목록만 좁힌 상태(줌 없이 윤곽만 강조) */
     const activeId = () => focusedId || highlightId;
@@ -712,6 +717,10 @@ export default function GlobeThree({
       const limitingHalfFov = Math.min(verticalHalfFov, horizontalHalfFov);
       return VISIBLE_GLOBE_RADIUS / Math.sin(limitingHalfFov * FOCUS_FILL_RATIO);
     };
+    const clampCameraZ = (z) => Math.max(
+      MIN_CAMERA_Z,
+      Math.min(Math.max(IDLE_CAMERA_Z, focusCameraZ()) * 2, z),
+    );
 
     const hitTargets = () =>
       beacons.filter((b) => b.visible).concat(pinHeads, countryLabels, countryHoverTargets);
@@ -775,6 +784,16 @@ export default function GlobeThree({
         wrap.classList.remove(s.pointing);
       }
     };
+    const onWheel = (e) => {
+      // Ctrl+휠은 브라우저 확대/축소에 맡기고, 지구본 위의 일반 휠만 처리한다.
+      if (e.ctrlKey || !Number.isFinite(e.deltaY) || e.deltaY === 0) return;
+      e.preventDefault();
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? wrap.clientHeight : 1;
+      const delta = Math.max(-200, Math.min(200, e.deltaY * unit));
+      targetZ = clampCameraZ(targetZ * Math.exp(delta * WHEEL_ZOOM_SPEED));
+      userZoomed = true;
+      tipRef.current?.classList.remove(s.show);
+    };
     const onClick = () => {
       if (dragDistance >= 5) {
         dragDistance = 0;
@@ -797,6 +816,7 @@ export default function GlobeThree({
     addEventListener('pointerup', onUp);
     addEventListener('pointermove', onMove);
     wrap.addEventListener('click', onClick);
+    renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
 
     /* ── 루프 ── */
     const resize = () => {
@@ -806,7 +826,8 @@ export default function GlobeThree({
       renderer.setSize(w, h);
       cam.aspect = w / h;
       cam.updateProjectionMatrix();
-      if (focusedId) targetZ = focusCameraZ();
+      if (userZoomed) targetZ = clampCameraZ(targetZ);
+      else if (focusedId) targetZ = focusCameraZ();
     };
     addEventListener('resize', resize);
     resize();
@@ -877,6 +898,7 @@ export default function GlobeThree({
         };
         /* 화면의 짧은 축 안에 지구본 외곽이 남는 범위까지만 확대한다. */
         targetZ = focusCameraZ();
+        userZoomed = false;
         spin = false;
         setAutoSpin(false);
         syncBeacons(id);
@@ -887,6 +909,7 @@ export default function GlobeThree({
         focusedId = null;
         focusRotation = null;
         targetZ = IDLE_CAMERA_Z;
+        userZoomed = false;
         spin = true;
         setAutoSpin(true);
         clearCountryFx();
@@ -914,6 +937,7 @@ export default function GlobeThree({
       removeEventListener('pointermove', onMove);
       wrap.removeEventListener('pointerdown', onDown);
       wrap.removeEventListener('click', onClick);
+      renderer.domElement.removeEventListener('wheel', onWheel);
       clearCountryFx();
       disposeObj(scene);
       renderer.dispose();

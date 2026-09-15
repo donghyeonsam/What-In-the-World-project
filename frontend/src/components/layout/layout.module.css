@@ -22,7 +22,7 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 26px 30px 20px;
+  padding: 0; /* 확대된 지구본이 지도 스테이지 가장자리까지 채워지도록 한다. */
   border-right: 1px solid #17233d;
   background:
     radial-gradient(circle at 48% 46%, rgba(23, 67, 135, 0.28) 0%, rgba(7, 19, 69, 0.12) 32%, transparent 58%),
