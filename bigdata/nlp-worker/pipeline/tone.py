@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -58,6 +59,69 @@ TONE_ENABLED = os.getenv("TONE_ENABLED", "1") not in ("0", "false", "False")
 # 어느 backend 를 쓸지. "teacher" 로 두면 student 디렉터리가 있어도 무시한다.
 # 증류 모델에 문제가 생겼을 때 코드를 되돌리지 않고 되돌아가는 스위치.
 TONE_BACKEND = os.getenv("TONE_BACKEND", "student").strip().lower()
+
+# --- 분야별 점수 보정 -------------------------------------------------------
+# student 점수의 중앙값이 분야마다 크게 다르다(실측 POLITICS 22.6 ~ TECH 88.5).
+# 분야 안의 5~95% 폭이 60점대이므로, 이 66점 격차는 기사 내용만큼 점수를 좌우한다.
+# 보정하지 않으면 지구본이 논조가 아니라 그 나라 뉴스의 테마 구성을 그리게 된다.
+#
+# 보정 방식은 분위수 매핑이다. "같은 분야 기사 중 몇 퍼센타일로 긍정적인가"를
+# 점수로 쓴다. 단순히 중앙값을 빼는 방식은 쓸 수 없다 — score 에 0~100 경계가
+# 있어서, 이미 위쪽에 붙은 TECH 를 아래로 밀면 위쪽 절반이 뭉개진다.
+#
+# 기준표는 build_calibration.py 로 한 번 만들고 고정한다. 매번 다시 계산하면
+# 유난히 부정적인 기간도 항상 중앙값 50 으로 정규화되어 변화가 사라진다.
+#
+# 파일이 없으면 보정 없이 기존과 동일하게 동작한다.
+CALIBRATION_PATH = Path(os.getenv(
+    "TONE_CALIBRATION_PATH", str(MODELS_DIR / "tone-student" / "calibration.json")))
+TONE_CALIBRATION = os.getenv("TONE_CALIBRATION", "1") not in ("0", "false", "False")
+# CULTURE 전용 모델은 없다. 라우팅과 같은 규칙으로 SOCIETY 기준표를 쓴다.
+CALIBRATION_ALIASES = {"CULTURE": "SOCIETY"}
+
+_calibration: dict[str, Any] | None = None
+_calibration_loaded = False
+
+
+def get_calibration() -> dict[str, Any] | None:
+    """보정 기준표 singleton. 없거나 형식이 깨졌으면 None(= 보정 안 함)."""
+    global _calibration, _calibration_loaded
+    if _calibration_loaded:
+        return _calibration
+    _calibration_loaded = True
+
+    if not TONE_CALIBRATION:
+        logger.info("Tone calibration disabled (TONE_CALIBRATION=0)")
+        return None
+    if not CALIBRATION_PATH.is_file():
+        logger.warning(
+            "tone calibration not found (%s); 분야별 점수 격차(실측 66점)가 "
+            "그대로 남습니다. build_calibration.py 로 만드세요.", CALIBRATION_PATH)
+        return None
+
+    try:
+        raw = json.loads(CALIBRATION_PATH.read_text(encoding="utf-8"))
+        grid = np.asarray(raw["grid"], dtype=np.float64)
+        table: dict[str, np.ndarray] = {}
+        for key, values in raw["quantiles"].items():
+            xp = np.asarray(values, dtype=np.float64)
+            if xp.shape != grid.shape:
+                raise ValueError(f"quantiles[{key}] 길이가 grid 와 다릅니다")
+            if not np.all(np.isfinite(xp)) or np.any(np.diff(xp) < 0):
+                raise ValueError(f"quantiles[{key}] 가 단조증가가 아닙니다")
+            # np.interp 의 xp 는 단조증가여야 한다. 동점 구간(확률이 뭉친 구간)에
+            # 미세한 증분을 주어 평평한 계단을 없앤다.
+            table[key] = np.maximum.accumulate(xp + np.arange(xp.size) * 1e-9)
+        if not table:
+            raise ValueError("quantiles 가 비어 있습니다")
+        _calibration = {"grid": grid, "table": table}
+        logger.info("Tone calibration loaded: %s (built_at=%s, fields=%s)",
+                    CALIBRATION_PATH, raw.get("built_at", "?"),
+                    ", ".join(sorted(table)))
+    except Exception:
+        logger.exception("tone calibration load failed; 보정 없이 진행합니다")
+        _calibration = None
+    return _calibration
 
 
 def resolve_model_source() -> tuple[str, bool]:
@@ -435,14 +499,37 @@ def decide_label(p_pos: float, p_neg: float) -> str:
     return "positive" if p_pos >= p_neg else "negative"
 
 
-def tone_point(p_pos: float, p_neg: float) -> float:
+def tone_point(p_pos: float, p_neg: float, category: str | None = None) -> float:
     """0~100. DB의 article.tone_score로 들어가는 값.
+
+    category 를 주고 보정 기준표가 있으면 분야별 분위수 점수를 돌려준다.
+    주지 않으면(또는 기준표가 없으면) 기존 선형 환산 그대로다.
+
+    보정을 켜면 점수의 의미가 바뀐다.
+      보정 전: 절대적 논조. "긍정 확률이 부정 확률보다 얼마나 높은가"
+      보정 후: 같은 분야 안에서의 상대적 논조. "같은 분야 기사 중 몇 퍼센타일인가"
+
+    그래서 보정 후에는 label 과 점수가 어긋나 보일 수 있다. 정치 기사는 원래
+    대부분 negative 라, negative 인데 60점(= 정치 기사 중에서는 덜 부정적)인
+    경우가 정상이다. label 은 확률 그대로 판정하므로 이 영향을 받지 않는다.
 
     주의: mixed(0.72, 0.69)와 neutral(0.33, 0.30)이 똑같이 51.5가 될 수 있다.
     점수만 저장하면 '논조가 강하게 갈린 기사'와 '논조가 없는 기사'를 구분할
     수 없으므로 label을 함께 저장해야 한다.
     """
-    return round(max(0.0, min(100.0, 50.0 * (1.0 + p_pos - p_neg))), 2)
+    raw = round(max(0.0, min(100.0, 50.0 * (1.0 + p_pos - p_neg))), 2)
+    if category is None:
+        return raw
+
+    cal = get_calibration()
+    if cal is None:
+        return raw
+    xp = cal["table"].get(CALIBRATION_ALIASES.get(category, category))
+    if xp is None:
+        return raw
+
+    # 기준표 범위를 벗어나면 np.interp 가 양끝 값(0 / 100)으로 잘라 준다.
+    return round(float(np.interp(float(p_pos) - float(p_neg), xp, cal["grid"])), 2)
 
 
 def make_sentiment(
@@ -454,8 +541,13 @@ def make_sentiment(
     n_chunks: int,
 ) -> dict[str, Any]:
     """Spark는 score만 읽는다(article_event._tone_score). 나머지는 진단용."""
+    # n_chunks == 0 은 폴백 경로(empty/dummy/error/disabled)다. 실제 추론 결과가
+    # 아니라 (0.0, 0.0) 자리표시자이므로 보정을 태우면 안 된다. 50.0 그대로 둔다.
+    cal_category = category if n_chunks else None
     return {
-        "score": tone_point(p_pos, p_neg),
+        "score": tone_point(p_pos, p_neg, cal_category),
+        # 보정 전 원값. 보정이 없으면 score 와 같다. 진단·재계산용이며 하류는 안 읽는다.
+        "score_raw": tone_point(p_pos, p_neg),
         "label": decide_label(p_pos, p_neg),
         "confidence": round(float(max(p_pos, p_neg)), 4),
         "p_pos": round(float(p_pos), 4),
