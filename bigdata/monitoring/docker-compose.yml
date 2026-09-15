@@ -96,7 +96,7 @@ services:
     environment:
       HDFS_NAMENODE_HTTP_URL: http://namenode:9870
       HDFS_DATANODE_HTTP_URL: http://datanode:9864
-      HDFS_MONITORED_PATHS: ${HDFS_MONITORED_PATHS:-/data/news/bronze/news.raw.v1,/data/news/silver/news.enriched.v1,/checkpoints}
+      HDFS_MONITORED_PATHS: ${HDFS_MONITORED_PATHS:-/data/news/silver/news.enriched.v1,/checkpoints}
     networks:
       - news-network
 
