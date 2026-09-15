@@ -94,9 +94,7 @@ Kafka는 각 처리 컴포넌트 사이에서 메시지를 전달하는 역할�
 ```text
 news.raw.v1
  │
- ├──► NLP Worker
- │
- └──► HDFS 저장 처리(bronze)
+ └──► NLP Worker
 ```
 
 ### 2-1. Topic 정보<hr>
@@ -104,7 +102,7 @@ news.raw.v1
 | --- | --- |
 | Topic | `news.raw.v1` |
 | Producer | 뉴스 수집기 |
-| Consumer | NLP Worker, HDFS 저장 처리 |
+| Consumer | NLP Worker |
 | Partition | 6 |
 
 `news.raw`에는 기사 원문과 수집 단계에서 생성된 메타데이터가 저장된다.

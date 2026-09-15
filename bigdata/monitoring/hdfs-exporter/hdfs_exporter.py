@@ -16,7 +16,7 @@ PATHS = tuple(
     path.strip()
     for path in os.getenv(
         "HDFS_MONITORED_PATHS",
-        "/data/news/bronze/news.raw.v1,/data/news/silver/news.enriched.v1,/checkpoints",
+        "/data/news/silver/news.enriched.v1,/checkpoints",
     ).split(",")
     if path.strip()
 )

@@ -257,45 +257,6 @@ services:
     networks:
       - news-network
 
-  bronze-writer:
-    build:
-      context: ./kafka-hdfs-writer
-      dockerfile: Dockerfile
-
-    container_name: news-bronze-writer
-    restart: unless-stopped
-    labels:
-      logging: enabled
-      service: bronze-writer
-      env: prod
-    stop_grace_period: 60s
-
-    depends_on:
-      kafka:
-        condition: service_healthy
-      kafka-init:
-        condition: service_completed_successfully
-      namenode:
-        condition: service_healthy
-      datanode:
-        condition: service_healthy
-
-    environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-      KAFKA_TOPIC: news.raw.v1
-      KAFKA_GROUP_ID: ${BRONZE_WRITER_GROUP_ID:-news-raw-hdfs-bronze-v1}
-      HDFS_URI: hdfs://namenode:9000
-      HDFS_OUTPUT_PATH: ${BRONZE_HDFS_PATH:-/data/news/bronze/news.raw.v1}
-      HDFS_USER: root
-      HADOOP_CONF_DIR: /opt/hadoop-conf
-
-    volumes:
-      - ./hadoop/config:/opt/hadoop-conf:ro
-
-    logging: *default-logging
-    networks:
-      - news-network
-
   silver-writer:
     build:
       context: ./kafka-hdfs-writer
@@ -327,6 +288,9 @@ services:
       HDFS_OUTPUT_PATH: ${SILVER_HDFS_PATH:-/data/news/silver/news.enriched.v1}
       HDFS_USER: root
       HADOOP_CONF_DIR: /opt/hadoop-conf
+      HDFS_BATCH_MAX_BYTES: ${SILVER_HDFS_BATCH_MAX_BYTES:-67108864}
+      HDFS_BATCH_MAX_RECORDS: ${SILVER_HDFS_BATCH_MAX_RECORDS:-50000}
+      HDFS_BATCH_FLUSH_INTERVAL_SECONDS: ${SILVER_HDFS_BATCH_FLUSH_INTERVAL_SECONDS:-300}
 
     volumes:
       - ./hadoop/config:/opt/hadoop-conf:ro

@@ -10,6 +10,8 @@ import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -24,15 +26,20 @@ public final class KafkaToHdfsWriter {
     public static void main(String[] args) throws Exception {
         // 환경 변수를 읽어옴
         String bootstrapServers = env("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092");
-        String topic = env("KAFKA_TOPIC", "news.raw.v1");
-        String groupId = env("KAFKA_GROUP_ID", "news-raw-hdfs-bronze-v1");
+        String topic = env("KAFKA_TOPIC", "news.enriched.v1");
+        String groupId = env("KAFKA_GROUP_ID", "news-enriched-hdfs-silver-v1");
         String hdfsUri = env("HDFS_URI", "hdfs://namenode:9000");
         String outputPath = env(
                 "HDFS_OUTPUT_PATH",
-                env("HDFS_BRONZE_PATH", "/data/news/bronze/news.raw.v1")
+                "/data/news/silver/news.enriched.v1"
         );
         String hdfsUser = env("HDFS_USER", "root");
         String hadoopConfDirectory = env("HADOOP_CONF_DIR", "/opt/hadoop-conf");
+        long maxBatchBytes = positiveLongEnv("HDFS_BATCH_MAX_BYTES", 64L * 1024 * 1024);
+        long maxBatchRecords = positiveLongEnv("HDFS_BATCH_MAX_RECORDS", 50_000L);
+        Duration flushInterval = Duration.ofSeconds(
+                positiveLongEnv("HDFS_BATCH_FLUSH_INTERVAL_SECONDS", 300L)
+        );
 
         // 연결할 hdfs 환경 설정
         Configuration hadoopConfiguration = new Configuration();
@@ -59,38 +66,60 @@ public final class KafkaToHdfsWriter {
             // HDFS 출력 디렉터리 생성
             Path outputDirectory = new Path(outputPath);
             hdfs.mkdirs(outputDirectory);
+            PendingBatch pendingBatch = new PendingBatch();
 
             // 설정된 토픽 구독
             consumer.subscribe(List.of(topic));
             while (true) {
-                // 데이터를 가져올 때 최대 5초까지 기다린다 (5초 동안 최대 MAX_POLL만큼의 레코드를 받을 수 있음)
+                // 데이터가 없을 때만 최대 5초 기다린다. 데이터가 계속 들어와도 poll을
+                // 유지해 consumer heartbeat를 보내고, 반환된 레코드는 HDFS 배치에 누적한다.
                 ConsumerRecords<String, String> records = consumer.poll(Duration.ofSeconds(5));
-                if (records.isEmpty()) {
-                    continue;
+                long nowNanos = System.nanoTime();
+                for (ConsumerRecord<String, String> record : records) {
+                    pendingBatch.append(record.value(), nowNanos);
                 }
 
-                byte[] jsonLines = toJsonLines(records);
-                // 파일명이 겹치지 않게 UUID로 설정
-                String fileName = "batch-%d-%s.jsonl".formatted(
-                        System.currentTimeMillis(),
-                        UUID.randomUUID()
-                );
-                // 임시 파일과 최종 파일 구조 생성 (아직 실제로 만들어지진 않음)
-                Path temporaryFile = new Path(outputDirectory, "." + fileName + ".tmp");
-                Path finalFile = new Path(outputDirectory, fileName);
-
-                // 임시 파일에 내용을 기록
-                try (FSDataOutputStream output = hdfs.create(temporaryFile, false)) {
-                    output.write(jsonLines);
+                if (pendingBatch.shouldFlush(
+                        nowNanos,
+                        maxBatchBytes,
+                        maxBatchRecords,
+                        flushInterval
+                )) {
+                    flushBatch(hdfs, outputDirectory, consumer, pendingBatch);
                 }
-                // 완전히 내용이 다 임시 파일에 작성이 되면, 그때 최종 파일로 덮어쓰기 -> 최종 파일은 무조건 완전한 상태일 때만 나타남
-                if (!hdfs.rename(temporaryFile, finalFile)) {
-                    throw new IllegalStateException("Could not complete HDFS file " + finalFile);
-                }
-                // 성공적으로 최종 파일이 만들어지면 커밋 -> offset 갱신
-                consumer.commitSync();
             }
         }
+    }
+
+    private static void flushBatch(
+            FileSystem hdfs,
+            Path outputDirectory,
+            KafkaConsumer<String, String> consumer,
+            PendingBatch pendingBatch
+    ) throws IOException {
+        long recordCount = pendingBatch.recordCount();
+        int payloadBytes = pendingBatch.payloadBytes();
+
+        if (payloadBytes > 0) {
+            String fileName = "batch-%d-%s.jsonl".formatted(
+                    System.currentTimeMillis(),
+                    UUID.randomUUID()
+            );
+            Path temporaryFile = new Path(outputDirectory, "." + fileName + ".tmp");
+            Path finalFile = new Path(outputDirectory, fileName);
+
+            try (FSDataOutputStream output = hdfs.create(temporaryFile, false)) {
+                pendingBatch.writeTo(output);
+            }
+            if (!hdfs.rename(temporaryFile, finalFile)) {
+                throw new IOException("Could not complete HDFS file " + finalFile);
+            }
+        }
+
+        // HDFS 쓰기와 rename이 완료된 데이터까지만 커밋한다. 커밋 전에 종료되면
+        // Kafka가 같은 구간을 다시 전달하므로 유실 없이 중복만 허용한다.
+        consumer.commitSync();
+        pendingBatch.clear();
     }
 
     static byte[] toJsonLines(ConsumerRecords<String, String> records) {
@@ -103,8 +132,70 @@ public final class KafkaToHdfsWriter {
         return result.toString().getBytes(StandardCharsets.UTF_8);
     }
 
+    static final class PendingBatch {
+        private final ByteArrayOutputStream payload = new ByteArrayOutputStream();
+        private long recordCount;
+        private long firstRecordNanos = -1L;
+
+        void append(String value, long nowNanos) {
+            if (recordCount == 0) {
+                firstRecordNanos = nowNanos;
+            }
+            recordCount++;
+            if (value != null) {
+                payload.writeBytes(value.getBytes(StandardCharsets.UTF_8));
+                payload.write('\n');
+            }
+        }
+
+        boolean shouldFlush(
+                long nowNanos,
+                long maxBatchBytes,
+                long maxBatchRecords,
+                Duration flushInterval
+        ) {
+            if (recordCount == 0) {
+                return false;
+            }
+            return payload.size() >= maxBatchBytes
+                    || recordCount >= maxBatchRecords
+                    || nowNanos - firstRecordNanos >= flushInterval.toNanos();
+        }
+
+        long recordCount() {
+            return recordCount;
+        }
+
+        int payloadBytes() {
+            return payload.size();
+        }
+
+        void writeTo(FSDataOutputStream output) throws IOException {
+            payload.writeTo(output);
+        }
+
+        void clear() {
+            payload.reset();
+            recordCount = 0;
+            firstRecordNanos = -1L;
+        }
+    }
+
     private static String env(String name, String defaultValue) {
         String value = System.getenv(name);
         return value == null || value.isBlank() ? defaultValue : value;
+    }
+
+    private static long positiveLongEnv(String name, long defaultValue) {
+        String rawValue = env(name, Long.toString(defaultValue));
+        try {
+            long value = Long.parseLong(rawValue);
+            if (value <= 0) {
+                throw new IllegalArgumentException(name + " must be positive");
+            }
+            return value;
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException(name + " must be an integer", exception);
+        }
     }
 }
