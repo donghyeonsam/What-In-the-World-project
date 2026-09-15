@@ -44,16 +44,18 @@ export default function AttentionPanel({ country, flag = '🌐', direction, onDi
         <button
           type="button"
           className={outgoing ? s.on : ''}
+          aria-pressed={outgoing}
           onClick={() => onDirection?.('outgoing')}
         >
-          관심을 보낸 국가
+          언급한 국가
         </button>
         <button
           type="button"
           className={!outgoing ? s.on : ''}
+          aria-pressed={!outgoing}
           onClick={() => onDirection?.('incoming')}
         >
-          관심을 받은 국가
+          언급받은 국가
         </button>
       </div>
 

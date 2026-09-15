@@ -3,6 +3,7 @@ import { api } from './data/api.js';
 import { useResource } from './data/useResource.js';
 import { articleCard, themeCard, mentionRows, globeTones, fmt, flagOf } from './data/responseAdapters.js';
 import { countryMetadata, iso3 } from './data/countries.js';
+import { mentionLinks } from './lib/mentionLinks.js';
 import HeaderMinimal from './components/header/HeaderMinimal.jsx';
 import GlobeThree from './components/globe/GlobeThree.jsx';
 import DashboardLayout, { GlobeSlot } from './components/layout/Layouts.jsx';
@@ -32,10 +33,12 @@ export default function App() {
   const [history, setHistory] = useState([HOME]);
   const view = history[history.length - 1];
   const [spot, setSpot] = useState(null);
+  const [mentionDirection, setMentionDirection] = useState('outgoing');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const panelRef = useRef(null);
   const go = useCallback((next) => {
     setSpot(null);
+    setMentionDirection('outgoing');
     setHistory((old) => next.type === 'dash'
       ? [HOME]
       : next.type === 'articles' && old.at(-1).type === 'articles'
@@ -72,6 +75,10 @@ export default function App() {
   const openArticles = () => go({ ...view, type: 'articles', title: '대표 기사' });
   const countryName = country.data?.countryName || countryMetadata.find((c) => c.code === view.countryCode)?.name || view.countryCode;
   const updated = dashboard.updatedAt ? `${dashboard.updatedAt.toLocaleTimeString('ko-KR')} 조회` : '';
+  const relations = useMemo(() => view.type === 'attention' && !country.error
+    && country.data?.countryCode?.toUpperCase() === view.countryCode
+    ? mentionLinks(country.data, mentionDirection, countryMetadata) : [],
+  [view.type, view.countryCode, country.data, country.error, mentionDirection]);
 
   let body;
   if (view.type === 'dash') body = <ResourceState resource={dashboard}>{(data) => <div className={s.globalDashboard}>
@@ -106,7 +113,7 @@ export default function App() {
     <SectionTitle title={view.countryCode ? `${countryName} 대표 기사` : '대표 기사 · 전 세계'} action={{ label: '더 보기 →', onClick: openArticles }} />
     <ArticleFeed articles={data.representArticles.slice(0, 3).map(articleCard)} />
   </>}</ResourceState>;
-  else if (view.type === 'attention') body = <ResourceState resource={country}>{(data) => <AttentionScreen key={data.countryCode} data={data} />}</ResourceState>;
+  else if (view.type === 'attention') body = <ResourceState resource={country}>{(data) => <AttentionScreen data={data} direction={mentionDirection} onDirection={setMentionDirection} linkCount={relations.length} />}</ResourceState>;
   else if (view.type === 'themes' || view.type === 'field') body = <ResourceState resource={view.countryCode ? popular : fields}>{() => {
     const list = view.countryCode ? (popular.data?.popularThemes || []) : catalog;
     const grouped = [...new Set(list.map((item) => item.fieldName))];
@@ -123,7 +130,7 @@ export default function App() {
   return <><DashboardLayout panelRef={panelRef}
     header={<HeaderMinimal route={view.countryCode ? 'country' : 'global'} onRoute={(route) => route === 'global' ? go(HOME) : goCountry(view.countryCode?.toLowerCase() || 'kr')} onSearch={openPalette} />}
     stage={<GlobeSlot><GlobeThree countries={countryMetadata} iso3={iso3} tone={mapTone} minSample={null} focus={spot || view.countryCode?.toLowerCase()}
-      spinControl={false} onOpenCountry={goCountry} /></GlobeSlot>}
+      mentionRelations={relations} spinControl={false} onOpenCountry={goCountry} /></GlobeSlot>}
     panel={<div className={s.panelContent}>{history.length > 1 && <div className={s.panelNav}>
       <BackLink onClick={() => setHistory((old) => old.slice(0, -1))}>← 이전 화면</BackLink>
     </div>}{body}</div>} />
@@ -131,10 +138,10 @@ export default function App() {
       onSelect={(name) => goCountry(countryMetadata.find((item) => item.name === name).id)} /></>;
 }
 
-function AttentionScreen({ data }) {
-  const [direction, setDirection] = useState('outgoing');
+function AttentionScreen({ data, direction, onDirection, linkCount }) {
   return <><SubHeading title={`${data.countryName}의 국가 관심도`} desc="최근 24시간 기사 내 국가명 언급 비율입니다. 방향별 상위 4개국을 표시합니다." />
-    <AttentionPanel country={data.countryName} flag={flagOf(data.countryCode)} direction={direction} onDirection={setDirection}
+    <PolicyNote>{direction === 'outgoing' ? '청록색 실선: 선택 국가 → 언급한 국가' : '주황색 점선: 언급한 국가 → 선택 국가'} · 지구본에 상위 3개국 중 {linkCount}개 연결 표시. 좌표가 없는 국가는 목록에서만 표시합니다. 지구본을 드래그하면 반대편 연결도 볼 수 있습니다.</PolicyNote>
+    <AttentionPanel country={data.countryName} flag={flagOf(data.countryCode)} direction={direction} onDirection={onDirection}
       rows={mentionRows(direction === 'outgoing' ? data.sourceMentions : data.targetMentions)} /></>;
 }
 

@@ -4,6 +4,7 @@ import { toneRGB, NO_SAMPLE, rgbHex } from '../../lib/tone.js';
 import { shortLon, prefersReducedMotion } from '../../lib/format.js';
 import { countryCameraZ } from '../../lib/globeFocus.js';
 import { earthTextureUrls, loadEarthTexture } from '../../lib/earthTextures.js';
+import { createMentionGroup } from '../../lib/mentionLinks.js';
 import s from './GlobeThree.module.css';
 
 const GEO_URL =
@@ -22,6 +23,7 @@ const CAMERA_LERP = 0.06;
 const COUNTRY_FOCUS_LERP = 1 - (1 - CAMERA_LERP) ** 1.2;
 const FOCUS_FILL_RATIO = 0.88;
 const VISIBLE_GLOBE_RADIUS = 1.04;
+const NO_MENTION_RELATIONS = [];
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 
 /** 위경도 → 구면 좌표 */
@@ -129,6 +131,7 @@ export default function GlobeThree({
   minSample = 30,
   focus = null,
   highlight = null,
+  mentionRelations = NO_MENTION_RELATIONS,
   pinCities = {},
   pinsOf,
   onOpenCountry,
@@ -168,6 +171,8 @@ export default function GlobeThree({
     // 초기 화면만 일본 부근을 향하게 한다. 이후 자전·드래그·국가 포커스는 그대로 유지한다.
     const initialOrientation = orientTo(35, 138);
     globe.rotation.set(initialOrientation.pitch, initialOrientation.yaw, 0);
+    let mentionGroup = new THREE.Group();
+    globe.add(mentionGroup);
 
     /* 실제 지구 + 조명 + 대기 글로우 */
     const textureUrls = earthTextureUrls({
@@ -530,7 +535,8 @@ export default function GlobeThree({
           buildCountryOutlines();
           setCountryOutlineActive(activeId());
           if (focusedId && !userZoomed && !userRotated) {
-            targetZ = countryFocusCameraZ(countries.find((c) => c.id === focusedId));
+            targetZ = mentionGroup.children.length ? Math.max(IDLE_CAMERA_Z, focusCameraZ())
+              : countryFocusCameraZ(countries.find((c) => c.id === focusedId));
           }
           if (TONE.active) paintTone();
         })
@@ -757,7 +763,13 @@ export default function GlobeThree({
     );
 
     const hitTargets = () =>
-      beacons.filter((b) => b.visible).concat(pinHeads, countryLabels, countryHoverTargets);
+      beacons.filter((b) => b.visible).concat(pinHeads, countryLabels, countryHoverTargets, mentionGroup.children);
+    const pickHit = () => {
+      const surface = ray.ray.intersectSphere(new THREE.Sphere(globe.getWorldPosition(new THREE.Vector3()), 1), new THREE.Vector3());
+      const surfaceDistance = surface ? surface.distanceTo(ray.ray.origin) : Infinity;
+      return ray.intersectObjects(hitTargets()).find((hit) => hit.object.userData.type !== 'mention'
+        || hit.distance <= surfaceDistance + 0.015);
+    };
 
     const onDown = (e) => {
       dragging = true;
@@ -792,16 +804,18 @@ export default function GlobeThree({
       mouse.x = ((e.clientX - r.left) / r.width) * 2 - 1;
       mouse.y = -((e.clientY - r.top) / r.height) * 2 + 1;
       ray.setFromCamera(mouse, cam);
-      const hit = ray.intersectObjects(hitTargets())[0];
+      const hit = pickHit();
       const tip = tipRef.current;
       if (hit && e.target === renderer.domElement) {
         tip.classList.add(s.show);
         tip.style.left = `${e.clientX - r.left}px`;
         tip.style.top = `${e.clientY - r.top}px`;
         const u = hit.object.userData;
-        setCountryOutlineActive(u.cid || u.id);
+        setCountryOutlineActive(u.type === 'mention' ? activeId() : u.cid || u.id);
         let tt;
-        if (u.type === 'pin') {
+        if (u.type === 'mention') {
+          tt = `<b>${escapeHtml(u.fromName)} → ${escapeHtml(u.toName)}</b><br>국가명 언급 비율 ${(u.ratio * 100).toFixed(1)}%`;
+        } else if (u.type === 'pin') {
           tt = `📌 <b>${escapeHtml(u.title)}</b><br>클릭하면 기사로 이동`;
         } else {
           tt = `${escapeHtml(u.flag)} <b>${escapeHtml(u.name)}</b> · 클릭하면 국가 분석으로 이동`;
@@ -837,9 +851,10 @@ export default function GlobeThree({
         return;
       }
       ray.setFromCamera(mouse, cam);
-      const hit = ray.intersectObjects(hitTargets())[0];
+      const hit = pickHit();
       if (!hit) return;
       const u = hit.object.userData;
+      if (u.type === 'mention') return;
       if (u.type === 'pin') {
         cb.current.onSelectPin?.(u);
         return;
@@ -863,7 +878,8 @@ export default function GlobeThree({
       cam.updateProjectionMatrix();
       if (userZoomed) targetZ = clampCameraZ(targetZ);
       else if (focusedId && !userRotated) {
-        targetZ = countryFocusCameraZ(countries.find((c) => c.id === focusedId));
+        targetZ = mentionGroup.children.length ? Math.max(IDLE_CAMERA_Z, focusCameraZ())
+          : countryFocusCameraZ(countries.find((c) => c.id === focusedId));
       }
     };
     addEventListener('resize', resize);
@@ -908,6 +924,15 @@ export default function GlobeThree({
 
     /* ── 바깥에서 쓰는 명령형 API ── */
     apiRef.current = {
+      setMentions(links) {
+        const hadLinks = mentionGroup.children.length > 0;
+        globe.remove(mentionGroup);
+        disposeObj(mentionGroup);
+        mentionGroup = createMentionGroup(links);
+        globe.add(mentionGroup);
+        if (links.length) targetZ = Math.max(IDLE_CAMERA_Z, focusCameraZ());
+        else if (hadLinks && focusedId) targetZ = countryFocusCameraZ(countries.find((c) => c.id === focusedId));
+      },
       setTone(topic, minN) {
         TONE.minN = minN;
         if (!topic) {
@@ -1001,6 +1026,10 @@ export default function GlobeThree({
   }, [focus]);
 
   useEffect(() => {
+    apiRef.current?.setMentions(mentionRelations);
+  }, [mentionRelations, focus]);
+
+  useEffect(() => {
     apiRef.current?.setHighlight(highlight);
   }, [highlight]);
 
@@ -1024,6 +1053,12 @@ export default function GlobeThree({
       />
       <div className={s.tip} ref={tipRef} />
       {children}
+      {mentionRelations.length > 0 && <div className={s.relationsLegend} role="status">
+        <span style={{ color: mentionRelations[0].incoming ? '#ffb454' : '#6fe7ff' }}>
+          {mentionRelations[0].incoming ? '┄▶ 언급받은 국가 → 선택 국가' : '━▶ 선택 국가 → 언급한 국가'}
+        </span>
+        <small>언급 비율이 높을수록 굵은 선 · 선 위에 마우스를 올려 상세 확인</small>
+      </div>}
       {spinControl && (
         <div className={s.spin} aria-label="지구 자전 제어">
           <button
