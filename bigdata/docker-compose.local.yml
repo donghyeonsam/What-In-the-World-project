@@ -323,54 +323,6 @@ services:
 
 
   # =========================================================
-  # Kafka(news.raw.v1) -> HDFS bronze writer
-  # =========================================================
-  bronze-writer:
-    build:
-      context: ./kafka-hdfs-writer
-      dockerfile: Dockerfile
-
-    container_name: news-bronze-writer
-
-    # 장애 발생 시 자동 재시작
-    restart: unless-stopped
-
-    # 종료 시 처리 중인 작업을 마무리할 시간
-    stop_grace_period: 60s
-
-    depends_on:
-      kafka:
-        condition: service_healthy
-      kafka-init:
-        condition: service_completed_successfully
-      namenode:
-        condition: service_healthy
-      datanode:
-        condition: service_healthy
-
-    environment:
-      # Docker 내부 Kafka 주소
-      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-
-      # HDFS에 저장할 Kafka 토픽
-      KAFKA_TOPIC: news.raw.v1
-
-      # Bronze Writer 전용 Consumer Group
-      KAFKA_GROUP_ID: ${BRONZE_WRITER_GROUP_ID:-news-raw-hdfs-bronze-v1}
-
-      # HDFS NameNode 주소
-      HDFS_URI: hdfs://namenode:9000
-      HDFS_OUTPUT_PATH: ${BRONZE_HDFS_PATH:-/data/news/bronze/news.raw.v1}
-      HDFS_USER: root
-      HADOOP_CONF_DIR: /opt/hadoop-conf
-
-    volumes:
-      - ./hadoop/config:/opt/hadoop-conf:ro
-
-    networks:
-      - news-network
-
-  # =========================================================
   # Kafka(news.enriched.v1) -> HDFS silver writer
   # =========================================================
   silver-writer:
@@ -400,6 +352,9 @@ services:
       HDFS_OUTPUT_PATH: ${SILVER_HDFS_PATH:-/data/news/silver/news.enriched.v1}
       HDFS_USER: root
       HADOOP_CONF_DIR: /opt/hadoop-conf
+      HDFS_BATCH_MAX_BYTES: ${SILVER_HDFS_BATCH_MAX_BYTES:-67108864}
+      HDFS_BATCH_MAX_RECORDS: ${SILVER_HDFS_BATCH_MAX_RECORDS:-50000}
+      HDFS_BATCH_FLUSH_INTERVAL_SECONDS: ${SILVER_HDFS_BATCH_FLUSH_INTERVAL_SECONDS:-300}
 
     volumes:
       - ./hadoop/config:/opt/hadoop-conf:ro
