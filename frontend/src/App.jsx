@@ -130,7 +130,7 @@ export default function App() {
   return <><DashboardLayout panelRef={panelRef}
     header={<HeaderMinimal route={view.countryCode ? 'country' : 'global'} onRoute={(route) => route === 'global' ? go(HOME) : goCountry(view.countryCode?.toLowerCase() || 'kr')} onSearch={openPalette} />}
     stage={<GlobeSlot><GlobeThree countries={countryMetadata} iso3={iso3} tone={mapTone} minSample={null} focus={spot || view.countryCode?.toLowerCase()}
-      mentionRelations={relations} spinControl={false} onOpenCountry={goCountry} /></GlobeSlot>}
+      mentionRelations={relations} spinControl onOpenCountry={goCountry} /></GlobeSlot>}
     panel={<div className={s.panelContent}>{history.length > 1 && <div className={s.panelNav}>
       <BackLink onClick={() => setHistory((old) => old.slice(0, -1))}>← 이전 화면</BackLink>
     </div>}{body}</div>} />
