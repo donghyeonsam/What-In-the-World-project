@@ -94,9 +94,27 @@ teacher:
   shard_size: 5000                  # 이 단위로 중간 저장 — 중단 후 재개
   hypothesis_lang: en
 
-# 게이트 — 확신 없는 샘플은 학습셋에서 뺀다
+# 게이트 — 확신 없는 샘플은 학습셋에서 뺀다.
+#   split.py 가 저장된 p_pos/p_neg 로 여기서 다시 판정한다.
+#   기준을 바꿔도 label(51분)을 다시 돌릴 필요가 없다.
 gates:
-  tone_min_conf: 0.60               # max(P긍정, P부정) 하한
+  # margin   : |p-0.5| 기반. "확실히 아니다"(0.15)와 "모르겠다"(0.52)를 구분한다.
+  # max_prob : max(p_pos, p_neg) >= tone_min_conf   ← 옛 기준.
+  #            중립 기사를 정의상 전부 버린다(neutral 라벨 0%).
+  mode: margin
+
+  # any  : max(|p_pos-0.5|, |p_neg-0.5|)  한 축만 결정돼도 통과  ← 권장
+  # both : min(...)                       두 축 모두 결정돼야 통과
+  #
+  # 11.8만 건 실측 (2026-09-14)
+  #   기준              통과      neutral   POLITICS쏠림  TECH쏠림
+  #   max_prob 0.60   100,407      0.0%        75%         84%
+  #   both     0.10    84,756      4.9%        81%         87%   ← 극단만 남아 악화
+  #   any      0.10   112,484      3.7%        73%         82%   ← 채택
+  #   any      0.15   107,789      3.6%        75%         83%
+  margin_axes: any
+  tone_min_margin: 0.10             # 0.40~0.60 밖에서 결정된 축이 하나라도 있는가
+  tone_min_conf: 0.60               # mode: max_prob 일 때만 쓰인다
 
 # 청크 → 기사 집계
 #   topk_mean 은 극성차가 큰 청크만 골라 쓰므로 중립 청크 수에 둔감하다.
