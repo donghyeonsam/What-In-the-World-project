@@ -21,7 +21,8 @@ public enum SuccessCode {
     EMAIL_VERIFY_SUCCESS(HttpStatus.OK, "이메일 인증에 성공했습니다."),
     LOGIN_SUCCESS(HttpStatus.OK, "로그인에 성공했습니다."),
     LOGOUT_SUCCESS(HttpStatus.OK, "로그아웃에 성공했습니다."),
-    WITHDRAW_SUCCESS(HttpStatus.OK, "회원 탈퇴에 성공했습니다.");
+    WITHDRAW_SUCCESS(HttpStatus.OK, "회원 탈퇴에 성공했습니다."),
+    PASSWORD_RESET_EMAIL_SEND_SUCCESS(HttpStatus.OK, "비밀번호 재설정 인증번호가 발송되었습니다.");
 
     private final HttpStatus status;
     private final String message;
