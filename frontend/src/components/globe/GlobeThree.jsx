@@ -4,7 +4,7 @@ import { toneRGB, NO_SAMPLE, rgbHex } from '../../lib/tone.js';
 import { shortLon, prefersReducedMotion } from '../../lib/format.js';
 import { countryCameraZ } from '../../lib/globeFocus.js';
 import { earthTextureUrls, loadEarthTexture } from '../../lib/earthTextures.js';
-import { createMentionGroup } from '../../lib/mentionLinks.js';
+import { createMentionGroup, updateMentionFlow } from '../../lib/mentionLinks.js';
 import s from './GlobeThree.module.css';
 
 const GEO_URL =
@@ -914,6 +914,7 @@ export default function GlobeThree({
         meteorTick();
       }
       fxTick(t);
+      updateMentionFlow(mentionGroup, performance.now() / 1000, reduced);
       renderer.render(scene, cam);
     };
     loop();
@@ -1055,7 +1056,7 @@ export default function GlobeThree({
       {children}
       {mentionRelations.length > 0 && <div className={s.relationsLegend} role="status">
         <span style={{ color: mentionRelations[0].incoming ? '#ffb454' : '#6fe7ff' }}>
-          {mentionRelations[0].incoming ? '┄▶ 언급받은 국가 → 선택 국가' : '━▶ 선택 국가 → 언급한 국가'}
+          {mentionRelations[0].incoming ? '┄▶ 언급한 국가 → 선택 국가' : '┄▶ 선택 국가 → 언급한 국가'}
         </span>
         <small>언급 비율이 높을수록 굵은 선 · 선 위에 마우스를 올려 상세 확인</small>
       </div>}
