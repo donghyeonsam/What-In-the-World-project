@@ -14,11 +14,16 @@ public interface ArticleRepository extends JpaRepository<Article, String> {
     long countByDeletedAtIsNull();
 
     @Query(value = """
+            WITH bounds AS (
+                SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul') AS end_at
+            )
             SELECT COUNT(*) FROM article a
+            CROSS JOIN bounds b
             WHERE a.deleted_at IS NULL
-              AND a.created_at >= (NOW() AT TIME ZONE 'Asia/Seoul') - INTERVAL '24 hours'
-              AND (CAST(:countryCode AS TEXT) IS NULL OR a.publisher_country_code = :countryCode)
-              AND (CAST(:issueId AS BIGINT) IS NULL OR a.issue_id = :issueId)
+                AND a.published_at >= b.end_at - INTERVAL '24 hours'
+                AND a.published_at <  b.end_at
+                AND (CAST(:countryCode AS TEXT) IS NULL OR a.publisher_country_code = :countryCode)
+                AND (CAST(:issueId AS BIGINT) IS NULL OR a.issue_id = :issueId)
             """, nativeQuery = true)
     long countArticlesLast24Hours(@Param("countryCode") String countryCode, @Param("issueId") Long issueId);
 
@@ -86,9 +91,6 @@ public interface ArticleRepository extends JpaRepository<Article, String> {
 
 
 
-    // 최근 24시간 수집 기사 수 기준 해당 국가의 세계 순위 (동률은 같은 순위, 기사 0건인 국가도 포함)
-    // FR-DSB-006이 "수집" 기준이므로 published_at이 아닌 created_at으로 자른다
-    // TODO: article (deleted_at, created_at, publisher_country_code) 복합 인덱스 검토
     @Query(value = """
             WITH bounds AS (
                 SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul') AS end_at
@@ -101,8 +103,8 @@ public interface ArticleRepository extends JpaRepository<Article, String> {
                 LEFT JOIN article a
                        ON a.publisher_country_code = c.country_code
                       AND a.deleted_at IS NULL
-                      AND a.created_at >= b.end_at - INTERVAL '24 hours'
-                      AND a.created_at <  b.end_at
+                      AND a.published_at >= b.end_at - INTERVAL '24 hours'
+                      AND a.published_at <  b.end_at
                 GROUP BY c.country_code
             )
             SELECT (SELECT COUNT(*) + 1
@@ -113,7 +115,7 @@ public interface ArticleRepository extends JpaRepository<Article, String> {
             """, nativeQuery = true)
     Integer getCountryRankByArticleCounts(@Param("countryCode") String countryCode);
 
-    // 최근 24시간 해당 국가 수집 기사 중 테마 적합도 상위 N건 (기사 수·순위와 같은 기준)
+    // 최근 24시간 해당 국가 발행 기사 중 테마 적합도 상위 N건 (기사 수·순위와 같은 기준)
     @Query(value = """
             WITH bounds AS (
                 SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul') AS end_at
@@ -127,8 +129,8 @@ public interface ArticleRepository extends JpaRepository<Article, String> {
             CROSS JOIN bounds b
             WHERE a.publisher_country_code = :countryCode
               AND a.deleted_at IS NULL
-              AND a.created_at >= b.end_at - INTERVAL '24 hours'
-              AND a.created_at <  b.end_at
+              AND a.published_at >= b.end_at - INTERVAL '24 hours'
+              AND a.published_at <  b.end_at
             ORDER BY a.theme_relevance_score DESC, a.id
             LIMIT :limit
             """, nativeQuery = true)
