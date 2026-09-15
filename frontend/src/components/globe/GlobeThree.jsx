@@ -199,7 +199,7 @@ export default function GlobeThree({
        가산 혼합이 곧 흰색이라 아무것도 안 보인다. 일반 혼합으로 바꿔
        구체 둘레에 옅은 파란 테를 두른다. */
     const atmo = new THREE.Mesh(
-      new THREE.SphereGeometry(1.11, 48, 48),
+      new THREE.SphereGeometry(1.045, 48, 48),
       new THREE.ShaderMaterial({
         transparent: true,
         side: THREE.BackSide,
@@ -207,7 +207,7 @@ export default function GlobeThree({
         vertexShader:
           'varying vec3 vN;void main(){vN=normalize(normalMatrix*normal);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
         fragmentShader:
-          'varying vec3 vN;void main(){float i=pow(.60-dot(vN,vec3(0,0,1.)),3.0);gl_FragColor=vec4(.30,.50,.78,clamp(i,0.,1.)*.42);}',
+          'varying vec3 vN;void main(){float i=pow(max(.60-dot(vN,vec3(0,0,1.)),0.),3.0);gl_FragColor=vec4(.30,.50,.78,clamp(i,0.,1.)*.16);}',
       }),
     );
     scene.add(atmo);
