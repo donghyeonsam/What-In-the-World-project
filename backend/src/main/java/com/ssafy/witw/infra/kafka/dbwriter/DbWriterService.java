@@ -96,6 +96,9 @@ public class DbWriterService {
                 payload.publisher(), "payload.publisher", 255
         ));
         article.setUrl(requireMaxLength(payload.url(), "payload.url", 1000));
+        article.setTranslatedTitle( // 기사 타이틀 번역
+            requireText(payload.translatedTitle(), "payload.translated_title")
+        );
         article.setOriginalTitle(requireText(payload.originalTitle(), "payload.original_title"));
         article.setCrawledAt(toUtcLocalDateTime(require(payload.crawledAt(), "payload.crawled_at")));
         article.setToneScore(requireRange(

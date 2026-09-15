@@ -13,6 +13,8 @@ public record ArticleUpsertPayload(
         @JsonProperty("theme_relevance_score") BigDecimal themeRelevanceScore,
         String publisher,
         String url,
+        // 기사 타이틀 번역 내용
+        @JsonProperty("translated_title") String translatedTitle,
         @JsonProperty("original_title") String originalTitle,
         @JsonProperty("crawled_at") OffsetDateTime crawledAt,
         List<BigDecimal> embedding,
