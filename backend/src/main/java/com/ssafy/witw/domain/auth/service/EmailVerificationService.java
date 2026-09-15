@@ -6,6 +6,8 @@ import com.ssafy.witw.domain.auth.dto.request.EmailRequest;
 import com.ssafy.witw.domain.auth.dto.request.EmailVerifyRequest;
 import com.ssafy.witw.domain.auth.dto.response.EmailSendResponse;
 import com.ssafy.witw.domain.user.dao.UserRepository;
+import com.ssafy.witw.domain.user.entity.AuthProvider;
+import com.ssafy.witw.domain.user.entity.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.mail.MailException;
@@ -29,6 +31,11 @@ public class EmailVerificationService {
     // try : 이메일 인증 시도 횟수, done : 이메일 성공 여부 저장
     private static final String TRY_KEY_PREFIX = "auth:email:signup:try:";
     private static final String DONE_KEY_PREFIX = "auth:email:signup:done:";
+
+    // 비밀번호 재설정 인증번호 발송
+    private static final String PASSWORD_CODE_KEY_PREFIX = "auth:email:password:code:";
+    private static final String PASSWORD_SEND_KEY_PREFIX = "auth:email:password:send:";
+    private static final String PASSWORD_TRY_KEY_PREFIX = "auth:email:password:try:";
 
     // 인증 코드 (알파벳 + 영어 7자리)
     private static final String CODE_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -56,9 +63,9 @@ public class EmailVerificationService {
     public EmailSendResponse sendCode(EmailRequest request){
         String email = request.email().trim().toLowerCase(Locale.ROOT);
 
-        if(userRepository.existsByEmailIgnoreCase(email)){ throw new GlobalException(ErrorCode.EMAIL_DUPLICATED); }
+        if(userRepository.existsByEmailIgnoreCase(email)) throw new GlobalException(ErrorCode.EMAIL_DUPLICATED);
 
-        increaseSendCount(email);
+        increaseSendCount(email, SEND_KEY_PREFIX);
 
         String code = generateCode();
         String codeKey = CODE_KEY_PREFIX + email;
@@ -105,9 +112,8 @@ public class EmailVerificationService {
 
         Boolean verified = redisTemplate.hasKey(DONE_KEY_PREFIX + normalizedEmail);
 
-        if(!Boolean.TRUE.equals(verified)){
-            throw new GlobalException(ErrorCode.EMAIL_NOT_VERIFIED);
-        }
+        if(!Boolean.TRUE.equals(verified)) throw new GlobalException(ErrorCode.EMAIL_NOT_VERIFIED);
+
     }
 
     public void clearVerified(String email){
@@ -116,8 +122,46 @@ public class EmailVerificationService {
         redisTemplate.delete(DONE_KEY_PREFIX + normalizedEmail);
     }
 
-    private void increaseSendCount(String email) {
-        String key = SEND_KEY_PREFIX + email;
+    public EmailSendResponse sendPasswordResetCode(EmailRequest request){
+        String email = request.email().trim().toLowerCase(Locale.ROOT);
+
+        User user = userRepository.findByEmailIgnoreCase(email).orElse(null);
+
+        if(user == null || user.isWithdrawn() || user.getAuthProvider() != AuthProvider.LOCAL)
+            return new EmailSendResponse(TIME_LIMIT_SECONDS);
+
+        increaseSendCount(email, PASSWORD_SEND_KEY_PREFIX);
+
+        String code = generateCode();
+        String codeKey = PASSWORD_CODE_KEY_PREFIX + email;
+
+        redisTemplate.opsForValue().set(codeKey, code, Duration.ofSeconds(TIME_LIMIT_SECONDS));
+
+        redisTemplate.delete(PASSWORD_TRY_KEY_PREFIX + email);
+
+        try {
+            sendPasswordResetEmail(email, code);
+        } catch (MailException exception){
+            redisTemplate.delete(codeKey);
+            throw new GlobalException(ErrorCode.EMAIL_SEND_FAILED, exception);
+        }
+
+        return new EmailSendResponse(TIME_LIMIT_SECONDS);
+
+    }
+
+    private void sendPasswordResetEmail(String email, String code) {
+        SimpleMailMessage message = new SimpleMailMessage();
+
+        message.setTo(email);
+        message.setSubject("[WITW] 비밀번호 재설정 인증번호");
+        message.setText("비밀번호 재설정 인증번호는 [" + code + "]입니다. \n"
+                + "인증번호는 5분안에 입력해주세요.");
+        mailSender.send(message);
+    }
+
+    private void increaseSendCount(String email, String keyPrefix) {
+        String key = keyPrefix + email;
 
         Long count = redisTemplate.opsForValue().increment(key);
 
@@ -127,9 +171,8 @@ public class EmailVerificationService {
         if(count == 1L) redisTemplate.expire(key, SEND_LIMIT_TTL);
 
         // SEND_LIMIT을 넘길 경우 429 발생
-        if(count > SEND_LIMIT){
-            throw new GlobalException(ErrorCode.EMAIL_SEND_LIMIT_EXCEEDED);
-        }
+        if(count > SEND_LIMIT) throw new GlobalException(ErrorCode.EMAIL_SEND_LIMIT_EXCEEDED);
+
 
     }
 

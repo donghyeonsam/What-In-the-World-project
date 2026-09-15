@@ -106,4 +106,14 @@ public class AuthController {
         return BaseResponse.success(SuccessCode.LOGOUT_SUCCESS);
     }
 
+    @PostMapping("/password/email/send")
+    @Operation(summary = "비밀번호 재설정 인증번호 전송")
+    public ResponseEntity<BaseResponse<EmailSendResponse>> sendPasswordResetCode(
+            @Valid @RequestBody EmailRequest request
+    ){
+        EmailSendResponse response = emailVerificationService.sendPasswordResetCode(request);
+
+        return BaseResponse.success(SuccessCode.PASSWORD_RESET_EMAIL_SEND_SUCCESS, response);
+    }
+
 }
