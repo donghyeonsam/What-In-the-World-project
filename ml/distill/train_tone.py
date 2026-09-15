@@ -16,11 +16,14 @@ from __future__ import annotations
 
 import argparse
 import collections
+import math
+import random
+import time
 
 import numpy as np
 import torch
-from torch.utils.data import Dataset
-from transformers import AutoTokenizer, Trainer, TrainingArguments
+from torch.utils.data import DataLoader, Dataset
+from transformers import AutoTokenizer
 
 from .config import load_config, work_path
 from .io_utils import read_jsonl
@@ -32,6 +35,34 @@ from .text import build_text, head_tail
 # =====================================================================
 # 데이터셋
 # =====================================================================
+def special_token_wrappers(tokenizer) -> tuple[list[int], list[int]]:
+    """(앞에 붙는 특수토큰, 뒤에 붙는 특수토큰) 을 돌려준다.
+
+    왜 토크나이저 API 를 직접 안 쓰나
+      build_inputs_with_special_tokens / num_special_tokens_to_add 는
+      최신 transformers 의 TokenizersBackend 에 없다(AttributeError).
+      모델마다 [CLS]/[SEP], <s>/</s>, 없음 등 규약도 다르다.
+
+    그래서 토크나이저에 묻는 대신 관찰한다. 같은 문자열을 특수토큰 포함/미포함
+    으로 인코딩해 앞뒤에 무엇이 덧붙는지 본다. 어느 백엔드에서도 동작한다.
+    """
+    probe = "a"
+    with_sp = list(tokenizer(probe, add_special_tokens=True)["input_ids"])
+    without = list(tokenizer(probe, add_special_tokens=False)["input_ids"])
+
+    if not without or len(with_sp) < len(without):
+        return [], []
+
+    n = len(without)
+    for i in range(len(with_sp) - n + 1):
+        if with_sp[i:i + n] == without:
+            return with_sp[:i], with_sp[i + n:]
+
+    # 관찰 실패 — 특수토큰 없이 진행한다(학습은 되지만 모델 규약과 어긋날 수 있음)
+    print("  [주의] 특수토큰 규약을 찾지 못해 없이 진행합니다")
+    return [], []
+
+
 class ToneDataset(Dataset):
     """토큰화를 __init__ 에서 한 번에 끝낸다.
 
@@ -46,14 +77,13 @@ class ToneDataset(Dataset):
         # 특수 토큰 없이 인코딩 → 절단 → 특수 토큰 부착. 절단이 [CLS]/[SEP] 을 먹지 않게.
         encoded = tokenizer(texts, add_special_tokens=False, truncation=False)["input_ids"]
 
-        # 특수 토큰 자리(보통 2개)를 빼고 절단 상한을 잡는다
-        n_special = tokenizer.num_special_tokens_to_add(pair=False)
-        body_max = max_length - n_special
-        head = min(head, body_max - tail)
+        # 특수 토큰 자리를 빼고 절단 상한을 잡는다
+        prefix, suffix = special_token_wrappers(tokenizer)
+        body_max = max_length - len(prefix) - len(suffix)
+        head = min(head, max(body_max - tail, 1))
 
         for r, ids in zip(rows, encoded):
-            ids = head_tail(ids, body_max, head, tail)
-            ids = tokenizer.build_inputs_with_special_tokens(ids)
+            ids = prefix + head_tail(list(ids), body_max, head, tail) + suffix
             self.items.append({
                 "input_ids": ids,
                 "labels": [float(r["p_pos"]), float(r["p_neg"])],
@@ -98,6 +128,137 @@ def make_compute_metrics(lab):
     return compute_metrics
 
 
+# =====================================================================
+# 학습 루프 — transformers Trainer 를 쓰지 않는다
+#
+#   Trainer 는 버전마다 인자와 내부 규약이 바뀐다. 실제로 이 환경에서
+#   TrainingArguments(warmup_ratio=...) 가 TypeError 를 냈다.
+#   여기서 필요한 것은 배치·누적·스케줄·평가뿐이고 전부 60줄이면 된다.
+#   torch 만 쓰면 transformers 가 바뀌어도 학습이 안 깨진다.
+# =====================================================================
+def length_grouped_batches(lengths: list[int], batch_size: int,
+                           rng: random.Random, mega: int = 50) -> list[list[int]]:
+    """비슷한 길이끼리 묶어 패딩 낭비를 줄인다 (Trainer 의 group_by_length 대체).
+
+    전부 길이순으로 정렬하면 매 에폭 같은 배치가 나와 학습이 나빠진다.
+    큰 덩어리로 먼저 섞고, 그 안에서만 정렬한 뒤, 배치 순서를 다시 섞는다.
+    """
+    idx = list(range(len(lengths)))
+    rng.shuffle(idx)
+    chunk = batch_size * mega
+    batches: list[list[int]] = []
+    for i in range(0, len(idx), chunk):
+        part = sorted(idx[i:i + chunk], key=lambda j: lengths[j])
+        for k in range(0, len(part), batch_size):
+            batches.append(part[k:k + batch_size])
+    rng.shuffle(batches)
+    return batches
+
+
+def lr_at(step: int, total: int, warmup: int, base_lr: float) -> float:
+    """선형 워밍업 후 선형 감쇠."""
+    if warmup > 0 and step < warmup:
+        return base_lr * step / max(warmup, 1)
+    remain = max(total - warmup, 1)
+    return base_lr * max(0.0, (total - step) / remain)
+
+
+@torch.no_grad()
+def evaluate_loss(model, ds, collate, device, batch_size, use_bf16) -> float:
+    dev_type = "cuda" if str(device).startswith("cuda") else "cpu"
+    model.eval()
+    total, n = 0.0, 0
+    for i in range(0, len(ds), batch_size):
+        batch = collate([ds[j] for j in range(i, min(i + batch_size, len(ds)))])
+        with torch.autocast(dev_type, dtype=torch.bfloat16, enabled=use_bf16):
+            out = model(batch["input_ids"].to(device),
+                        batch["attention_mask"].to(device),
+                        labels=batch["labels"].to(device))
+        total += float(out["loss"]) * len(batch["labels"])
+        n += len(batch["labels"])
+    return total / max(n, 1)
+
+
+def run_training(model, train_ds, val_ds, collate, s, device, seed: int) -> None:
+    use_bf16 = bool(s.bf16) and str(device).startswith("cuda")
+    dev_type = "cuda" if str(device).startswith("cuda") else "cpu"
+    model.to(device)
+    if getattr(s, "gradient_checkpointing", False):
+        model.gradient_checkpointing_enable()
+
+    lengths = [it["length"] for it in train_ds.items]
+    rng = random.Random(seed)
+    accum = max(int(s.grad_accum), 1)
+    nw = int(getattr(s, "num_workers", 0) or 0)
+
+    n_batches = math.ceil(len(train_ds) / s.batch_size)
+    total_steps = math.ceil(n_batches / accum) * int(s.epochs)
+    warmup = int(total_steps * float(s.warmup_ratio))
+
+    decay, no_decay = [], []
+    for name, p in model.named_parameters():
+        if not p.requires_grad:
+            continue
+        (no_decay if (p.ndim == 1 or name.endswith(".bias")) else decay).append(p)
+    opt = torch.optim.AdamW(
+        [{"params": decay, "weight_decay": float(s.weight_decay)},
+         {"params": no_decay, "weight_decay": 0.0}],
+        lr=float(s.lr),
+    )
+
+    print(f"  스텝 {total_steps:,} (배치 {s.batch_size} × 누적 {accum} × {s.epochs}에폭)"
+          f" / 워밍업 {warmup:,} / bf16 {use_bf16} / dataloader worker {nw}")
+
+    step = 0
+    t0 = time.time()
+    for epoch in range(int(s.epochs)):
+        model.train()
+        batches = length_grouped_batches(lengths, int(s.batch_size), rng)
+        running, seen = 0.0, 0
+        opt.zero_grad(set_to_none=True)
+
+        # 배치 준비(파이썬)와 GPU 연산을 겹쳐 돌린다.
+        #   메인 프로세스에서 collate 하면 GPU 가 다음 배치를 기다리며 논다.
+        #   실측: 사용률 7%, 스텝당 2.3초 → worker 프로세스로 넘겨 병렬화.
+        loader = DataLoader(
+            train_ds, batch_sampler=batches, collate_fn=collate,
+            num_workers=nw, pin_memory=(dev_type == "cuda"),
+            persistent_workers=False, prefetch_factor=(4 if nw else None),
+        )
+
+        for bi, batch in enumerate(loader):
+            with torch.autocast(dev_type, dtype=torch.bfloat16, enabled=use_bf16):
+                out = model(batch["input_ids"].to(device, non_blocking=True),
+                            batch["attention_mask"].to(device, non_blocking=True),
+                            labels=batch["labels"].to(device, non_blocking=True))
+            loss = out["loss"]
+            (loss / accum).backward()
+            running += float(loss.detach())
+            seen += 1
+
+            if (bi + 1) % accum == 0 or bi == len(batches) - 1:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                for g in opt.param_groups:
+                    g["lr"] = lr_at(step, total_steps, warmup, float(s.lr))
+                opt.step()
+                opt.zero_grad(set_to_none=True)
+                step += 1
+
+                if step % 50 == 0:
+                    el = time.time() - t0
+                    eta = el / max(step, 1) * (total_steps - step)
+                    print(f"    epoch {epoch + 1}/{s.epochs}  step {step:,}/{total_steps:,}"
+                          f"  loss {running / max(seen, 1):.4f}"
+                          f"  lr {opt.param_groups[0]['lr']:.2e}"
+                          f"  경과 {el / 60:.1f}분  남은 {eta / 60:.1f}분", flush=True)
+                    running, seen = 0.0, 0
+
+        vl = evaluate_loss(model, val_ds, collate, device,
+                           int(s.batch_size) * 2, use_bf16)
+        print(f"  [epoch {epoch + 1}] val loss {vl:.4f}"
+              f"  (누적 {(time.time() - t0) / 60:.1f}분)", flush=True)
+
+
 @torch.no_grad()
 def predict(model: ToneStudent, ds: ToneDataset, collate, device: str, batch_size: int = 16) -> np.ndarray:
     model.eval()
@@ -129,7 +290,12 @@ def train_field(cfg, field: str, model_name: str, model_max: int) -> None:
     tok = AutoTokenizer.from_pretrained(model_name)
     train_ds = ToneDataset(train_rows, tok, max_length, s.head_tokens, s.tail_tokens)
     val_ds = ToneDataset(val_rows, tok, max_length, s.head_tokens, s.tail_tokens)
-    collate = make_collator(tok.pad_token_id)
+    # pad_token 이 없는 토크나이저도 있다. 그 경우 eos/0 으로 대체한다.
+    pad_id = getattr(tok, "pad_token_id", None)
+    if pad_id is None:
+        pad_id = getattr(tok, "eos_token_id", None) or 0
+        print(f"  [주의] pad_token 이 없어 {pad_id} 로 패딩합니다")
+    collate = make_collator(pad_id)
 
     lens = [it["length"] for it in train_ds.items]
     print(f"  토큰 길이 p50 {int(np.percentile(lens, 50))} / p95 {int(np.percentile(lens, 95))} / "
@@ -138,36 +304,11 @@ def train_field(cfg, field: str, model_name: str, model_max: int) -> None:
     model = ToneStudent(model_name, pooling=s.pooling)
 
     out_dir = cfg.data.work_dir / "models" / "tone" / field
-    args = TrainingArguments(
-        output_dir=str(out_dir / "_trainer"),
-        num_train_epochs=s.epochs,
-        learning_rate=s.lr,
-        per_device_train_batch_size=s.batch_size,
-        per_device_eval_batch_size=s.batch_size * 2,
-        gradient_accumulation_steps=s.grad_accum,
-        warmup_ratio=s.warmup_ratio,
-        weight_decay=s.weight_decay,
-        bf16=s.bf16 and device == "cuda",
-        gradient_checkpointing=s.gradient_checkpointing,
-        group_by_length=True,                 # 비슷한 길이끼리 배치 → 패딩·메모리 절약
-        eval_strategy="epoch",
-        save_strategy="no",                   # 저장은 아래에서 직접 (worker 로더 형식으로)
-        logging_steps=20,
-        report_to="none",
-        remove_unused_columns=False,          # torch Dataset 이라 컬럼 제거 로직 불필요
-        dataloader_num_workers=getattr(s, 'num_workers', 4),
-        seed=cfg.split.seed,
-    )
-    trainer = Trainer(
-        model=model, args=args,
-        train_dataset=train_ds, eval_dataset=val_ds,
-        data_collator=collate,
-        compute_metrics=make_compute_metrics(lab),
-    )
-    trainer.train()
+
+    run_training(model, train_ds, val_ds, collate, s, device, cfg.split.seed)
 
     # ---- 언어별 평가 — 전체 평균에 묻히는 언어 성능 저하를 잡기 위해 ------
-    probs = predict(trainer.model, val_ds, collate, device)
+    probs = predict(model, val_ds, collate, device, int(s.batch_size) * 2)
     targets = np.array([[r["p_pos"], r["p_neg"]] for r in val_rows])
     langs = np.array([r["lang"] for r in val_rows])
 
@@ -187,7 +328,7 @@ def train_field(cfg, field: str, model_name: str, model_max: int) -> None:
     s_labels = collections.Counter(decide_label(a, b, lab.mixed_threshold, lab.neutral_threshold) for a, b in probs)
     print(f"  student 라벨 분포: {dict(s_labels)}")
 
-    trainer.model.save(out_dir, tok, extra={
+    model.save(out_dir, tok, extra={
         "field": field, "max_length": max_length,
         "head_tokens": s.head_tokens, "tail_tokens": s.tail_tokens,
         "val_per_lang": per_lang,
