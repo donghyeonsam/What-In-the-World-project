@@ -9,8 +9,8 @@ student 는 기사 전체(최대 4,096 토큰)를 한 번에 보고 같은 값�
   · 메모리 : bf16 + gradient checkpointing
 
 실행
-    python -m distill.train_tone                  # 6개 전부
-    python -m distill.train_tone --field ECONOMY # 하나만
+    python -m distill.train_tone                  # 5개 전부
+    python -m distill.train_tone --field ECONOMY  # 하나만
 """
 from __future__ import annotations
 
@@ -196,18 +196,48 @@ def train_field(cfg, field: str, model_name: str, model_max: int) -> None:
     print(f"  저장: {out_dir}")
 
 
+def field_names(cfg) -> list[str]:
+    """config.fields 를 순서대로 이름 리스트로. {1: 'POLITICS', ...} 또는 리스트."""
+    f = cfg.fields
+    if isinstance(f, dict):
+        return [f[k] for k in sorted(int(x) for x in f)]
+    return list(f)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--field", default=None, help="분야 하나만 (미지정 시 전부)")
     args = ap.parse_args()
 
     cfg = load_config()
+    names = field_names(cfg)
+
+    if args.field and args.field not in names:
+        raise SystemExit(f"알 수 없는 분야: {args.field}\n선택지: {', '.join(names)}")
+
     model_name, model_max = resolve_student_model(cfg.student.model, cfg.student.fallback_model)
     print(f"student 베이스: {model_name} (max {model_max})")
 
-    fields = [args.field] if args.field else _field_names(cfg)
+    fields = [args.field] if args.field else names
+    print(f"학습 대상 {len(fields)}개: {', '.join(fields)}")
+
+    failed = []
     for d in fields:
-        train_field(cfg, d, model_name, model_max)
+        try:
+            train_field(cfg, d, model_name, model_max)
+        except Exception as exc:
+            # 한 분야가 실패해도 나머지는 계속한다. 재실행 기능이 없으므로
+            # 전부 날리는 것보다 낫다.
+            print(f"\n[{d}] 실패: {type(exc).__name__}: {exc}", flush=True)
+            import traceback
+            traceback.print_exc()
+            failed.append(d)
+
+    if failed:
+        print(f"\n실패한 분야 {len(failed)}개: {', '.join(failed)}")
+        print(f"  다시 돌리려면: python -u -m distill.train_tone --field {failed[0]}")
+    else:
+        print(f"\n전체 완료 — {cfg.data.work_dir / 'models' / 'tone'}")
 
 
 if __name__ == "__main__":

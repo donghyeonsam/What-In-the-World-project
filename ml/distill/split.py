@@ -24,6 +24,56 @@ KEEP = ["article_id", "lang", "country", "source_name", "title", "body",
         "p_pos", "p_neg", "tone_label", "tone_point", "tone_conf"]
 
 
+def tone_pass(row: dict, gates) -> bool:
+    """teacher 판정을 학습에 쓸지 결정한다.
+
+    왜 max(p_pos, p_neg) 로 거르면 안 되는가
+      p_pos 는 "긍정 가설이 함의되는가" 의 확률이다. 0.15 는 확신이 없다는
+      뜻이 아니라 "확실히 아니다" 라는 뜻이다. 확신의 척도는 값의 크기가
+      아니라 0.5 에서 떨어진 거리다.
+
+        명백한 중립   p=(0.15, 0.12)  teacher 는 확신함  → 넣어야 한다
+        진짜 애매함   p=(0.52, 0.48)  teacher 는 모름    → 빼야 한다
+
+      max 기준은 둘을 구분하지 못하고 같이 버린다. 그 결과 neutral 라벨이
+      정의상 단 한 건도 학습에 들어가지 못한다 (neutral 은 둘 다 0.4 미만인데
+      게이트는 max 0.6 이상을 요구하므로 교집합이 공집합이다).
+      그러면 student 는 중립을 출력하는 법을 배우지 못한다.
+
+    왜 'both'(min) 가 아니라 'any'(max) 인가
+      both 로 걸면 한 축만 애매해도 기사를 통째로 버린다.
+
+        (0.75, 0.55)  긍정은 명확, 부정만 미정  → both 탈락 / any 통과
+
+      실측에서 both 를 쓰자 중간 지대 19,790건이 빠지면서 극단만 남았고,
+      POLITICS negative 74.6%→81.3%, TECH positive 84.1%→86.6% 로 쏠림이
+      오히려 커졌다. 그 상태로 학습하면 student 는 기사가 아니라 분야를
+      외운다. any 는 옛 기준 통과분을 모두 포함한다
+      (max(p)>=0.60 이면 그 축의 |p-0.5|>=0.10 이므로 수학적으로 보장된다).
+
+      any 로 버려지는 것은 두 축이 모두 0.40~0.60 안에 있는 기사뿐이고,
+      그것이 "teacher 가 정말 모르겠다" 의 정확한 정의다.
+
+    mode
+      margin    : |p-0.5| 기반 (기본)
+                    margin_axes: any  → max(...)  ← 권장
+                    margin_axes: both → min(...)
+      max_prob  : max(p_pos, p_neg) >= tone_min_conf   (옛 기준. 중립 전량 탈락)
+    """
+    p_pos, p_neg = row.get("p_pos"), row.get("p_neg")
+    if p_pos is None or p_neg is None:
+        return False
+
+    if getattr(gates, "mode", "margin") == "max_prob":
+        return max(p_pos, p_neg) >= float(gates.tone_min_conf)
+
+    d_pos, d_neg = abs(p_pos - 0.5), abs(p_neg - 0.5)
+    margin = (min(d_pos, d_neg)
+              if getattr(gates, "margin_axes", "any") == "both"
+              else max(d_pos, d_neg))
+    return margin >= float(getattr(gates, "tone_min_margin", 0.10))
+
+
 def main() -> None:
     cfg = load_config()
     labels_dir = cfg.data.work_dir / "labels"
@@ -33,9 +83,27 @@ def main() -> None:
     field_names = [fields[k] for k in sorted(fields)]
 
     all_rows = list(read_all_shards(labels_dir))
-    passed = [r for r in all_rows if r.get("tone_pass")]
+
+    # ---- 톤 게이트 — 저장된 확률로 여기서 다시 계산한다 --------------------
+    # label 단계의 tone_pass 플래그를 그대로 쓰지 않는 이유:
+    # 기준을 바꿀 때마다 teacher 를 51분씩 다시 돌릴 이유가 없다.
+    # p_pos / p_neg 는 이미 샤드에 있으므로 판정만 다시 하면 된다.
+    passed = [r for r in all_rows if tone_pass(r, cfg.gates)]
+    mode = getattr(cfg.gates, "mode", "margin")
     print(f"라벨 {len(all_rows):,}건 → 톤 게이트 통과 {len(passed):,}건 "
-          f"({len(passed) / max(len(all_rows), 1) * 100:.1f}%)")
+          f"({len(passed) / max(len(all_rows), 1) * 100:.1f}%)  [기준: {mode}]")
+
+    # 옛 기준과의 차이를 보여준다 — 무엇이 새로 들어왔는지 눈으로 확인
+    legacy = sum(1 for r in all_rows if r.get("tone_pass"))
+    if mode != "max_prob":
+        added = [r for r in passed if not r.get("tone_pass")]
+        n_removed = legacy - (len(passed) - len(added))
+        print(f"  옛 기준(max_prob {cfg.gates.tone_min_conf}) 통과 {legacy:,}건 대비  "
+              f"+{len(added):,} / -{max(n_removed, 0):,}")
+        if added:
+            c = collections.Counter(r["tone_label"] for r in added)
+            print("  새로 포함된 기사:",
+                  ", ".join(f"{k} {v:,}" for k, v in c.most_common()))
 
     by_field: dict[str, list[dict]] = collections.defaultdict(list)
     for r in passed:
