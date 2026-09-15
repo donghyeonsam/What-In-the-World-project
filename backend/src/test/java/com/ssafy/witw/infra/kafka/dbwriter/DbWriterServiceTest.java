@@ -85,6 +85,7 @@ class DbWriterServiceTest {
                     "publisher": "Publisher",
                     "url": "https://example.com/article",
                     "original_title": "Title",
+                    "translated_title": "번역된 제목",
                     "crawled_at": "2026-09-01T08:22:28.256121Z",
                     "embedding": [0.031, -0.114],
                     "tone_score": 51.5,
@@ -106,6 +107,8 @@ class DbWriterServiceTest {
         assertThat(saved.getPublisherCountryCode()).isSameAs(korea);
         assertThat(saved.getTheme()).isSameAs(theme);
         assertThat(saved.getThemeRelevanceScore()).isEqualByComparingTo("0.8123");
+        assertThat(saved.getOriginalTitle()).isEqualTo("Title");
+        assertThat(saved.getTranslatedTitle()).isEqualTo("번역된 제목");
         assertThat(saved.getCrawledAt()).isEqualTo(
                 LocalDateTime.parse("2026-09-01T08:22:28.256121")
         );
@@ -170,6 +173,7 @@ class DbWriterServiceTest {
                     "publisher": "Publisher",
                     "url": "https://example.com/article",
                     "original_title": "Title",
+                    "translated_title": "번역된 제목",
                     "crawled_at": "2026-09-01T08:22:28Z",
                     "embedding": [0.031],
                     "tone_score": 51.5,
