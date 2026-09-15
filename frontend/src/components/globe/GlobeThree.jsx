@@ -146,7 +146,7 @@ export default function GlobeThree({
   const wrapRef = useRef(null);
   const apiRef = useRef(null);
   const tipRef = useRef(null);
-  const [autoSpin, setAutoSpin] = useState(true);
+  const [autoSpin, setAutoSpin] = useState(() => !prefersReducedMotion());
 
   /* 콜백은 ref로 넘긴다 — 씬을 다시 만들지 않기 위해 */
   const cb = useRef({});
@@ -735,7 +735,8 @@ export default function GlobeThree({
     let dragDistance = 0;
     let vx = 0;
     let vy = 0;
-    let spin = true;
+    let spin = !reduced;
+    setAutoSpin(spin);
     let focusRotation = null;
     let targetZ = IDLE_CAMERA_Z;
     let userZoomed = false;
@@ -890,7 +891,7 @@ export default function GlobeThree({
     const loop = () => {
       raf = requestAnimationFrame(loop);
       t += 0.016;
-      if (spin && !reduced) globe.rotation.y += 0.0016;
+      if (spin) globe.rotation.y += 0.0016;
       if (focusRotation) {
         globe.rotation.x += (focusRotation.pitch - globe.rotation.x) * COUNTRY_FOCUS_LERP;
         globe.rotation.y += (focusRotation.yaw - globe.rotation.y) * COUNTRY_FOCUS_LERP;
@@ -976,8 +977,8 @@ export default function GlobeThree({
         targetZ = IDLE_CAMERA_Z;
         userZoomed = false;
         userRotated = false;
-        spin = true;
-        setAutoSpin(true);
+        spin = !reduced;
+        setAutoSpin(spin);
         clearCountryFx();
         setCountryOutlineActive(highlightId);
         syncBeacons(highlightId);
@@ -991,6 +992,8 @@ export default function GlobeThree({
       setSpin(on) {
         spin = !!on;
         focusRotation = null;
+        vx = 0;
+        vy = 0;
         setAutoSpin(!!on);
       },
       spawnMeteor,
@@ -1054,7 +1057,7 @@ export default function GlobeThree({
       />
       <div className={s.tip} ref={tipRef} />
       {children}
-      {mentionRelations.length > 0 && <div className={s.relationsLegend} role="status">
+      {mentionRelations.length > 0 && <div className={s.relationsLegend} style={spinControl ? { bottom: 88 } : undefined} role="status">
         <span style={{ color: mentionRelations[0].incoming ? '#ffb454' : '#6fe7ff' }}>
           {mentionRelations[0].incoming ? '┄▶ 언급한 국가 → 선택 국가' : '┄▶ 선택 국가 → 언급한 국가'}
         </span>
@@ -1065,11 +1068,13 @@ export default function GlobeThree({
           <button
             type="button"
             className={`${s.spinBtn} ${autoSpin ? s.on : ''}`}
-            title={autoSpin ? '지구 자전 멈춤' : '지구 자전 재생'}
-            aria-label={autoSpin ? '지구 자전 멈춤' : '지구 자전 재생'}
+            title={autoSpin ? '지구 자전 멈춤' : '지구 자전 재개'}
+            aria-label={autoSpin ? '지구 자전 멈춤' : '지구 자전 재개'}
+            aria-pressed={autoSpin}
             onClick={() => apiRef.current?.setSpin(!autoSpin)}
           >
-            {autoSpin ? 'Ⅱ' : '▶'}
+            <span className={autoSpin ? s.spinningIcon : undefined} aria-hidden="true">{autoSpin ? '↻' : '▶'}</span>
+            <span>{autoSpin ? '자전 중' : '자전 재개'}</span>
           </button>
         </div>
       )}

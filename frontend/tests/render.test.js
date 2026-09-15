@@ -9,6 +9,22 @@ test('screens render real DTO fields, empty states, and missing-data notices', a
   const vite = await createServer({ configFile: false, server: { middlewareMode: true }, appType: 'custom', esbuild: { jsx: 'automatic' }, optimizeDeps: { noDiscovery: true, include: [] } });
   try {
     const render = (Component, props) => renderToStaticMarkup(React.createElement(Component, props));
+    const { default: Globe } = await vite.ssrLoadModule('/src/components/globe/GlobeThree.jsx');
+    const globe = render(Globe, { countries: [] });
+    assert.match(globe, /aria-label="지구 자전 멈춤"/);
+    assert.match(globe, /aria-pressed="true"/);
+    assert.match(globe, /자전 중/);
+    assert.doesNotMatch(render(Globe, { countries: [], spinControl: false }), /지구 자전 멈춤/);
+    const previousMatchMedia = globalThis.matchMedia;
+    try {
+      globalThis.matchMedia = () => ({ matches: true });
+      const reducedGlobe = render(Globe, { countries: [] });
+      assert.match(reducedGlobe, /aria-label="지구 자전 재개"/);
+      assert.match(reducedGlobe, /aria-pressed="false"/);
+    } finally {
+      if (previousMatchMedia === undefined) delete globalThis.matchMedia;
+      else globalThis.matchMedia = previousMatchMedia;
+    }
     const { default: Feed, ArticleFilterBar } = await vite.ssrLoadModule('/src/components/panel/ArticleFeed.jsx');
     const filters = render(ArticleFilterBar, { tone: 'positive' });
     assert.match(filters, /aria-label="기사 논조 필터"/);
