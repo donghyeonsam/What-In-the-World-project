@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { toneRGB, NO_SAMPLE, rgbHex } from '../../lib/tone.js';
 import { shortLon, prefersReducedMotion } from '../../lib/format.js';
+import { countryCameraZ } from '../../lib/globeFocus.js';
+import { earthTextureUrls, loadEarthTexture } from '../../lib/earthTextures.js';
+import { createMentionGroup } from '../../lib/mentionLinks.js';
 import s from './GlobeThree.module.css';
 
 const GEO_URL =
@@ -13,8 +16,14 @@ const FALLBACK_RAD = { kr: 2.6, us: 12, uk: 4, au: 14, me: 3.2, af: 7, br: 13 };
 const CYAN = 0x6fe7ff;
 const AMBER = 0xffb454;
 const IDLE_CAMERA_Z = 3.7;
+const MIN_CAMERA_Z = 1.5;
+const WHEEL_ZOOM_SPEED = 0.0015;
+const CAMERA_LERP = 0.06;
+// 같은 거리의 국가 이동·자동 확대가 기존보다 약 1.2배 빠르게 수렴한다.
+const COUNTRY_FOCUS_LERP = 1 - (1 - CAMERA_LERP) ** 1.2;
 const FOCUS_FILL_RATIO = 0.88;
 const VISIBLE_GLOBE_RADIUS = 1.04;
+const NO_MENTION_RELATIONS = [];
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 
 /** 위경도 → 구면 좌표 */
@@ -70,8 +79,9 @@ function glowTex() {
 function labelTex(text) {
   const cv = document.createElement('canvas');
   const ctx = cv.getContext('2d');
-  cv.width = 256;
-  cv.height = 72;
+  cv.width = 512;
+  cv.height = 144;
+  ctx.scale(2, 2);
   ctx.font = '700 24px Pretendard, IBM Plex Sans KR, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -115,12 +125,13 @@ function disposeObj(o) {
  */
 export default function GlobeThree({
   countries,
-  texture = '/earth.jpg',
+  texture,
   iso3 = { kr: ['KOR'], us: ['USA'], uk: ['GBR'], au: ['AUS'], me: ['ARE', 'QAT'], af: ['ZAF', 'KEN'], br: ['BRA'] },
   tone = null,
   minSample = 30,
   focus = null,
   highlight = null,
+  mentionRelations = NO_MENTION_RELATIONS,
   pinCities = {},
   pinsOf,
   onOpenCountry,
@@ -150,35 +161,54 @@ export default function GlobeThree({
     const cam = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
     cam.position.set(0, 0, IDLE_CAMERA_Z);
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    // 일반 DPI 화면도 슈퍼샘플링하되 고밀도 화면에서는 GPU 부하를 제한한다.
+    renderer.setPixelRatio(Math.min(Math.max(window.devicePixelRatio || 1, 1.5), 2));
     renderer.outputEncoding = THREE.sRGBEncoding;
     wrap.appendChild(renderer.domElement);
 
     const globe = new THREE.Group();
     scene.add(globe);
-    globe.rotation.x = 0.16;
+    // 초기 화면만 일본 부근을 향하게 한다. 이후 자전·드래그·국가 포커스는 그대로 유지한다.
+    const initialOrientation = orientTo(35, 138);
+    globe.rotation.set(initialOrientation.pitch, initialOrientation.yaw, 0);
+    let mentionGroup = new THREE.Group();
+    globe.add(mentionGroup);
 
     /* 실제 지구 + 조명 + 대기 글로우 */
-    const earthTex = new THREE.TextureLoader().load(texture);
-    earthTex.encoding = THREE.sRGBEncoding;
-    earthTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    const textureUrls = earthTextureUrls({
+      maxTextureSize: renderer.capabilities.maxTextureSize,
+      deviceMemory: navigator.deviceMemory,
+      hardwareConcurrency: navigator.hardwareConcurrency,
+      coarsePointer: window.matchMedia?.('(pointer: coarse)').matches ?? true,
+      saveData: navigator.connection?.saveData,
+      customTexture: texture,
+    });
     /* 흰 바탕에서는 지구가 '검은 공'으로 보이기 쉽다.
        Blue Marble 텍스처의 바다는 원래 짙은 남색이라 조명만 올려서는 한계가 있다.
        그래서 텍스처를 자체발광(emissiveMap)으로도 한 번 더 먹여 바닥 밝기를 깔고,
        방향광은 낮춰 낮/밤의 입체감만 남긴다. */
-    globe.add(
-      new THREE.Mesh(
-        new THREE.SphereGeometry(1, 64, 64),
-        new THREE.MeshPhongMaterial({
-          map: earthTex,
-          emissive: 0xffffff,
-          emissiveMap: earthTex,
-          emissiveIntensity: 0.62,
-          specular: 0x223344,
-          shininess: 10,
-        }),
-      ),
-    );
+    const earthMaterial = new THREE.MeshPhongMaterial({
+      emissive: 0x000000,
+      emissiveIntensity: 0.62,
+      specular: 0x223344,
+      shininess: 10,
+    });
+    const disposeEarthTexture = loadEarthTexture(new THREE.TextureLoader(), textureUrls, {
+      onLoad(earthTex, url) {
+        earthTex.encoding = THREE.sRGBEncoding;
+        earthTex.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
+        // 표면과 자체발광에 같은 GPU 텍스처를 공유한다.
+        earthMaterial.map = earthTex;
+        earthMaterial.emissiveMap = earthTex;
+        earthMaterial.emissive.set(0xffffff);
+        earthMaterial.needsUpdate = true;
+        wrap.dataset.earthTexture = url;
+      },
+      onError(error) {
+        console.warn('지구 표면 텍스처를 불러오지 못했습니다.', error);
+      },
+    });
+    globe.add(new THREE.Mesh(new THREE.SphereGeometry(1, 128, 96), earthMaterial));
     scene.add(new THREE.AmbientLight(0xc9d4e2, 0.5));
     const sun = new THREE.DirectionalLight(0xfff6e8, 0.62);
     sun.position.set(-2.2, 1.4, 2.6);
@@ -191,7 +221,7 @@ export default function GlobeThree({
        가산 혼합이 곧 흰색이라 아무것도 안 보인다. 일반 혼합으로 바꿔
        구체 둘레에 옅은 파란 테를 두른다. */
     const atmo = new THREE.Mesh(
-      new THREE.SphereGeometry(1.11, 48, 48),
+      new THREE.SphereGeometry(1.045, 48, 48),
       new THREE.ShaderMaterial({
         transparent: true,
         side: THREE.BackSide,
@@ -199,7 +229,7 @@ export default function GlobeThree({
         vertexShader:
           'varying vec3 vN;void main(){vN=normalize(normalMatrix*normal);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
         fragmentShader:
-          'varying vec3 vN;void main(){float i=pow(.60-dot(vN,vec3(0,0,1.)),3.0);gl_FragColor=vec4(.30,.50,.78,clamp(i,0.,1.)*.42);}',
+          'varying vec3 vN;void main(){float i=pow(max(.60-dot(vN,vec3(0,0,1.)),0.),3.0);gl_FragColor=vec4(.30,.50,.78,clamp(i,0.,1.)*.16);}',
       }),
     );
     scene.add(atmo);
@@ -503,6 +533,11 @@ export default function GlobeThree({
             });
           });
           buildCountryOutlines();
+          setCountryOutlineActive(activeId());
+          if (focusedId && !userZoomed && !userRotated) {
+            targetZ = mentionGroup.children.length ? Math.max(IDLE_CAMERA_Z, focusCameraZ())
+              : countryFocusCameraZ(countries.find((c) => c.id === focusedId));
+          }
           if (TONE.active) paintTone();
         })
         .catch(() => {
@@ -703,6 +738,8 @@ export default function GlobeThree({
     let spin = true;
     let focusRotation = null;
     let targetZ = IDLE_CAMERA_Z;
+    let userZoomed = false;
+    let userRotated = false;
     let focusedId = null;
     let highlightId = null; /* 목록만 좁힌 상태(줌 없이 윤곽만 강조) */
     const activeId = () => focusedId || highlightId;
@@ -712,9 +749,27 @@ export default function GlobeThree({
       const limitingHalfFov = Math.min(verticalHalfFov, horizontalHalfFov);
       return VISIBLE_GLOBE_RADIUS / Math.sin(limitingHalfFov * FOCUS_FILL_RATIO);
     };
+    const countryFocusCameraZ = (c) => {
+      if (!c) return focusCameraZ();
+      return countryCameraZ({
+        rings: countryRings(c), lat: c.lat, lon: c.lon,
+        ...orientTo(c.lat, c.lon), fov: cam.fov, aspect: cam.aspect,
+        maxZ: focusCameraZ(),
+      });
+    };
+    const clampCameraZ = (z) => Math.max(
+      MIN_CAMERA_Z,
+      Math.min(Math.max(IDLE_CAMERA_Z, focusCameraZ()) * 2, z),
+    );
 
     const hitTargets = () =>
-      beacons.filter((b) => b.visible).concat(pinHeads, countryLabels, countryHoverTargets);
+      beacons.filter((b) => b.visible).concat(pinHeads, countryLabels, countryHoverTargets, mentionGroup.children);
+    const pickHit = () => {
+      const surface = ray.ray.intersectSphere(new THREE.Sphere(globe.getWorldPosition(new THREE.Vector3()), 1), new THREE.Vector3());
+      const surfaceDistance = surface ? surface.distanceTo(ray.ray.origin) : Infinity;
+      return ray.intersectObjects(hitTargets()).find((hit) => hit.object.userData.type !== 'mention'
+        || hit.distance <= surfaceDistance + 0.015);
+    };
 
     const onDown = (e) => {
       dragging = true;
@@ -736,6 +791,7 @@ export default function GlobeThree({
       if (dragging) {
         const dx = e.clientX - px;
         const dy = e.clientY - py;
+        if (dx || dy) userRotated = true;
         dragDistance += Math.hypot(dx, dy);
         vx = dx * 0.0045;
         vy = dy * 0.0045;
@@ -748,16 +804,18 @@ export default function GlobeThree({
       mouse.x = ((e.clientX - r.left) / r.width) * 2 - 1;
       mouse.y = -((e.clientY - r.top) / r.height) * 2 + 1;
       ray.setFromCamera(mouse, cam);
-      const hit = ray.intersectObjects(hitTargets())[0];
+      const hit = pickHit();
       const tip = tipRef.current;
       if (hit && e.target === renderer.domElement) {
         tip.classList.add(s.show);
         tip.style.left = `${e.clientX - r.left}px`;
         tip.style.top = `${e.clientY - r.top}px`;
         const u = hit.object.userData;
-        setCountryOutlineActive(u.cid || u.id);
+        setCountryOutlineActive(u.type === 'mention' ? activeId() : u.cid || u.id);
         let tt;
-        if (u.type === 'pin') {
+        if (u.type === 'mention') {
+          tt = `<b>${escapeHtml(u.fromName)} → ${escapeHtml(u.toName)}</b><br>국가명 언급 비율 ${(u.ratio * 100).toFixed(1)}%`;
+        } else if (u.type === 'pin') {
           tt = `📌 <b>${escapeHtml(u.title)}</b><br>클릭하면 기사로 이동`;
         } else {
           tt = `${escapeHtml(u.flag)} <b>${escapeHtml(u.name)}</b> · 클릭하면 국가 분석으로 이동`;
@@ -775,6 +833,16 @@ export default function GlobeThree({
         wrap.classList.remove(s.pointing);
       }
     };
+    const onWheel = (e) => {
+      // Ctrl+휠은 브라우저 확대/축소에 맡기고, 지구본 위의 일반 휠만 처리한다.
+      if (e.ctrlKey || !Number.isFinite(e.deltaY) || e.deltaY === 0) return;
+      e.preventDefault();
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? wrap.clientHeight : 1;
+      const delta = Math.max(-200, Math.min(200, e.deltaY * unit));
+      targetZ = clampCameraZ(targetZ * Math.exp(delta * WHEEL_ZOOM_SPEED));
+      userZoomed = true;
+      tipRef.current?.classList.remove(s.show);
+    };
     const onClick = () => {
       if (dragDistance >= 5) {
         dragDistance = 0;
@@ -783,9 +851,10 @@ export default function GlobeThree({
         return;
       }
       ray.setFromCamera(mouse, cam);
-      const hit = ray.intersectObjects(hitTargets())[0];
+      const hit = pickHit();
       if (!hit) return;
       const u = hit.object.userData;
+      if (u.type === 'mention') return;
       if (u.type === 'pin') {
         cb.current.onSelectPin?.(u);
         return;
@@ -797,6 +866,7 @@ export default function GlobeThree({
     addEventListener('pointerup', onUp);
     addEventListener('pointermove', onMove);
     wrap.addEventListener('click', onClick);
+    renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
 
     /* ── 루프 ── */
     const resize = () => {
@@ -806,7 +876,11 @@ export default function GlobeThree({
       renderer.setSize(w, h);
       cam.aspect = w / h;
       cam.updateProjectionMatrix();
-      if (focusedId) targetZ = focusCameraZ();
+      if (userZoomed) targetZ = clampCameraZ(targetZ);
+      else if (focusedId && !userRotated) {
+        targetZ = mentionGroup.children.length ? Math.max(IDLE_CAMERA_Z, focusCameraZ())
+          : countryFocusCameraZ(countries.find((c) => c.id === focusedId));
+      }
     };
     addEventListener('resize', resize);
     resize();
@@ -818,9 +892,9 @@ export default function GlobeThree({
       t += 0.016;
       if (spin && !reduced) globe.rotation.y += 0.0016;
       if (focusRotation) {
-        globe.rotation.x += (focusRotation.pitch - globe.rotation.x) * 0.06;
-        globe.rotation.y += (focusRotation.yaw - globe.rotation.y) * 0.06;
-        globe.rotation.z += (0 - globe.rotation.z) * 0.06;
+        globe.rotation.x += (focusRotation.pitch - globe.rotation.x) * COUNTRY_FOCUS_LERP;
+        globe.rotation.y += (focusRotation.yaw - globe.rotation.y) * COUNTRY_FOCUS_LERP;
+        globe.rotation.z += (0 - globe.rotation.z) * COUNTRY_FOCUS_LERP;
         if (
           Math.abs(focusRotation.pitch - globe.rotation.x) < 0.005
           && Math.abs(focusRotation.yaw - globe.rotation.y) < 0.005
@@ -829,7 +903,8 @@ export default function GlobeThree({
           focusRotation = null;
         }
       }
-      cam.position.z += (targetZ - cam.position.z) * 0.06;
+      const zoomLerp = focusedId && !userZoomed && !userRotated ? COUNTRY_FOCUS_LERP : CAMERA_LERP;
+      cam.position.z += (targetZ - cam.position.z) * zoomLerp;
       if (!reduced) {
         rings.forEach((r) => {
           const sc = 1 + 0.55 * (Math.sin(t * 2.2 + r.userData.t) * 0.5 + 0.5);
@@ -849,6 +924,15 @@ export default function GlobeThree({
 
     /* ── 바깥에서 쓰는 명령형 API ── */
     apiRef.current = {
+      setMentions(links) {
+        const hadLinks = mentionGroup.children.length > 0;
+        globe.remove(mentionGroup);
+        disposeObj(mentionGroup);
+        mentionGroup = createMentionGroup(links);
+        globe.add(mentionGroup);
+        if (links.length) targetZ = Math.max(IDLE_CAMERA_Z, focusCameraZ());
+        else if (hadLinks && focusedId) targetZ = countryFocusCameraZ(countries.find((c) => c.id === focusedId));
+      },
       setTone(topic, minN) {
         TONE.minN = minN;
         if (!topic) {
@@ -875,8 +959,10 @@ export default function GlobeThree({
           pitch: target.pitch,
           yaw: globe.rotation.y + shortestAngle(globe.rotation.y, target.yaw),
         };
-        /* 화면의 짧은 축 안에 지구본 외곽이 남는 범위까지만 확대한다. */
-        targetZ = focusCameraZ();
+        /* 국가 본토 주변에 여백을 남기고, 작은 나라의 과도한 확대를 막는다. */
+        targetZ = countryFocusCameraZ(c);
+        userZoomed = false;
+        userRotated = false;
         spin = false;
         setAutoSpin(false);
         syncBeacons(id);
@@ -887,6 +973,8 @@ export default function GlobeThree({
         focusedId = null;
         focusRotation = null;
         targetZ = IDLE_CAMERA_Z;
+        userZoomed = false;
+        userRotated = false;
         spin = true;
         setAutoSpin(true);
         clearCountryFx();
@@ -909,11 +997,14 @@ export default function GlobeThree({
 
     return () => {
       cancelAnimationFrame(raf);
+      disposeEarthTexture();
+      delete wrap.dataset.earthTexture;
       removeEventListener('resize', resize);
       removeEventListener('pointerup', onUp);
       removeEventListener('pointermove', onMove);
       wrap.removeEventListener('pointerdown', onDown);
       wrap.removeEventListener('click', onClick);
+      renderer.domElement.removeEventListener('wheel', onWheel);
       clearCountryFx();
       disposeObj(scene);
       renderer.dispose();
@@ -933,6 +1024,10 @@ export default function GlobeThree({
     if (focus) apiRef.current?.focusCountry(focus);
     else apiRef.current?.reset();
   }, [focus]);
+
+  useEffect(() => {
+    apiRef.current?.setMentions(mentionRelations);
+  }, [mentionRelations, focus]);
 
   useEffect(() => {
     apiRef.current?.setHighlight(highlight);
@@ -958,6 +1053,12 @@ export default function GlobeThree({
       />
       <div className={s.tip} ref={tipRef} />
       {children}
+      {mentionRelations.length > 0 && <div className={s.relationsLegend} role="status">
+        <span style={{ color: mentionRelations[0].incoming ? '#ffb454' : '#6fe7ff' }}>
+          {mentionRelations[0].incoming ? '┄▶ 언급받은 국가 → 선택 국가' : '━▶ 선택 국가 → 언급한 국가'}
+        </span>
+        <small>언급 비율이 높을수록 굵은 선 · 선 위에 마우스를 올려 상세 확인</small>
+      </div>}
       {spinControl && (
         <div className={s.spin} aria-label="지구 자전 제어">
           <button
