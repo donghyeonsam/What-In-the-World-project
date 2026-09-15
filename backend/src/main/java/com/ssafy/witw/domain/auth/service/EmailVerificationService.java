@@ -98,7 +98,7 @@ public class EmailVerificationService {
 
         if(savedCode == null) throw new GlobalException(ErrorCode.EMAIL_CODE_EXPIRED);
 
-        increaseTryCount(email, codeKey);
+        increaseTryCount(email, codeKey, TRY_KEY_PREFIX);
 
         if(!savedCode.equals(inputCode)) throw new GlobalException(ErrorCode.EMAIL_CODE_INVALID);
 
@@ -151,6 +151,29 @@ public class EmailVerificationService {
 
     }
 
+    public String verifyPasswordResetCode(EmailVerifyRequest request){
+        String email = request.email().trim().toLowerCase(Locale.ROOT);
+
+        String inputCode = request.code().trim().toUpperCase(Locale.ROOT);
+
+        String codeKey = PASSWORD_CODE_KEY_PREFIX + email;
+
+        String tryKey = PASSWORD_TRY_KEY_PREFIX + email;
+
+        String savedCode = redisTemplate.opsForValue().get(codeKey);
+
+        if(savedCode == null) throw new GlobalException(ErrorCode.EMAIL_CODE_EXPIRED);
+
+        increaseTryCount(email, codeKey, PASSWORD_TRY_KEY_PREFIX);
+
+        if(!savedCode.equals(inputCode)) throw new GlobalException(ErrorCode.EMAIL_CODE_INVALID);
+
+        redisTemplate.delete(codeKey);
+        redisTemplate.delete(tryKey);
+
+        return email;
+    }
+
     private void sendPasswordResetEmail(String email, String code) {
         SimpleMailMessage message = new SimpleMailMessage();
 
@@ -196,7 +219,7 @@ public class EmailVerificationService {
         mailSender.send(message);
     }
 
-    private void increaseTryCount(String email, String codeKey) {
+    private void increaseTryCount(String email, String codeKey, String tryKeyPrefix) {
         String tryKey = TRY_KEY_PREFIX + email;
         Long count = redisTemplate.opsForValue().increment(tryKey);
 

@@ -116,4 +116,18 @@ public class AuthController {
         return BaseResponse.success(SuccessCode.PASSWORD_RESET_EMAIL_SEND_SUCCESS, response);
     }
 
+    @PostMapping("/password/email/verify")
+    @Operation(summary = "비밀번호 재설정 인증번호 검증")
+    public ResponseEntity<BaseResponse<Void>> verifyPasswordResetCode(
+            @Valid @RequestBody EmailVerifyRequest request, HttpServletRequest httpRequest
+    ){
+        String verifiedEmail = emailVerificationService.verifyPasswordResetCode(request);
+
+        HttpSession session = httpRequest.getSession(true);
+
+        session.setAttribute("passwordResetEmail", verifiedEmail);
+
+        return BaseResponse.success(SuccessCode.PASSWORD_RESET_EMAIL_VERIFY_SUCCESS);
+    }
+
 }
