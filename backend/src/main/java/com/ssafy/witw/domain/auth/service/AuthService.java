@@ -28,24 +28,29 @@ public class AuthService {
     public void signup(SignupRequest request){
         String email = normalizeEmail(request.email());
 
-        validateDuplicateEmail(email);
+        User existingUser = userRepository.findByEmailIgnoreCase(email).orElse(null);
+
+        if(existingUser != null && !existingUser.isWithdrawn())
+            throw new GlobalException(ErrorCode.EMAIL_DUPLICATED);
+
         emailVerificationService.validateVerified(email);
 
         String passwordHash = passwordEncoder.encode(request.password());
 
-        User user = User.createLocal(email, passwordHash);
+        if(existingUser == null){
+            User user = User.createLocal(email, passwordHash);
 
-        userRepository.saveAndFlush(user);
+            userRepository.save(user);
+        } else{
+            existingUser.reactivateLocal(passwordHash);
+        }
+
+        userRepository.flush();
 
         emailVerificationService.clearVerified(email);
 
     }
 
-    private void validateDuplicateEmail(String email) {
-        if(userRepository.existsByEmailIgnoreCase(email)){
-            throw new GlobalException(ErrorCode.EMAIL_DUPLICATED);
-        }
-    }
 
     private String normalizeEmail(String email) {
         return email.trim().toLowerCase(Locale.ROOT);
@@ -53,7 +58,8 @@ public class AuthService {
 
     public EmailExistsResponse checkEmailExists(String email){
         String normalizeEmail = normalizeEmail(email);
-        boolean isDuplicate = userRepository.existsByEmailIgnoreCase(normalizeEmail);
+
+        boolean isDuplicate = userRepository.existsByEmailIgnoreCaseAndWithdrawnAtIsNull(normalizeEmail);
 
         return new EmailExistsResponse(isDuplicate);
     }

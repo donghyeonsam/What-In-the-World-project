@@ -63,7 +63,8 @@ public class EmailVerificationService {
     public EmailSendResponse sendCode(EmailRequest request){
         String email = request.email().trim().toLowerCase(Locale.ROOT);
 
-        if(userRepository.existsByEmailIgnoreCase(email)) throw new GlobalException(ErrorCode.EMAIL_DUPLICATED);
+        if(userRepository.existsByEmailIgnoreCaseAndWithdrawnAtIsNull(email))
+            throw new GlobalException(ErrorCode.EMAIL_DUPLICATED);
 
         increaseSendCount(email, SEND_KEY_PREFIX);
 

@@ -57,4 +57,12 @@ public class User {
 
         return user;
     }
+
+    public void reactivateLocal(String passwordHash){
+        this.passwordHash = passwordHash;
+        this.authProvider = AuthProvider.LOCAL;
+        this.providerId = null;
+        this.role = UserRole.USER;
+        this.withdrawnAt = null;
+    }
 }
