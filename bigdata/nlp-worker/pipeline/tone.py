@@ -1,9 +1,20 @@
 """
 기사 논조(톤)를 긍정/부정 확률로 채점하는 모듈.
 
-- teacher 모델(NLI zero-shot)을 그대로 사용한다. 학습이 필요 없다.
-- 다음 주에 증류된 student로 교체할 때 ToneScorer._chunk_probs 만 갈아끼우면 된다.
-  외부 계약(score_article 반환 형태)은 student 교체 후에도 동일하다.
+- models/tone-student/ 가 있으면 증류된 student로 채점하고, 없으면 기존
+  teacher 모델(NLI zero-shot)로 채점한다. 선택은 get_tone_scorer() 에서 한다.
+
+  student로 교체할 때 _chunk_probs 만 갈아끼우면 된다고 위에 적어 두었었는데
+  그건 틀렸다. student는 기사를 청크로 쪼개지 않고 전체를 한 번에 본다.
+  청크 경로(_chunk / _chunk_probs / agg_topk_mean)를 태우면 학습 때 본 적 없는
+  입력이 들어가 확률이 어긋난다. 그래서 이 파일의 ToneScorer는 손대지 않고,
+  같은 외부 계약을 가진 별도 클래스(tone_student.StudentToneScorer)를 만들어
+  get_tone_scorer() 에서 고른다. 이 파일은 롤백 경로로 그대로 남는다.
+
+  student가 이 파일의 make_sentiment / decide_label / tone_point 를 그대로
+  재사용하므로, 두 backend 모두 반환 형태가 완전히 같다. 하류(Spark의 score,
+  DB의 tone_score)는 아무것도 바뀌지 않는다.
+
 - field_id(1~5)에 따라 가설 문장을 바꾼다. 같은 표현이 분야마다 논조가 다르기
   때문이다. "격차가 벌어졌다"는 경제에서 부정이지만 스포츠에서는 경기 결과다.
 - 모델 로드 실패 시 예외를 던지지 않고 dummy(50.0)로 폴백한다. 톤 모델 때문에
@@ -44,6 +55,9 @@ MODEL_NAME = os.getenv(
 TONE_ALLOW_DOWNLOAD = os.getenv("TONE_ALLOW_DOWNLOAD", "1") not in ("0", "false", "False")
 # 비활성화하면 기존 dummy 동작(50.0)을 그대로 유지한다. 롤백 스위치.
 TONE_ENABLED = os.getenv("TONE_ENABLED", "1") not in ("0", "false", "False")
+# 어느 backend 를 쓸지. "teacher" 로 두면 student 디렉터리가 있어도 무시한다.
+# 증류 모델에 문제가 생겼을 때 코드를 되돌리지 않고 되돌아가는 스위치.
+TONE_BACKEND = os.getenv("TONE_BACKEND", "student").strip().lower()
 
 
 def resolve_model_source() -> tuple[str, bool]:
@@ -453,19 +467,45 @@ def make_sentiment(
 
 
 # --- singleton -------------------------------------------------------------
-_scorer: ToneScorer | None = None
+# student(StudentToneScorer)와 teacher(ToneScorer)가 같은 자리에 들어간다.
+# 둘 다 score(title, body, category) -> dict 계약을 지킨다.
+_scorer: Any | None = None
 _load_failed = False
 
 
-def get_tone_scorer() -> ToneScorer | None:
-    """ToneScorer singleton. 로드 실패 시 None을 돌려주고 재시도하지 않는다."""
+def get_tone_scorer() -> Any | None:
+    """톤 채점기 singleton. 로드 실패 시 None을 돌려주고 재시도하지 않는다.
+
+    우선순위
+      1. TONE_BACKEND=teacher 면 곧바로 teacher
+      2. models/tone-student/ 가 있으면 student
+      3. 없거나 로드에 실패하면 teacher 로 폴백
+
+    2번이 실패해도 3번으로 내려가므로, 이 파일을 먼저 머지해 두고 모델은
+    나중에 복사해도 서비스가 깨지지 않는다.
+    """
     global _scorer, _load_failed
-    if _scorer is None and not _load_failed:
+    if _scorer is not None or _load_failed:
+        return _scorer
+
+    if TONE_BACKEND != "teacher":
         try:
-            _scorer = ToneScorer()
+            from .tone_student import StudentToneScorer
+
+            _scorer = StudentToneScorer()
+            logger.info("Tone backend = student (%s)", _scorer.model_name)
+            return _scorer
+        except FileNotFoundError as exc:
+            logger.warning("Tone student not found (%s); falling back to teacher", exc)
         except Exception:
-            _load_failed = True
-            logger.exception("Tone model load failed; falling back to dummy score 50.0")
+            logger.exception("Tone student load failed; falling back to teacher")
+
+    try:
+        _scorer = ToneScorer()
+        logger.info("Tone backend = teacher (%s)", _scorer.model_name)
+    except Exception:
+        _load_failed = True
+        logger.exception("Tone model load failed; falling back to dummy score 50.0")
     return _scorer
 
 

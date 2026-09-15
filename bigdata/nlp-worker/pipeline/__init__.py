@@ -127,7 +127,18 @@ def process_article(article):
         "theme_id": theme["theme_id"],
         "theme_relevance_score": theme["similarity"],
         "mentioned_countries": mentioned,
-        "sentiment": analyze_sentiment(article),
+
+        # 6. 논조 채점
+        # field_id / theme_id 를 반드시 넘긴다.
+        #   teacher backend: 분야별 가설 문장이 달라진다.
+        #   student backend: 분야별로 학습된 모델 5개 중 하나로 라우팅된다.
+        # 넘기지 않으면 resolve_category 가 기본값 SOCIETY 로 떨어져서,
+        # 모든 기사가 사회 분야 기준으로 채점된다(분야별 모델 5개가 무의미해진다).
+        "sentiment": analyze_sentiment(
+            article,
+            field_id=theme["field_id"],
+            theme_id=theme["theme_id"],
+        ),
         "article_embedding": embedding,
         "processed_at": datetime.now(timezone.utc).isoformat(),
         "version": "v1",
