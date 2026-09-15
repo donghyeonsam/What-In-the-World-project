@@ -165,7 +165,9 @@ export default function GlobeThree({
 
     const globe = new THREE.Group();
     scene.add(globe);
-    globe.rotation.x = 0.16;
+    // 초기 화면만 일본 부근을 향하게 한다. 이후 자전·드래그·국가 포커스는 그대로 유지한다.
+    const initialOrientation = orientTo(35, 138);
+    globe.rotation.set(initialOrientation.pitch, initialOrientation.yaw, 0);
 
     /* 실제 지구 + 조명 + 대기 글로우 */
     const textureUrls = earthTextureUrls({
