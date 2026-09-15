@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { toneRGB, NO_SAMPLE, rgbHex } from '../../lib/tone.js';
 import { shortLon, prefersReducedMotion } from '../../lib/format.js';
 import { countryCameraZ } from '../../lib/globeFocus.js';
+import { earthTextureUrls, loadEarthTexture } from '../../lib/earthTextures.js';
 import s from './GlobeThree.module.css';
 
 const GEO_URL =
@@ -122,7 +123,7 @@ function disposeObj(o) {
  */
 export default function GlobeThree({
   countries,
-  texture = '/earth.jpg',
+  texture,
   iso3 = { kr: ['KOR'], us: ['USA'], uk: ['GBR'], au: ['AUS'], me: ['ARE', 'QAT'], af: ['ZAF', 'KEN'], br: ['BRA'] },
   tone = null,
   minSample = 30,
@@ -167,26 +168,40 @@ export default function GlobeThree({
     globe.rotation.x = 0.16;
 
     /* 실제 지구 + 조명 + 대기 글로우 */
-    const earthTex = new THREE.TextureLoader().load(texture);
-    earthTex.encoding = THREE.sRGBEncoding;
-    earthTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    const textureUrls = earthTextureUrls({
+      maxTextureSize: renderer.capabilities.maxTextureSize,
+      deviceMemory: navigator.deviceMemory,
+      hardwareConcurrency: navigator.hardwareConcurrency,
+      coarsePointer: window.matchMedia?.('(pointer: coarse)').matches ?? true,
+      saveData: navigator.connection?.saveData,
+      customTexture: texture,
+    });
     /* 흰 바탕에서는 지구가 '검은 공'으로 보이기 쉽다.
        Blue Marble 텍스처의 바다는 원래 짙은 남색이라 조명만 올려서는 한계가 있다.
        그래서 텍스처를 자체발광(emissiveMap)으로도 한 번 더 먹여 바닥 밝기를 깔고,
        방향광은 낮춰 낮/밤의 입체감만 남긴다. */
-    globe.add(
-      new THREE.Mesh(
-        new THREE.SphereGeometry(1, 128, 96),
-        new THREE.MeshPhongMaterial({
-          map: earthTex,
-          emissive: 0xffffff,
-          emissiveMap: earthTex,
-          emissiveIntensity: 0.62,
-          specular: 0x223344,
-          shininess: 10,
-        }),
-      ),
-    );
+    const earthMaterial = new THREE.MeshPhongMaterial({
+      emissive: 0x000000,
+      emissiveIntensity: 0.62,
+      specular: 0x223344,
+      shininess: 10,
+    });
+    const disposeEarthTexture = loadEarthTexture(new THREE.TextureLoader(), textureUrls, {
+      onLoad(earthTex, url) {
+        earthTex.encoding = THREE.sRGBEncoding;
+        earthTex.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
+        // 표면과 자체발광에 같은 GPU 텍스처를 공유한다.
+        earthMaterial.map = earthTex;
+        earthMaterial.emissiveMap = earthTex;
+        earthMaterial.emissive.set(0xffffff);
+        earthMaterial.needsUpdate = true;
+        wrap.dataset.earthTexture = url;
+      },
+      onError(error) {
+        console.warn('지구 표면 텍스처를 불러오지 못했습니다.', error);
+      },
+    });
+    globe.add(new THREE.Mesh(new THREE.SphereGeometry(1, 128, 96), earthMaterial));
     scene.add(new THREE.AmbientLight(0xc9d4e2, 0.5));
     const sun = new THREE.DirectionalLight(0xfff6e8, 0.62);
     sun.position.set(-2.2, 1.4, 2.6);
@@ -955,6 +970,8 @@ export default function GlobeThree({
 
     return () => {
       cancelAnimationFrame(raf);
+      disposeEarthTexture();
+      delete wrap.dataset.earthTexture;
       removeEventListener('resize', resize);
       removeEventListener('pointerup', onUp);
       removeEventListener('pointermove', onMove);
