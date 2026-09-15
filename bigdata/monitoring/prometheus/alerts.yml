@@ -26,6 +26,15 @@ groups:
 
   - name: pipeline-alerts
     rules:
+      - alert: ContainerMetricsUnavailable
+        expr: up{job="cadvisor"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Container resource metrics are unavailable"
+          description: "cAdvisor target {{ $labels.instance }} has been down for 2 minutes."
+
       - alert: KafkaMetricsUnavailable
         expr: up{job=~"kafka-offsets|kafka-broker"} == 0
         for: 2m

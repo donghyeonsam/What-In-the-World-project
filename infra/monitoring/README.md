@@ -45,14 +45,20 @@ Prometheus 설정을 수정한 뒤에는 해당 서비스를 재시작한다.
 ## 빅데이터 지표 조회
 
 앱 Grafana의 `BigData / WITW 데이터 처리 현황`에서 기존 파이프라인 지표와
-EC2 CPU·메모리·디스크 사용률·디스크 읽기/쓰기, Spark 배치 시간 p95를 조회한다.
+빅데이터 분산 EC2 CPU·메모리·디스크 사용률·디스크 읽기/쓰기, Spark 배치 시간 p95를 조회한다.
 앱 Grafana가 빅데이터 Prometheus에 직접 질의하며 지표를 복제하지 않는다.
+
+빅데이터 모니터링의 cAdvisor는 Collector, Kafka, Silver Writer, HDFS, Spark
+컨테이너의 CPU·메모리 working set을 수집한다. 컨테이너 CPU 패널은 코어당
+백분율이 아니라 빅데이터 분산 EC2 전체 vCPU 합계를 100%로 정규화한다. 호스트 CPU는 실제
+workload와 하이퍼바이저 대기 시간인 steal을 분리해서 표시한다. cAdvisor의
+8080 포트는 호스트에 공개하지 않고 모니터링 Docker 네트워크에서만 수집한다.
 
 - 빅데이터 Prometheus: 기본 `172.26.11.46:9090` 바인딩. 변경 시 빅데이터 배포 환경 파일에 `PROMETHEUS_BIND_HOST`를 설정한다.
 - 앱 Grafana: 기본 `http://172.26.11.46:9090`. 변경 시 `/opt/witw-monitoring/.env`에 `BIGDATA_PROMETHEUS_URL`을 설정한다.
 - 기존 `MONITORING_BIND_HOST`는 빅데이터 Grafana 바인딩에만 적용한다.
-- EC2 자원은 node-exporter가 Linux 호스트를 읽어서 제공한다. 컨테이너별 자원 지표는 아니다.
-- VPC 보안 그룹에서 앱 EC2 → 빅데이터 EC2 TCP 9090 접근이 허용되어야 한다.
+- 빅데이터 분산 EC2 자원은 node-exporter가 Linux 호스트를 읽어서 제공한다.
+- VPC 보안 그룹에서 앱 EC2 → 빅데이터 분산 EC2 TCP 9090 접근이 허용되어야 한다.
 
 빅데이터 모니터링과 앱 모니터링을 모두 배포한다. CI가 공유 대시보드를 복사하므로
 별도 대시보드 import는 필요 없다. 배포 디렉터리에서 수동 Compose 명령을 사용할 때는
@@ -60,7 +66,7 @@ EC2 CPU·메모리·디스크 사용률·디스크 읽기/쓰기, Spark 배치 �
 저장소에서 실행할 때는 기본 상대 경로로 같은 대시보드를 읽는다.
 
 Grafana Explore에서 `Prometheus-BigData`를 선택하고 `up{job="node"}`가 1인지 확인한다.
-`node_memory_MemTotal_bytes`가 빅데이터 EC2 메모리와 맞는지도 확인한다.
+`node_memory_MemTotal_bytes`가 빅데이터 분산 EC2 메모리와 맞는지도 확인한다.
 수집 설정을 반영하려면 기존 빅데이터 Prometheus를 재시작한다.
 
 ## 기존 로그 수집 상세
