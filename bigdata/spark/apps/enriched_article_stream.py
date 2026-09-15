@@ -13,6 +13,7 @@ from issue_matching import (
     parse_issue_candidate,
 )
 from streaming_metrics import register_streaming_metrics
+from pyspark import StorageLevel
 from pyspark.sql import SparkSession
 from pyspark.sql.types import (
     ArrayType,
@@ -179,16 +180,24 @@ def write_event_batch(batch_df, batch_id: int) -> None:
 
     # Kafka Source의 value는 binary이므로 문자열로 변환한 뒤, 각 Partition에서
     # Enriched Article을 ARTICLE_UPSERT key/value 쌍으로 변환한다.
-    article_rows = batch_df.selectExpr(
-        "topic",
-        "partition",
-        "offset",
-        "CAST(value AS STRING) AS value",
-    ).rdd.mapPartitions(_transform_kafka_partition)
-    article_df = spark.createDataFrame(article_rows, schema=ARTICLE_SCHEMA).cache()
+    # Spark 4.2.0의 SPARK-59451을 피하기 위해 InMemoryRelation을 만드는
+    # DataFrame.cache() 대신 그 입력 RDD를 보관한다. 첫 Kafka write가 RDD의
+    # 모든 파티션을 materialize한 뒤 이어지는 action들이 같은 결과를 재사용한다.
+    article_rows = (
+        batch_df.selectExpr(
+            "topic",
+            "partition",
+            "offset",
+            "CAST(value AS STRING) AS value",
+        )
+        .rdd.mapPartitions(_transform_kafka_partition)
+        .persist(StorageLevel.MEMORY_AND_DISK)
+    )
 
     issues_by_theme = None
     try:
+        article_df = spark.createDataFrame(article_rows, schema=ARTICLE_SCHEMA)
+
         # topic 옵션을 지정했기 때문에 각 Row에는 key와 value만 있으면 된다.
         (
             article_df.select("key", "value").write.format("kafka")
@@ -226,7 +235,7 @@ def write_event_batch(batch_df, batch_id: int) -> None:
     finally:
         if issues_by_theme is not None:
             issues_by_theme.destroy()
-        article_df.unpersist()
+        article_rows.unpersist()
 
 
 def main() -> None:
