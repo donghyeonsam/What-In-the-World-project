@@ -13,19 +13,23 @@ public interface ThemeRepository extends JpaRepository<Theme, Long> {
     @Query(value = """
             WITH bounds AS (
                 SELECT CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul' AS end_at
+            ),
+            counts AS (
+                SELECT a.theme_id, COUNT(*) AS article_count
+                FROM article a
+                CROSS JOIN bounds b
+                WHERE a.deleted_at IS NULL
+                  AND a.published_at >= b.end_at - INTERVAL '24 hours'
+                  AND a.published_at <  b.end_at
+                GROUP BY a.theme_id
             )
             SELECT f.id AS "fieldId", f.name AS "fieldName",
                    t.id AS "themeId", t.name AS "themeName",
-                   COUNT(a.id) AS "articleCount24"
+                   COALESCE(c.article_count, 0) AS "articleCount24"
             FROM field f
-            CROSS JOIN bounds b
-            LEFT JOIN theme t ON t.field_id = f.id
-            LEFT JOIN article a ON a.theme_id = t.id
-                               AND a.deleted_at IS NULL
-                               AND a.published_at >= b.end_at - INTERVAL '24 hours'
-                               AND a.published_at < b.end_at
-            GROUP BY f.id, f.name, t.id, t.name
-            ORDER BY f.id, COUNT(a.id) DESC, t.id
+            LEFT JOIN theme t  ON t.field_id = f.id
+            LEFT JOIN counts c ON c.theme_id = t.id
+            ORDER BY f.id, COALESCE(c.article_count, 0) DESC, t.id
             """, nativeQuery = true)
     List<FieldThemeRow> findThemesByField();
 

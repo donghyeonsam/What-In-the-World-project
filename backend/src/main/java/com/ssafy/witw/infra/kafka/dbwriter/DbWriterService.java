@@ -16,9 +16,7 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
+import java.time.*;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -39,6 +37,8 @@ public class DbWriterService {
                 updated_at = GREATEST(issue.updated_at, EXCLUDED.updated_at)
             RETURNING id
             """;
+
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final ObjectMapper objectMapper;
     private final ArticleRepository articleRepository;
@@ -80,7 +80,7 @@ public class DbWriterService {
         Article article = articleRepository.findById(articleId).orElseGet(() -> {
             Article created = new Article();
             created.setId(articleId);
-            created.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));
+            created.setCreatedAt(LocalDateTime.now(KST));
             return created;
         });
 
@@ -103,11 +103,11 @@ public class DbWriterService {
                 : translatedTitle.trim()
         );
         article.setOriginalTitle(requireText(payload.originalTitle(), "payload.original_title"));
-        article.setCrawledAt(toUtcLocalDateTime(require(payload.crawledAt(), "payload.crawled_at")));
+        article.setCrawledAt(toKstLocalDateTime(require(payload.crawledAt(), "payload.crawled_at")));
         article.setToneScore(requireRange(
                 payload.toneScore(), "payload.tone_score", BigDecimal.ZERO, BigDecimal.valueOf(100)
         ));
-        article.setPublishedAt(toUtcLocalDateTime(require(payload.publishedAt(), "payload.published_at")));
+        article.setPublishedAt(toKstLocalDateTime(require(payload.publishedAt(), "payload.published_at")));
 
         articleRepository.saveAndFlush(article);
         replaceCountryMentions(articleId, payload.mentionedCountries());
@@ -164,7 +164,7 @@ public class DbWriterService {
         article.setIssueSimilarity(requireRange(
                 payload.similarity(), "payload.similarity", BigDecimal.ZERO, BigDecimal.ONE
         ));
-        article.setIssueAssignedAt(toUtcLocalDateTime(occurredAt));
+        article.setIssueAssignedAt(toKstLocalDateTime(occurredAt));
         articleRepository.save(article);
     }
 
@@ -180,10 +180,10 @@ public class DbWriterService {
             throw new IllegalArgumentException("payload.name exceeds 50 characters");
         }
         String embedding = writeJson(requireNonEmpty(payload.embedding(), "payload.embedding"));
-        LocalDateTime firstSeenAt = toUtcLocalDateTime(
+        LocalDateTime firstSeenAt = toKstLocalDateTime(
                 require(payload.firstSeenAt(), "payload.first_seen_at")
         );
-        LocalDateTime eventTime = toUtcLocalDateTime(occurredAt);
+        LocalDateTime eventTime = toKstLocalDateTime(occurredAt);
         Long issueId = jdbcTemplate.queryForObject(
                 ISSUE_UPSERT,
                 Long.class,
@@ -206,7 +206,7 @@ public class DbWriterService {
             );
         }
 
-        LocalDateTime assignedAt = toUtcLocalDateTime(occurredAt);
+        LocalDateTime assignedAt = toKstLocalDateTime(occurredAt);
         for (Article article : articles) {
             article.setIssue(issue);
             article.setIssueSimilarity(null);
@@ -317,7 +317,7 @@ public class DbWriterService {
         return value;
     }
 
-    private static LocalDateTime toUtcLocalDateTime(OffsetDateTime value) {
-        return value.withOffsetSameInstant(ZoneOffset.UTC).toLocalDateTime();
+    private static LocalDateTime toKstLocalDateTime(OffsetDateTime value) {
+        return value.atZoneSameInstant(KST).toLocalDateTime();
     }
 }
