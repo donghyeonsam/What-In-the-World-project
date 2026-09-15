@@ -210,6 +210,8 @@ def run_training(model, train_ds, val_ds, collate, s, device, seed: int) -> None
           f" / 워밍업 {warmup:,} / bf16 {use_bf16} / dataloader worker {nw}")
 
     step = 0
+    bad = 0                       # NaN 으로 건너뛴 배치 수
+    max_bad = max(int(total_steps * 0.05), 20)
     t0 = time.time()
     for epoch in range(int(s.epochs)):
         model.train()
@@ -232,12 +234,45 @@ def run_training(model, train_ds, val_ds, collate, s, device, seed: int) -> None
                             batch["attention_mask"].to(device, non_blocking=True),
                             labels=batch["labels"].to(device, non_blocking=True))
             loss = out["loss"]
+
+            # --- NaN 방어 1: 손실이 유한한지 ---------------------------------
+            #   NaN 이 한 번 역전파되면 가중치 전체가 NaN 이 되고 영구히 복구되지
+            #   않는다. 실제로 이 방어가 없을 때 5개 분야 전부 망가졌다.
+            #   역전파 '전에' 걸러내는 것이 핵심이다.
+            if not torch.isfinite(loss):
+                bad += 1
+                L = int(batch["input_ids"].shape[1])
+                if bad <= 3:
+                    print(f"    [건너뜀] step {step:,} 부근 배치에서 loss={float(loss)} "
+                          f"(배치 {tuple(batch['input_ids'].shape)}, 최대 길이 {L})",
+                          flush=True)
+                opt.zero_grad(set_to_none=True)
+                if bad > max_bad:
+                    raise RuntimeError(
+                        f"NaN 배치가 {bad}개를 넘었습니다. bf16 을 끄거나 "
+                        f"student.max_length 를 줄여야 합니다.")
+                continue
+
             (loss / accum).backward()
             running += float(loss.detach())
             seen += 1
 
             if (bi + 1) % accum == 0 or bi == len(batches) - 1:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                gnorm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+
+                # --- NaN 방어 2: 그래디언트가 유한한지 ------------------------
+                #   손실이 멀쩡해도 역전파에서 터지는 경우가 있다.
+                #   이때 opt.step() 을 태우면 가중치가 오염된다.
+                if not torch.isfinite(gnorm):
+                    bad += 1
+                    if bad <= 3:
+                        print(f"    [건너뜀] step {step:,} 그래디언트 norm={float(gnorm)}",
+                              flush=True)
+                    opt.zero_grad(set_to_none=True)
+                    if bad > max_bad:
+                        raise RuntimeError(f"NaN 그래디언트가 {bad}개를 넘었습니다.")
+                    continue
+
                 for g in opt.param_groups:
                     g["lr"] = lr_at(step, total_steps, warmup, float(s.lr))
                 opt.step()
@@ -253,10 +288,20 @@ def run_training(model, train_ds, val_ds, collate, s, device, seed: int) -> None
                           f"  경과 {el / 60:.1f}분  남은 {eta / 60:.1f}분", flush=True)
                     running, seen = 0.0, 0
 
+        # 에폭 끝마다 가중치가 멀쩡한지 확인한다. 오염된 채로 계속 돌면
+        # 남은 에폭이 통째로 낭비된다.
+        nan_params = [n for n, p in model.named_parameters()
+                      if not torch.isfinite(p).all()]
+        if nan_params:
+            raise RuntimeError(
+                f"가중치가 NaN 이 되었습니다 (예: {nan_params[0]}). "
+                f"이 상태로는 학습이 진행되지 않습니다.")
+
         vl = evaluate_loss(model, val_ds, collate, device,
                            int(s.batch_size) * 2, use_bf16)
         print(f"  [epoch {epoch + 1}] val loss {vl:.4f}"
-              f"  (누적 {(time.time() - t0) / 60:.1f}분)", flush=True)
+              f"  (누적 {(time.time() - t0) / 60:.1f}분"
+              f"{f' / NaN 건너뜀 {bad}개' if bad else ''})", flush=True)
 
 
 @torch.no_grad()
@@ -301,7 +346,8 @@ def train_field(cfg, field: str, model_name: str, model_max: int) -> None:
     print(f"  토큰 길이 p50 {int(np.percentile(lens, 50))} / p95 {int(np.percentile(lens, 95))} / "
           f"절단 {sum(1 for l in lens if l >= max_length)}건")
 
-    model = ToneStudent(model_name, pooling=s.pooling)
+    model = ToneStudent(model_name, pooling=s.pooling,
+                        attn_implementation=getattr(s, "attn_implementation", "eager"))
 
     out_dir = cfg.data.work_dir / "models" / "tone" / field
 
