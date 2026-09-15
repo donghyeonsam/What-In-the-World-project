@@ -110,7 +110,10 @@ class DbWriterServiceTest {
         assertThat(saved.getOriginalTitle()).isEqualTo("Title");
         assertThat(saved.getTranslatedTitle()).isEqualTo("번역된 제목");
         assertThat(saved.getCrawledAt()).isEqualTo(
-                LocalDateTime.parse("2026-09-01T08:22:28.256121")
+                LocalDateTime.parse("2026-09-01T17:22:28.256121")
+        );
+        assertThat(saved.getPublishedAt()).isEqualTo(
+                LocalDateTime.parse("2026-09-01T17:15:03")
         );
         verify(jdbcTemplate).update(
                 "DELETE FROM article_country_mention WHERE article_id = ?",
@@ -149,7 +152,7 @@ class DbWriterServiceTest {
         assertThat(article.getIssue()).isSameAs(issue);
         assertThat(article.getIssueSimilarity()).isEqualByComparingTo("0.94");
         assertThat(article.getIssueAssignedAt()).isEqualTo(
-                LocalDateTime.parse("2026-09-03T06:40:02")
+                LocalDateTime.parse("2026-09-03T15:40:02")
         );
         verify(articleRepository).save(article);
     }
@@ -224,9 +227,9 @@ class DbWriterServiceTest {
                 eq(12L),
                 eq("New issue"),
                 eq("[0.031,-0.114]"),
-                eq(LocalDateTime.parse("2026-09-03T03:35:24")),
-                eq(LocalDateTime.parse("2026-09-03T06:50:00")),
-                eq(LocalDateTime.parse("2026-09-03T06:50:00"))
+                eq(LocalDateTime.parse("2026-09-03T12:35:24")),
+                eq(LocalDateTime.parse("2026-09-03T15:50:00")),
+                eq(LocalDateTime.parse("2026-09-03T15:50:00"))
         );
         assertThat(firstArticle.getIssue()).isSameAs(issue);
         assertThat(secondArticle.getIssue()).isSameAs(issue);
