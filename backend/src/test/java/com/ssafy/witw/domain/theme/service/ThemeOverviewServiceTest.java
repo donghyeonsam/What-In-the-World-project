@@ -55,6 +55,7 @@ class ThemeOverviewServiceTest {
         when(article.getArticleTitle()).thenReturn("폭염이 이어진다");
         when(article.getArticleToneScore()).thenReturn(BigDecimal.valueOf(33));
         when(article.getArticlePublisher()).thenReturn("publisher");
+        when(article.getUrl()).thenReturn("https://example.com/article-1");
         when(article.getPublishedAt()).thenReturn(LocalDateTime.of(2026, 1, 1, 12, 0));
 
         when(themeRepository.findById(THEME_ID)).thenReturn(Optional.of(theme));

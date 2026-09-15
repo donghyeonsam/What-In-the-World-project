@@ -98,6 +98,7 @@ public class ThemeService {
                 article.getArticleTitle(),
                 ArticleTone.fromScore(article.getArticleToneScore()),
                 article.getArticlePublisher(),
+                article.getUrl(),
                 article.getPublishedAt()
         );
     }

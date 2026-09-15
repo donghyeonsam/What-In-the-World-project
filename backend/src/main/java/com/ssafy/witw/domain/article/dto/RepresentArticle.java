@@ -9,6 +9,7 @@ public record RepresentArticle(
         String articleTitle,
         ArticleTone articleTone,
         String articlePublisher,
+        String url,
         LocalDateTime publishedAt
 ) {
     public static RepresentArticle from(RepresentArticleProjection row) {
@@ -17,6 +18,7 @@ public record RepresentArticle(
                 row.getArticleTitle(),
                 ArticleTone.fromScore(row.getArticleToneScore()),
                 row.getArticlePublisher(),
+                row.getUrl(),
                 row.getPublishedAt()
         );
     }

@@ -58,6 +58,7 @@ class IssueOverviewServiceTest {
         when(article.getArticleId()).thenReturn("article-1");
         when(article.getArticleTitle()).thenReturn("대표 기사 제목");
         when(article.getArticlePublisher()).thenReturn("언론사");
+        when(article.getUrl()).thenReturn("https://example.com/article-1");
         when(article.getArticleToneScore()).thenReturn(new BigDecimal(score));
         when(article.getPublishedAt()).thenReturn(publishedAt);
         when(articleRepository.getRepresentArticlesByIssueId(1L, 2)).thenReturn(List.of(article));
@@ -74,7 +75,8 @@ class IssueOverviewServiceTest {
                 .containsExactly(new CountryTone(new CountryPoint("KR", "대한민국", 127.0, 37.5), 50, 80, 20, 12.5, 4));
         assertThat(response.representArticles())
                 .as("대표 기사 모든 필드를 보존하고 점수 경계에 맞는 ArticleTone으로 변환함")
-                .containsExactly(new RepresentArticle("article-1", "대표 기사 제목", expectedTone, "언론사", publishedAt));
+                .containsExactly(new RepresentArticle("article-1", "대표 기사 제목", expectedTone, "언론사",
+                        "https://example.com/article-1", publishedAt));
         verify(articleRepository).getRepresentArticlesByIssueId(1L, 2);
     }
 
