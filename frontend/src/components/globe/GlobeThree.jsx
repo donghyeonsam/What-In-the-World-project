@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { toneRGB, NO_SAMPLE, rgbHex } from '../../lib/tone.js';
 import { shortLon, prefersReducedMotion } from '../../lib/format.js';
+import { countryCameraZ } from '../../lib/globeFocus.js';
 import s from './GlobeThree.module.css';
 
 const GEO_URL =
@@ -507,6 +508,10 @@ export default function GlobeThree({
             });
           });
           buildCountryOutlines();
+          setCountryOutlineActive(activeId());
+          if (focusedId && !userZoomed && !userRotated) {
+            targetZ = countryFocusCameraZ(countries.find((c) => c.id === focusedId));
+          }
           if (TONE.active) paintTone();
         })
         .catch(() => {
@@ -708,6 +713,7 @@ export default function GlobeThree({
     let focusRotation = null;
     let targetZ = IDLE_CAMERA_Z;
     let userZoomed = false;
+    let userRotated = false;
     let focusedId = null;
     let highlightId = null; /* 목록만 좁힌 상태(줌 없이 윤곽만 강조) */
     const activeId = () => focusedId || highlightId;
@@ -716,6 +722,14 @@ export default function GlobeThree({
       const horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * cam.aspect);
       const limitingHalfFov = Math.min(verticalHalfFov, horizontalHalfFov);
       return VISIBLE_GLOBE_RADIUS / Math.sin(limitingHalfFov * FOCUS_FILL_RATIO);
+    };
+    const countryFocusCameraZ = (c) => {
+      if (!c) return focusCameraZ();
+      return countryCameraZ({
+        rings: countryRings(c), lat: c.lat, lon: c.lon,
+        ...orientTo(c.lat, c.lon), fov: cam.fov, aspect: cam.aspect,
+        maxZ: focusCameraZ(),
+      });
     };
     const clampCameraZ = (z) => Math.max(
       MIN_CAMERA_Z,
@@ -745,6 +759,7 @@ export default function GlobeThree({
       if (dragging) {
         const dx = e.clientX - px;
         const dy = e.clientY - py;
+        if (dx || dy) userRotated = true;
         dragDistance += Math.hypot(dx, dy);
         vx = dx * 0.0045;
         vy = dy * 0.0045;
@@ -827,7 +842,9 @@ export default function GlobeThree({
       cam.aspect = w / h;
       cam.updateProjectionMatrix();
       if (userZoomed) targetZ = clampCameraZ(targetZ);
-      else if (focusedId) targetZ = focusCameraZ();
+      else if (focusedId && !userRotated) {
+        targetZ = countryFocusCameraZ(countries.find((c) => c.id === focusedId));
+      }
     };
     addEventListener('resize', resize);
     resize();
@@ -896,9 +913,10 @@ export default function GlobeThree({
           pitch: target.pitch,
           yaw: globe.rotation.y + shortestAngle(globe.rotation.y, target.yaw),
         };
-        /* 화면의 짧은 축 안에 지구본 외곽이 남는 범위까지만 확대한다. */
-        targetZ = focusCameraZ();
+        /* 국가 본토 주변에 여백을 남기고, 작은 나라의 과도한 확대를 막는다. */
+        targetZ = countryFocusCameraZ(c);
         userZoomed = false;
+        userRotated = false;
         spin = false;
         setAutoSpin(false);
         syncBeacons(id);
@@ -910,6 +928,7 @@ export default function GlobeThree({
         focusRotation = null;
         targetZ = IDLE_CAMERA_Z;
         userZoomed = false;
+        userRotated = false;
         spin = true;
         setAutoSpin(true);
         clearCountryFx();
