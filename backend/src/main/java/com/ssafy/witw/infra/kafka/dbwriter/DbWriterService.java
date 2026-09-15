@@ -96,6 +96,7 @@ public class DbWriterService {
                 payload.publisher(), "payload.publisher", 255
         ));
         article.setUrl(requireMaxLength(payload.url(), "payload.url", 1000));
+        String translatedTitle = payload.translatedTitle();
         article.setTranslatedTitle(
             translatedTitle == null || translatedTitle.isBlank()
                 ? null
