@@ -16,6 +16,9 @@ const AMBER = 0xffb454;
 const IDLE_CAMERA_Z = 3.7;
 const MIN_CAMERA_Z = 1.5;
 const WHEEL_ZOOM_SPEED = 0.0015;
+const CAMERA_LERP = 0.06;
+// 같은 거리의 국가 이동·자동 확대가 기존보다 약 1.2배 빠르게 수렴한다.
+const COUNTRY_FOCUS_LERP = 1 - (1 - CAMERA_LERP) ** 1.2;
 const FOCUS_FILL_RATIO = 0.88;
 const VISIBLE_GLOBE_RADIUS = 1.04;
 const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -856,9 +859,9 @@ export default function GlobeThree({
       t += 0.016;
       if (spin && !reduced) globe.rotation.y += 0.0016;
       if (focusRotation) {
-        globe.rotation.x += (focusRotation.pitch - globe.rotation.x) * 0.06;
-        globe.rotation.y += (focusRotation.yaw - globe.rotation.y) * 0.06;
-        globe.rotation.z += (0 - globe.rotation.z) * 0.06;
+        globe.rotation.x += (focusRotation.pitch - globe.rotation.x) * COUNTRY_FOCUS_LERP;
+        globe.rotation.y += (focusRotation.yaw - globe.rotation.y) * COUNTRY_FOCUS_LERP;
+        globe.rotation.z += (0 - globe.rotation.z) * COUNTRY_FOCUS_LERP;
         if (
           Math.abs(focusRotation.pitch - globe.rotation.x) < 0.005
           && Math.abs(focusRotation.yaw - globe.rotation.y) < 0.005
@@ -867,7 +870,8 @@ export default function GlobeThree({
           focusRotation = null;
         }
       }
-      cam.position.z += (targetZ - cam.position.z) * 0.06;
+      const zoomLerp = focusedId && !userZoomed && !userRotated ? COUNTRY_FOCUS_LERP : CAMERA_LERP;
+      cam.position.z += (targetZ - cam.position.z) * zoomLerp;
       if (!reduced) {
         rings.forEach((r) => {
           const sc = 1 + 0.55 * (Math.sin(t * 2.2 + r.userData.t) * 0.5 + 0.5);
