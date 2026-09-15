@@ -10,13 +10,13 @@
     {
       "type": "stat",
       "title": "정상 수집 대상 수",
-      "description": "Prometheus가 정상적으로 수집 중인 Kafka, HDFS, Spark 대상의 수입니다. 전체 9개가 정상이면 초록색으로 표시됩니다.",
+      "description": "Prometheus가 정상적으로 수집 중인 Kafka, HDFS, Spark, 컨테이너 자원 대상의 수입니다. 전체 10개가 정상이면 초록색으로 표시됩니다.",
       "id": 1,
       "datasource": {"type": "prometheus", "uid": "prometheus-bigdata"},
       "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
-      "targets": [{"expr": "sum(up{job=~\"kafka-offsets|kafka-broker|hdfs|spark-master|spark-worker|spark-driver|spark-streaming\"})", "refId": "A"}],
+      "targets": [{"expr": "sum(up{job=~\"kafka-offsets|kafka-broker|hdfs|spark-master|spark-worker|spark-driver|spark-streaming|cadvisor\"})", "refId": "A"}],
       "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
-      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 9}]}}, "overrides": []}
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 10}]}}, "overrides": []}
     },
     {
       "type": "stat",
@@ -201,11 +201,14 @@
       "fieldConfig": {"defaults": {}, "overrides": []},
       "options": {"showHeader": true, "cellHeight": "sm"}
     },
-    {"id":20,"type":"timeseries","title":"EC2 CPU 사용률","datasource":{"type":"prometheus","uid":"prometheus-bigdata"},"gridPos":{"h":8,"w":12,"x":0,"y":52},"fieldConfig":{"defaults":{"unit":"percent","min":0},"overrides":[]},"targets":[{"refId":"A","expr":"100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{job=\"node\",mode=\"idle\"}[5m])))","legendFormat":"{{instance}}"}]},
-    {"id":21,"type":"timeseries","title":"EC2 메모리 사용률","datasource":{"type":"prometheus","uid":"prometheus-bigdata"},"gridPos":{"h":8,"w":12,"x":12,"y":52},"fieldConfig":{"defaults":{"unit":"percent","min":0},"overrides":[]},"targets":[{"refId":"A","expr":"100 * (1 - node_memory_MemAvailable_bytes{job=\"node\"} / node_memory_MemTotal_bytes{job=\"node\"})","legendFormat":"{{instance}}"}]},
-    {"id":22,"type":"timeseries","title":"EC2 디스크 사용률","datasource":{"type":"prometheus","uid":"prometheus-bigdata"},"gridPos":{"h":8,"w":12,"x":0,"y":60},"fieldConfig":{"defaults":{"unit":"percent","min":0},"overrides":[]},"targets":[{"refId":"A","expr":"100 * (1 - node_filesystem_avail_bytes{job=\"node\",fstype!~\"tmpfs|overlay|squashfs\",device!~\"rootfs\",mountpoint!~\"/run.*|/var/lib/docker/.+\"} / node_filesystem_size_bytes{job=\"node\",fstype!~\"tmpfs|overlay|squashfs\",device!~\"rootfs\",mountpoint!~\"/run.*|/var/lib/docker/.+\"})","legendFormat":"{{mountpoint}}"}]},
-    {"id":23,"type":"timeseries","title":"EC2 디스크 읽기·쓰기","datasource":{"type":"prometheus","uid":"prometheus-bigdata"},"gridPos":{"h":8,"w":12,"x":12,"y":60},"fieldConfig":{"defaults":{"unit":"Bps","min":0},"overrides":[]},"targets":[{"refId":"A","expr":"rate(node_disk_read_bytes_total{job=\"node\",device!~\"loop.*|ram.*\"}[5m])","legendFormat":"{{device}} 읽기"},{"refId":"B","expr":"rate(node_disk_written_bytes_total{job=\"node\",device!~\"loop.*|ram.*\"}[5m])","legendFormat":"{{device}} 쓰기"}]},
-    {"id":24,"type":"timeseries","title":"Spark 배치 실행시간 p95","datasource":{"type":"prometheus","uid":"prometheus-bigdata"},"gridPos":{"h":8,"w":12,"x":0,"y":68},"fieldConfig":{"defaults":{"unit":"s","min":0},"overrides":[]},"targets":[{"refId":"A","expr":"histogram_quantile(0.95, sum by (le, app, query) (rate(witw_spark_streaming_batch_duration_seconds_bucket[5m])))","legendFormat":"{{app}} / {{query}}"}]}
+    {"id":20,"type":"timeseries","title":"빅데이터 분산 EC2 실제 Workload CPU 사용률","description":"빅데이터 분산 EC2 전체 CPU 중 실제 사용자·커널 작업 비율입니다. idle·iowait·steal을 제외해 가상화 대기 시간을 사용률로 과대 계산하지 않습니다.","datasource":{"type":"prometheus","uid":"prometheus-bigdata"},"gridPos":{"h":8,"w":8,"x":0,"y":52},"fieldConfig":{"defaults":{"unit":"percent","min":0,"max":100},"overrides":[]},"targets":[{"refId":"A","expr":"100 * clamp_min(1 - avg by (instance) (rate(node_cpu_seconds_total{job=\"node\",mode=\"idle\"}[5m])) - avg by (instance) (rate(node_cpu_seconds_total{job=\"node\",mode=\"iowait\"}[5m])) - avg by (instance) (rate(node_cpu_seconds_total{job=\"node\",mode=\"steal\"}[5m])), 0)","legendFormat":"{{instance}}"}]},
+    {"id":25,"type":"timeseries","title":"빅데이터 분산 EC2 CPU Steal","description":"빅데이터 분산 EC2가 실행할 작업이 있지만 하이퍼바이저로부터 물리 CPU를 할당받지 못한 비율입니다. Workload CPU와 분리해서 확인합니다.","datasource":{"type":"prometheus","uid":"prometheus-bigdata"},"gridPos":{"h":8,"w":8,"x":8,"y":52},"fieldConfig":{"defaults":{"unit":"percent","min":0,"max":100},"overrides":[]},"targets":[{"refId":"A","expr":"100 * avg by (instance) (rate(node_cpu_seconds_total{job=\"node\",mode=\"steal\"}[5m]))","legendFormat":"{{instance}}"}]},
+    {"id":21,"type":"timeseries","title":"빅데이터 분산 EC2 메모리 사용률","description":"빅데이터 분산 EC2에서 회수 가능한 캐시를 제외한 실제 메모리 압력을 MemAvailable 기준으로 계산합니다.","datasource":{"type":"prometheus","uid":"prometheus-bigdata"},"gridPos":{"h":8,"w":8,"x":16,"y":52},"fieldConfig":{"defaults":{"unit":"percent","min":0,"max":100},"overrides":[]},"targets":[{"refId":"A","expr":"100 * (1 - node_memory_MemAvailable_bytes{job=\"node\"} / node_memory_MemTotal_bytes{job=\"node\"})","legendFormat":"{{instance}}"}]},
+    {"id":26,"type":"timeseries","title":"파이프라인 컨테이너별 CPU 점유율","description":"Collector, Kafka, Silver Writer, HDFS, Spark 컨테이너가 빅데이터 분산 EC2 전체 vCPU에서 실제로 사용한 비율입니다. Docker stats의 코어 단위 백분율과 달리 호스트 전체 vCPU 합계를 100%로 정규화합니다.","datasource":{"type":"prometheus","uid":"prometheus-bigdata"},"gridPos":{"h":8,"w":12,"x":0,"y":60},"fieldConfig":{"defaults":{"unit":"percent","min":0,"max":100},"overrides":[]},"targets":[{"refId":"A","expr":"100 * sum by (name) (rate(container_cpu_usage_seconds_total{job=\"cadvisor\",name=~\"news-(collector|kafka|silver-writer|hdfs-namenode|hdfs-datanode|spark-master|spark-worker|spark-enriched-stream|spark-unclassified-issue-stream)\"}[5m])) / scalar(count(node_cpu_seconds_total{job=\"node\",mode=\"idle\"}))","legendFormat":"{{name}}"}]},
+    {"id":27,"type":"timeseries","title":"파이프라인 컨테이너별 메모리 점유율","description":"Collector, Kafka, Silver Writer, HDFS, Spark 컨테이너의 working set을 빅데이터 분산 EC2 전체 메모리 대비 비율로 표시합니다.","datasource":{"type":"prometheus","uid":"prometheus-bigdata"},"gridPos":{"h":8,"w":12,"x":12,"y":60},"fieldConfig":{"defaults":{"unit":"percent","min":0,"max":100},"overrides":[]},"targets":[{"refId":"A","expr":"100 * max by (name) (container_memory_working_set_bytes{job=\"cadvisor\",name=~\"news-(collector|kafka|silver-writer|hdfs-namenode|hdfs-datanode|spark-master|spark-worker|spark-enriched-stream|spark-unclassified-issue-stream)\"}) / scalar(max(node_memory_MemTotal_bytes{job=\"node\"}))","legendFormat":"{{name}}"}]},
+    {"id":22,"type":"timeseries","title":"빅데이터 분산 EC2 디스크 사용률","datasource":{"type":"prometheus","uid":"prometheus-bigdata"},"gridPos":{"h":8,"w":12,"x":0,"y":68},"fieldConfig":{"defaults":{"unit":"percent","min":0},"overrides":[]},"targets":[{"refId":"A","expr":"100 * (1 - node_filesystem_avail_bytes{job=\"node\",fstype!~\"tmpfs|overlay|squashfs\",device!~\"rootfs\",mountpoint!~\"/run.*|/var/lib/docker/.+\"} / node_filesystem_size_bytes{job=\"node\",fstype!~\"tmpfs|overlay|squashfs\",device!~\"rootfs\",mountpoint!~\"/run.*|/var/lib/docker/.+\"})","legendFormat":"{{mountpoint}}"}]},
+    {"id":23,"type":"timeseries","title":"빅데이터 분산 EC2 디스크 읽기·쓰기","datasource":{"type":"prometheus","uid":"prometheus-bigdata"},"gridPos":{"h":8,"w":12,"x":12,"y":68},"fieldConfig":{"defaults":{"unit":"Bps","min":0},"overrides":[]},"targets":[{"refId":"A","expr":"rate(node_disk_read_bytes_total{job=\"node\",device!~\"loop.*|ram.*\"}[5m])","legendFormat":"{{device}} 읽기"},{"refId":"B","expr":"rate(node_disk_written_bytes_total{job=\"node\",device!~\"loop.*|ram.*\"}[5m])","legendFormat":"{{device}} 쓰기"}]},
+    {"id":24,"type":"timeseries","title":"Spark 배치 실행시간 p95","datasource":{"type":"prometheus","uid":"prometheus-bigdata"},"gridPos":{"h":8,"w":12,"x":0,"y":76},"fieldConfig":{"defaults":{"unit":"s","min":0},"overrides":[]},"targets":[{"refId":"A","expr":"histogram_quantile(0.95, sum by (le, app, query) (rate(witw_spark_streaming_batch_duration_seconds_bucket[5m])))","legendFormat":"{{app}} / {{query}}"}]}
   ],
   "refresh": "15s",
   "schemaVersion": 41,
@@ -221,6 +224,6 @@
   "timezone": "browser",
   "title": "WITW 데이터 처리 현황",
   "uid": "witw-pipeline",
-  "version": 4,
+  "version": 6,
   "weekStart": ""
 }

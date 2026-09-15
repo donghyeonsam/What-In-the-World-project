@@ -20,6 +20,23 @@ services:
     networks:
       - news-network
 
+  cadvisor:
+    image: ghcr.io/google/cadvisor:v0.60.5
+    container_name: news-cadvisor
+    restart: unless-stopped
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=15s
+    volumes:
+      - /:/rootfs:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    expose:
+      - "8080"
+    networks:
+      - news-network
+
   alloy:
     image: grafana/alloy:v1.19.2
     container_name: news-alloy
