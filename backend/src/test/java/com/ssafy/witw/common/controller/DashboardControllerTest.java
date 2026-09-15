@@ -128,6 +128,7 @@ class DashboardControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.issuePreview.issueTitle").value("폭염"))
                 .andExpect(jsonPath("$.data.representArticles[0].articleTone").value("NEUTRAL"))
+                .andExpect(jsonPath("$.data.representArticles[0].url").value("https://example.com/article-1"))
                 .andExpect(jsonPath("$.data.representArticles[0].publishedAt").value("2026-09-08T12:00:00"));
         verify(issueService).getIssueOverview(1, 3, null);
     }
@@ -349,6 +350,7 @@ class DashboardControllerTest {
     }
 
     private RepresentArticle article() {
-        return new RepresentArticle("article-1", "폭염 기사", ArticleTone.NEUTRAL, "언론사", TIME);
+        return new RepresentArticle("article-1", "폭염 기사", ArticleTone.NEUTRAL, "언론사",
+                "https://example.com/article-1", TIME);
     }
 }

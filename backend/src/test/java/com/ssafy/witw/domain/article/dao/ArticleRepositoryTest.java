@@ -47,6 +47,9 @@ class ArticleRepositoryTest extends TestContainerSupport {
         assertThat(articles.get(0).getArticleTitle())
                 .as("대표 기사의 제목이 projection에 매핑됨")
                 .isEqualTo("가장 유사한 기사");
+        assertThat(articles.get(0).getUrl())
+                .as("대표 기사의 원문 URL이 projection에 매핑됨")
+                .isEqualTo("https://example.com/represent-1");
         assertThat(articles.get(0).getPublishedAt())
                 .as("대표 기사의 발행 시각이 projection에 매핑됨")
                 .isNotNull();

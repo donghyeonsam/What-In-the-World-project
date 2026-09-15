@@ -121,12 +121,13 @@ class IssueOverviewRepositoryTest extends TestContainerSupport {
         assertThat(articles).as("삭제·다른 이슈 제외, 이슈 유사도 내림차순 및 동점 ID 순, limit 적용")
                 .extracting(ArticleRepository.RepresentArticleProjection::getArticleId)
                 .containsExactly("rep-a", "rep-b");
-        assertThat(articles).as("기사 제목, 언론사, 발행일 projection 매핑 및 기간 제한 없는 대표 기사")
+        assertThat(articles).as("기사 제목, 언론사, URL, 발행일 projection 매핑 및 기간 제한 없는 대표 기사")
                 .extracting(ArticleRepository.RepresentArticleProjection::getArticleTitle,
                         ArticleRepository.RepresentArticleProjection::getArticlePublisher,
+                        ArticleRepository.RepresentArticleProjection::getUrl,
                         ArticleRepository.RepresentArticleProjection::getPublishedAt)
-                .containsExactly(tuple("제목 rep-a", "언론사", now.minusDays(2)),
-                        tuple("제목 rep-b", "언론사", now.minusHours(1)));
+                .containsExactly(tuple("제목 rep-a", "언론사", "https://example.com/rep-a", now.minusDays(2)),
+                        tuple("제목 rep-b", "언론사", "https://example.com/rep-b", now.minusHours(1)));
         assertThat(articles.getFirst().getArticleToneScore()).as("톤 점수 BigDecimal 매핑")
                 .isEqualByComparingTo(new BigDecimal("33"));
     }
