@@ -151,6 +151,9 @@ def build_article_upsert_event(article: dict[str, Any]) -> dict[str, Any]:
             "publisher": _required_text(article, "source_name"),
             "url": _required_text(article, "article_url"),
             "original_title": _required_text(article, "title"),
+            "translated_title": _required_text(
+                nlp, "translated_title"
+            ),
             "crawled_at": discovered_at,
             "embedding": [float(item) for item in embedding],
             "tone_score": _tone_score(nlp.get("sentiment")),

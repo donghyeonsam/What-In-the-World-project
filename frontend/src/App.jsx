@@ -27,7 +27,6 @@ function Empty({ items, children }) {
   return items.length ? children : <p role="status">해당 조건의 데이터가 없습니다.</p>;
 }
 
-
 export default function App() {
   const [history, setHistory] = useState([HOME]);
   const view = history[history.length - 1];
