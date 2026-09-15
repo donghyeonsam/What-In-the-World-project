@@ -14,6 +14,7 @@ from issue_clustering import (
     parse_unclassified_message,
 )
 from streaming_metrics import register_streaming_metrics
+from pyspark import StorageLevel
 from pyspark.sql import SparkSession, functions as F
 from pyspark.sql.types import (
     ArrayType,
@@ -207,15 +208,20 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
         "offset",
     ).rdd.mapPartitions(_parse_partition)
     incoming = spark.createDataFrame(parsed_rows, schema=PENDING_SCHEMA)
-    pending = (
+    pending_rows = (
         _read_pending_state(spark)
         .unionByName(incoming)
         .dropDuplicates(["article_id"])
-        .cache()
+        .rdd.persist(StorageLevel.MEMORY_AND_DISK)
     )
-    pending.count()
 
     try:
+        # DataFrame.cache()가 만드는 PartitionKeyedAccumulator는 Spark 4.2.0의
+        # SPARK-59451을 유발할 수 있다. 일반 RDD를 먼저 materialize하고 그 위에
+        # DataFrame을 다시 만들어 이후 action들이 동일한 파티션을 재사용하게 한다.
+        pending_rows.count()
+        pending = spark.createDataFrame(pending_rows, schema=PENDING_SCHEMA)
+
         triggered_theme_ids = [
             row.theme_id
             for row in pending.groupBy("theme_id")
@@ -271,7 +277,8 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
                 .save()
             )
 
-        remaining = pending
+        materialized_remaining = pending
+        remaining_rows = None
         if processed_article_ids:
             processed_df = spark.createDataFrame(
                 [(article_id,) for article_id in sorted(processed_article_ids)],
@@ -282,18 +289,24 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
             remaining = pending.join(
                 F.broadcast(processed_df), on="article_id", how="left_anti"
             )
-        remaining = remaining.cache()
-        remaining.count()
+            remaining_rows = remaining.rdd.persist(StorageLevel.MEMORY_AND_DISK)
         try:
-            _write_pending_state(spark, remaining, batch_id)
+            if remaining_rows is not None:
+                # 기존 상태 경로를 교체하기 전에 결과를 완전히 고정한다.
+                remaining_rows.count()
+                materialized_remaining = spark.createDataFrame(
+                    remaining_rows, schema=PENDING_SCHEMA
+                )
+            _write_pending_state(spark, materialized_remaining, batch_id)
         finally:
-            remaining.unpersist()
+            if remaining_rows is not None:
+                remaining_rows.unpersist()
         print(
             f"Completed unclassified cluster batch {batch_id}: "
             f"events={len(event_rows)} consumed={len(processed_article_ids)}"
         )
     finally:
-        pending.unpersist()
+        pending_rows.unpersist()
 
 
 def _validate_config() -> None:
