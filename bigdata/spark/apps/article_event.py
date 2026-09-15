@@ -15,6 +15,18 @@ COUNTRY_CODE_PATTERN = re.compile(r"^[A-Z]{2}$")
 class InvalidEnrichedArticle(ValueError):
     """Raised when an enriched message does not satisfy the pipeline contract."""
 
+def _optional_text(container: dict[str, Any], field: str) -> str | None:
+    value = container.get(field)
+
+    if value is None:
+        return None
+
+    if not isinstance(value, str):
+        raise InvalidEnrichedArticle(f"{field} must be a string or null")
+
+    value = value.strip()
+
+    return value if value else None
 
 def _required_text(container: dict[str, Any], field: str) -> str:
     # DB 저장에 필수인 문자열 필드가 누락되거나 공백만 들어오는 것을 차단한다.
@@ -151,7 +163,7 @@ def build_article_upsert_event(article: dict[str, Any]) -> dict[str, Any]:
             "publisher": _required_text(article, "source_name"),
             "url": _required_text(article, "article_url"),
             "original_title": _required_text(article, "title"),
-            "translated_title": _required_text(
+            "translated_title": _optional_text(
                 nlp, "translated_title"
             ),
             "crawled_at": discovered_at,
