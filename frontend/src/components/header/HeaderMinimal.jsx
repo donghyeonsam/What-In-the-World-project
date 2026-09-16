@@ -30,8 +30,8 @@ export default function HeaderMinimal({
 }) {
   return (
     <header className={s.topbar}>
-      <a className={s.brand} href="#" aria-label={`${brand} 홈`} onClick={(e) => e.preventDefault()}>
-        <img src="/witw_logo.png" alt={brand} />
+      <a className={s.brand} href={typeof window === 'undefined' ? '/' : window.location.pathname} aria-label={`${brand} 초기 화면으로 이동`}>
+        <img src="/witw_logo_transparent.png" alt={brand} />
       </a>
 
       <nav className={s.nav} aria-label="주요 메뉴">
