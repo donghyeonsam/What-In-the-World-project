@@ -52,14 +52,14 @@ services:
       - kafka-data:/var/lib/kafka/data
 
     healthcheck:
-      test:
-        - CMD-SHELL
-        # CLI 자바 프로세스가 broker의 JMX agent 포트를 다시 열지 않도록 한다.
-        - KAFKA_OPTS= /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list >/dev/null 2>&1
-      interval: 10s
-      timeout: 30s        # 5s -> 30s
-      retries: 12
+      # 상시 검사는 새 JVM을 띄우지 않고 broker listener의 TCP 응답만 확인한다.
+      # Kafka 프로토콜 readiness와 토픽 생성은 kafka-init에서 Java CLI로 검증한다.
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/29092"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
       start_period: 30s
+      start_interval: 5s
 
     logging: *default-logging
     networks:
@@ -168,6 +168,7 @@ services:
       - namenode-data:/data/name
       - ./hadoop/config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
       - ./hadoop/config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+      - ./hadoop/scripts/healthcheck.sh:/opt/news/healthcheck.sh:ro
 
     command:
       - bash
@@ -179,11 +180,13 @@ services:
         exec hdfs namenode
 
     healthcheck:
-      test: ["CMD-SHELL", "hdfs dfsadmin -report >/dev/null 2>&1"]
-      interval: 10s
-      timeout: 30s        # 5s -> 30s
-      retries: 12
+      # NameNode JMX HTTP 응답을 확인하며 별도 Hadoop client JVM은 실행하지 않는다.
+      test: ["CMD", "bash", "/opt/news/healthcheck.sh", "namenode"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
       start_period: 30s
+      start_interval: 5s
 
     logging: *default-logging
     networks:
@@ -208,6 +211,7 @@ services:
       - datanode-data:/data/data
       - ./hadoop/config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
       - ./hadoop/config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+      - ./hadoop/scripts/healthcheck.sh:/opt/news/healthcheck.sh:ro
 
     command: hdfs datanode
 
@@ -216,11 +220,13 @@ services:
         condition: service_healthy
 
     healthcheck:
-      test: ["CMD-SHELL", "hdfs dfsadmin -report 2>/dev/null | grep -q 'Live datanodes (1)' "]
-      interval: 10s
-      timeout: 30s        # 5s -> 30s
-      retries: 12
+      # 로컬 DataNode JMX와 NameNode가 보고하는 Live DataNode 수를 함께 확인한다.
+      test: ["CMD", "bash", "/opt/news/healthcheck.sh", "datanode"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
       start_period: 30s
+      start_interval: 5s
 
     logging: *default-logging
     networks:
