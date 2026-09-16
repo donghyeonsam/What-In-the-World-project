@@ -65,4 +65,8 @@ public class User {
         this.role = UserRole.USER;
         this.withdrawnAt = null;
     }
+
+    public void changePassword(String passwordHash){
+        this.passwordHash = passwordHash;
+    }
 }
