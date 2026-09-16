@@ -662,6 +662,49 @@ services:
   # =========================================================
   # NLP Worker
   # =========================================================
+  collector-observe:
+    profiles: ["observe"]
+    build:
+      context: ./collector
+      dockerfile: Dockerfile
+    container_name: news-collector-observe
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      COLLECTOR_HEALTH_FILE: /data/collector/observe/collector.heartbeat
+      COLLECTOR_HEALTH_MAX_AGE_SECONDS: "1800"
+    command:
+      - --observe-only
+      - --registry
+      - /app/registry_50country.csv
+      - --output-dir
+      - /data/collector
+      - --poll-seconds
+      - "300"
+      - --poll-workers
+      - "20"
+      - --fetch-workers
+      - "16"
+      - --pending-max-age-minutes
+      - "120"
+      - --max-pending-per-source
+      - "100"
+      - --poll-error-quarantine-threshold
+      - "6"
+      - --poll-error-quarantine-minutes
+      - "360"
+      - --run-forever
+    volumes:
+      - collector-observe-data:/data/collector
+    healthcheck:
+      test: ["CMD", "python", "/app/healthcheck.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30m
+    networks:
+      - news-network
+
   nlp-worker:
     # nlp-worker 디렉토리의 Dockerfile을 사용하여 이미지 생성
     build:
@@ -722,9 +765,9 @@ volumes:
   datanode-data:
 
   # Collector SQLite 및 결과 데이터 저장
+  collector-observe-data:
+
   collector-data:
-
-
 # =========================================================
 # Docker Network
 # =========================================================

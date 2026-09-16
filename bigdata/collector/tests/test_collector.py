@@ -1,3 +1,7 @@
+import csv
+import json
+import os
+import runpy
 import sys
 import sqlite3
 import tempfile
@@ -50,6 +54,490 @@ def make_article(url="https://example.com/news/story"):
 
 
 class CollectorQualityTests(unittest.TestCase):
+    def test_existing_collection_and_observation_use_separate_registries_and_limits(self):
+        with patch.object(sys, "argv", ["collector"]):
+            existing = collector.parse_args()
+        with patch.object(sys, "argv", ["collector", "--observe-only"]):
+            observation = collector.parse_args()
+        self.assertFalse(existing.observe_only)
+        self.assertEqual(Path(existing.registry).name, "registry.csv")
+        self.assertEqual(Path(observation.registry).name, "registry_50country.csv")
+        for name in (
+            "max_sources_per_country_per_round", "max_fetches_per_country_per_round",
+            "max_fetches_per_source_per_round", "max_articles_per_country_per_day",
+            "max_articles_per_source_country_day",
+        ):
+            self.assertEqual(getattr(existing, name), 0)
+            self.assertGreater(getattr(observation, name), 0)
+        self.assertEqual({source.country for source in collector.load_sources(Path(existing.registry), False)}, {
+            "Germany", "Japan", "South Korea", "United Kingdom", "United States",
+        })
+        observation_sources = collector.load_sources(
+            Path(observation.registry), False
+        )
+        self.assertEqual(len({source.country for source in observation_sources}), 50)
+        self.assertEqual(len(observation_sources), 1146)
+        observation_counts = Counter(
+            source.country for source in observation_sources
+        )
+        self.assertEqual(observation_counts["Belgium"], 5)
+        self.assertEqual(observation_counts["France"], 5)
+        self.assertEqual(observation_counts["Switzerland"], 8)
+        self.assertEqual(observation_counts["Vietnam"], 5)
+        self.assertTrue({
+            "sudinfo.be", "lest-eclair.fr", "lunion.fr", "blick.ch",
+            "vov.vn", "voh.com.vn", "baothanhhoa.vn",
+            "theclinic.cl", "citynewsservice.cn", "liberoquotidiano.it",
+            "vesti.kz", "awamiawaz.pk", "kwangju.co.kr", "kjdaily.com",
+            "jtbc.co.kr", "telecinco.es", "three.fm", "mlive.com",
+            "oregonlive.com", "syracuse.com", "sun-sentinel.com",
+            "pilotonline.com",
+        }.isdisjoint({source.domain for source in observation_sources}))
+        self.assertEqual(observation.pending_max_age_minutes, 120)
+        self.assertEqual(observation.max_pending_per_source, 100)
+        self.assertEqual(observation.poll_error_quarantine_threshold, 6)
+        self.assertEqual(observation.poll_error_quarantine_minutes, 360)
+
+    def test_observation_keeps_production_state_and_never_connects_to_kafka(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            production_db = output / "collection_24h_v2.db"
+            production_db.write_bytes(b"production state must remain untouched")
+            production_health = output / "collector.heartbeat"
+            production_health.write_text("existing health", encoding="utf-8")
+            with patch.object(sys, "argv", [
+                "collector", "--observe-only", "--output-dir", directory,
+                "--duration-minutes", "0", "--warmup-retries", "1",
+            ]), patch.dict(os.environ, {"COLLECTOR_HEALTH_FILE": str(production_health)}), patch.object(
+                collector, "load_sources", return_value=[make_source()]
+            ), patch.object(collector, "warmup_round"), patch.object(
+                collector, "final_baseline_refresh"
+            ), patch.object(collector, "KafkaRawProducer", side_effect=AssertionError("Kafka forbidden")):
+                collector.main()
+            self.assertEqual(production_db.read_bytes(), b"production state must remain untouched")
+            self.assertEqual(production_health.read_text(encoding="utf-8"), "existing health")
+            report = json.loads((output / "observe/summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["collection_mode"], "observe")
+            self.assertIsNone(report["source_coverage"][0]["article_success_rate_pct"])
+            self.assertEqual(report["source_coverage"][0]["status"], "NOT_POLLED")
+            self.assertTrue((output / "observe/country_status.csv").exists())
+            self.assertTrue((output / "observe/source_status.csv").exists())
+
+    def test_observation_fetches_and_records_articles_without_publishing(self):
+        with patch.object(sys, "argv", ["collector", "--observe-only"]):
+            args = collector.parse_args()
+        source = make_source()
+        article = make_article()
+        article.published_at = collector.iso(collector.utc_now())
+        body = "A detailed article sentence with meaningful reporting. " * 12
+        fetched = {"success": True, "http_status": 200, "title": "Actual headline",
+                   "body": body, "body_length": len(body), "elapsed_ms": 20, "error": None}
+        result = {"source": source, "articles": [], "rss_status": "HTTP_304",
+                  "sitemap_status": "", "latest_status": "", "elapsed_ms": 10, "error": ""}
+        producer = Mock()
+        with tempfile.TemporaryDirectory() as directory:
+            db = collector.DB(Path(directory) / "observe.db")
+            try:
+                db.set_meta("collection_mode", "observe")
+                db.enqueue_article(article)
+                experiment_start = collector.utc_now()
+                with patch.object(collector, "discover_source", return_value=result), patch.object(
+                    collector, "fetch_article", return_value=fetched
+                ):
+                    collector.poll_round(
+                        1, [source], db, args, experiment_start, producer,
+                        session_id="session-1",
+                    )
+                producer.publish.assert_not_called()
+                producer.flush_round.assert_not_called()
+                self.assertEqual(db.conn.execute("SELECT SUM(fetch_success) FROM articles").fetchone()[0], 1)
+                summary = collector.build_summary(
+                    db, [source], experiment_start, collector.utc_now(),
+                    session_id="session-1", pending_max_age_minutes=120,
+                )
+                self.assertEqual(summary["source_coverage"][0]["status"], "ARTICLES_ACCEPTED")
+                self.assertEqual(summary["country_coverage"][0]["contributing_sources"], 1)
+                self.assertEqual(summary["country_coverage"][0]["article_success_rate_pct"], 100)
+                self.assertEqual(summary["article_outcomes"]["accepted"], 1)
+                self.assertEqual(summary["eligible_article_success_rate_pct"], 100)
+                self.assertEqual(summary["pending_processed_session"], 1)
+                self.assertEqual(summary["by_round"][0]["queue_start_count"], 1)
+                self.assertEqual(summary["by_round"][0]["queue_end_count"], 0)
+                self.assertEqual(summary["by_round"][0]["accepted_count"], 1)
+                self.assertEqual(
+                    summary["country_coverage_alerts"][0]["country"],
+                    "Germany",
+                )
+                collector.write_summary(Path(directory) / "summary.json", summary)
+                with (Path(directory) / "source_status.csv").open(encoding="utf-8-sig") as report:
+                    self.assertEqual(list(csv.DictReader(report))[0]["successful_articles"], "1")
+                failed_poll = dict(result, error="TimeoutError: publisher did not respond")
+                with patch.object(collector, "discover_source", return_value=failed_poll):
+                    collector.poll_round(
+                        2, [source], db, args, experiment_start, producer,
+                        session_id="session-1",
+                    )
+                summary = collector.build_summary(
+                    db, [source], experiment_start, collector.utc_now(),
+                    session_id="session-1",
+                )
+                self.assertEqual(summary["source_coverage"][0]["status"], "POLL_ERROR")
+                self.assertEqual(summary["source_coverage"][0]["successful_articles"], 1)
+                self.assertEqual(summary["country_coverage"][0]["poll_errors"], 1)
+            finally:
+                db.close()
+
+    def test_pending_queue_keeps_freshest_articles_and_prunes_backlog(self):
+        source = make_source()
+        base = collector.parse_iso("2026-09-15T00:00:00+00:00")
+        with tempfile.TemporaryDirectory() as directory:
+            db = collector.DB(Path(directory) / "observe.db")
+            try:
+                for index, minutes_ago in enumerate((180, 90, 30, 5)):
+                    article = make_article(
+                        f"https://example.com/news/story-{index}"
+                    )
+                    with patch.object(
+                        collector,
+                        "utc_now",
+                        return_value=base - collector.timedelta(
+                            minutes=minutes_ago
+                        ),
+                    ):
+                        db.enqueue_article(article)
+
+                with patch.object(collector, "utc_now", return_value=base):
+                    pending = db.pending_for_sources(
+                        [source],
+                        per_source=10,
+                        max_age_minutes=120,
+                        max_pending_per_source=2,
+                    )
+
+                self.assertEqual(
+                    [article.url for article, _source in pending],
+                    [
+                        "https://example.com/news/story-3",
+                        "https://example.com/news/story-2",
+                    ],
+                )
+                self.assertEqual(db.last_pending_pruned, {
+                    "stale": 1,
+                    "overflow": 1,
+                })
+                self.assertEqual(
+                    db.conn.execute(
+                        "SELECT COUNT(*) FROM pending_articles"
+                    ).fetchone()[0],
+                    2,
+                )
+            finally:
+                db.close()
+
+    def test_poll_circuit_breaker_skips_then_recovers_source(self):
+        source = make_source()
+        base = collector.parse_iso("2026-09-15T00:00:00+00:00")
+        with tempfile.TemporaryDirectory() as directory:
+            db = collector.DB(Path(directory) / "observe.db")
+            try:
+                db.record_poll_health(
+                    source.source_id, True, "SITEMAP:HTTP 403",
+                    quarantine_threshold=2, quarantine_minutes=60, now=base,
+                )
+                consecutive, until = db.record_poll_health(
+                    source.source_id, True, "SITEMAP:HTTP 403",
+                    quarantine_threshold=2, quarantine_minutes=60, now=base,
+                )
+                self.assertEqual(consecutive, 2)
+                self.assertEqual(until, base + collector.timedelta(hours=1))
+                pollable, skipped = db.pollable_sources([source], now=base)
+                self.assertEqual(pollable, [])
+                self.assertEqual([item[0] for item in skipped], [source])
+
+                after_quarantine = base + collector.timedelta(minutes=61)
+                pollable, skipped = db.pollable_sources(
+                    [source], now=after_quarantine
+                )
+                self.assertEqual(pollable, [source])
+                self.assertEqual(skipped, [])
+                consecutive, until = db.record_poll_health(
+                    source.source_id, False, "",
+                    quarantine_threshold=2,
+                    quarantine_minutes=60,
+                    now=after_quarantine,
+                )
+                self.assertEqual(consecutive, 0)
+                self.assertIsNone(until)
+            finally:
+                db.close()
+
+    def test_partial_endpoint_failure_does_not_quarantine_source(self):
+        source = make_source()
+        partial_result = {
+            "source": source,
+            "articles": [],
+            "rss_status": "200",
+            "sitemap_status": "403",
+            "latest_status": "",
+            "successful_endpoints": 1,
+            "elapsed_ms": 1,
+            "error": "SITEMAP:HTTP 403",
+        }
+        with patch.object(sys, "argv", [
+            "collector", "--observe-only",
+            "--poll-error-quarantine-threshold", "1",
+            "--poll-error-quarantine-minutes", "60",
+        ]):
+            args = collector.parse_args()
+        with tempfile.TemporaryDirectory() as directory:
+            db = collector.DB(Path(directory) / "observe.db")
+            try:
+                with patch.object(
+                    collector, "discover_source", return_value=partial_result
+                ):
+                    collector.poll_round(
+                        1, [source], db, args, collector.utc_now(), Mock()
+                    )
+                row = db.conn.execute(
+                    "SELECT consecutive_errors, quarantined_until "
+                    "FROM source_poll_health WHERE source_id=?",
+                    (source.source_id,),
+                ).fetchone()
+                self.assertEqual(row, (0, None))
+            finally:
+                db.close()
+
+    def test_removed_sources_prune_only_transient_runtime_state(self):
+        active = make_source()
+        removed = replace(
+            make_source(),
+            source_id="removed-source",
+            source_name="removed.example",
+            domain="removed.example",
+            rss_urls=("https://removed.example/feed",),
+        )
+        removed_article = replace(
+            make_article("https://removed.example/news/story"),
+            source_id=removed.source_id,
+            source_name=removed.source_name,
+            normalized_url=collector.normalize_url(
+                "https://removed.example/news/story"
+            ),
+            endpoint_url=removed.rss_urls[0],
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            db = collector.DB(Path(directory) / "observe.db")
+            try:
+                db.ensure_endpoint(
+                    active.rss_urls[0], active.source_id, "RSS"
+                )
+                db.ensure_endpoint(
+                    removed.rss_urls[0], removed.source_id, "RSS"
+                )
+                db.enqueue_article(removed_article)
+                db.record_poll_health(
+                    removed.source_id, True, "RSS:HTTP 403"
+                )
+                pruned = db.prune_inactive_source_state([active])
+                self.assertEqual(pruned, {
+                    "pending": 1,
+                    "endpoints": 1,
+                    "health": 1,
+                })
+                self.assertEqual(
+                    db.conn.execute(
+                        "SELECT COUNT(*) FROM endpoint_baseline"
+                    ).fetchone()[0],
+                    1,
+                )
+                self.assertEqual(
+                    db.conn.execute(
+                        "SELECT COUNT(*) FROM seen_articles"
+                    ).fetchone()[0],
+                    1,
+                )
+            finally:
+                db.close()
+
+    def test_article_outcomes_separate_filters_from_failures(self):
+        self.assertEqual(
+            collector.classify_article_outcome(False, "SOURCE_DAILY_CAP_150"),
+            "filtered",
+        )
+        self.assertEqual(
+            collector.classify_article_outcome(False, "EXACT_TITLE_DUPLICATE"),
+            "filtered",
+        )
+        self.assertEqual(
+            collector.classify_article_outcome(False, "BODY_TOO_SHORT(120)"),
+            "quality_rejected",
+        )
+        self.assertEqual(
+            collector.classify_article_outcome(False, "HTTP 403"),
+            "access_failed",
+        )
+        self.assertEqual(
+            collector.classify_article_outcome(True, None),
+            "accepted",
+        )
+
+    def test_source_summary_reports_failure_categories_and_dominant_reason(self):
+        source = make_source()
+        now = collector.utc_now()
+        failures = (
+            ("one", "HTTP 403"),
+            ("two", "HTTP 403"),
+            ("three", "BODY_TOO_SHORT(120)"),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            db = collector.DB(Path(directory) / "observe.db")
+            try:
+                for suffix, error in failures:
+                    article = make_article(
+                        f"https://example.com/news/{suffix}"
+                    )
+                    db.save_article(article, {
+                        "success": False,
+                        "http_status": 403 if error == "HTTP 403" else 200,
+                        "body_length": 0,
+                        "elapsed_ms": 10,
+                        "error": error,
+                    }, collector.iso(now))
+
+                summary = collector.build_summary(
+                    db, [source], now, now,
+                )
+                status = summary["source_coverage"][0]
+                self.assertEqual(status["access_failed_articles"], 2)
+                self.assertEqual(status["quality_rejected_articles"], 1)
+                self.assertEqual(status["processing_failed_articles"], 0)
+                self.assertEqual(status["dominant_failure_reason"], "HTTP_403")
+            finally:
+                db.close()
+
+    def test_pending_queue_drains_sources_not_polled_in_current_rotation(self):
+        with patch.object(sys, "argv", ["collector", "--observe-only"]):
+            args = collector.parse_args()
+        args.max_sources_per_country_per_round = 1
+        first = make_source()
+        second = replace(
+            make_source(),
+            source_id="source-2",
+            source_name="second.example",
+            domain="second.example",
+            rss_urls=("https://second.example/feed",),
+        )
+        pending = replace(
+            make_article("https://second.example/news/story"),
+            source_id=second.source_id,
+            source_name=second.source_name,
+            normalized_url=collector.normalize_url(
+                "https://second.example/news/story"
+            ),
+            endpoint_url=second.rss_urls[0],
+        )
+        fetched = {
+            "success": True,
+            "http_status": 200,
+            "title": "Headline",
+            "body": "A detailed article sentence with reporting. " * 12,
+            "body_length": 500,
+            "elapsed_ms": 10,
+            "error": None,
+        }
+
+        def discovery_result(source, _db, _args):
+            return {
+                "source": source,
+                "articles": [],
+                "rss_status": "HTTP_304",
+                "sitemap_status": "",
+                "latest_status": "",
+                "successful_endpoints": 1,
+                "elapsed_ms": 1,
+                "error": "",
+            }
+
+        with tempfile.TemporaryDirectory() as directory:
+            db = collector.DB(Path(directory) / "observe.db")
+            try:
+                db.enqueue_article(pending)
+                with patch.object(
+                    collector, "discover_source", side_effect=discovery_result
+                ), patch.object(
+                    collector, "fetch_article", return_value=fetched
+                ) as fetch:
+                    collector.poll_round(
+                        1, [first, second], db, args,
+                        collector.utc_now(), Mock(),
+                    )
+
+                fetch.assert_called_once()
+                self.assertEqual(
+                    fetch.call_args.args[1].source_id,
+                    second.source_id,
+                )
+                self.assertEqual(
+                    db.conn.execute(
+                        "SELECT COUNT(*) FROM pending_articles"
+                    ).fetchone()[0],
+                    0,
+                )
+            finally:
+                db.close()
+
+    def test_pending_cleanup_handles_mixed_timezone_offsets(self):
+        source = make_source()
+        now = collector.parse_iso("2026-09-15T00:30:00+00:00")
+        old_article = make_article("https://example.com/news/old")
+        fresh_article = make_article("https://example.com/news/fresh")
+        with tempfile.TemporaryDirectory() as directory:
+            db = collector.DB(Path(directory) / "observe.db")
+            try:
+                db.conn.executemany(
+                    "INSERT INTO pending_articles VALUES (?, ?, ?, ?)",
+                    [
+                        (
+                            old_article.normalized_url,
+                            source.source_id,
+                            json.dumps(collector.asdict(old_article)),
+                            "2026-09-15T06:00:00+09:00",
+                        ),
+                        (
+                            fresh_article.normalized_url,
+                            source.source_id,
+                            json.dumps(collector.asdict(fresh_article)),
+                            "2026-09-15T09:00:00+09:00",
+                        ),
+                    ],
+                )
+                db.conn.commit()
+
+                result = db.prune_pending_queue(
+                    [source], max_age_minutes=120,
+                    max_pending_per_source=100, now=now,
+                )
+
+                self.assertEqual(result["before_count"], 2)
+                self.assertEqual(result["after_count"], 1)
+                self.assertEqual(result["stale"], 1)
+                self.assertEqual(result["oldest_age_minutes"], 30)
+            finally:
+                db.close()
+
+    def test_observation_healthcheck_needs_no_kafka_and_rejects_stale_heartbeat(self):
+        with tempfile.TemporaryDirectory() as directory:
+            health = Path(directory) / "collector.heartbeat"
+            health.write_text(json.dumps({"collection_mode": "observe"}), encoding="utf-8")
+            with patch.dict(os.environ, {"COLLECTOR_HEALTH_FILE": str(health)}):
+                with self.assertRaises(SystemExit) as fresh:
+                    runpy.run_path(str(COLLECTOR_DIR / "healthcheck.py"))
+                self.assertEqual(fresh.exception.code, 0)
+                os.utime(health, (1, 1))
+                with self.assertRaises(SystemExit) as stale:
+                    runpy.run_path(str(COLLECTOR_DIR / "healthcheck.py"))
+                self.assertEqual(stale.exception.code, 1)
+
     def test_kafka_event_preserves_legacy_fields_and_adds_quality_metadata(self):
         article = make_article()
         fetched = {
@@ -103,7 +591,7 @@ class CollectorQualityTests(unittest.TestCase):
           </script>
         </head><body><article><p>{paragraph}</p></article></body></html>
         """
-        response = SimpleNamespace(status_code=200, text=html, url="https://example.com/news/story")
+        response = SimpleNamespace(status_code=200, text=html, url="https://example.com/news/story", headers={})
         session = Mock()
         session.get.return_value = response
         article = make_article()
@@ -127,7 +615,7 @@ class CollectorQualityTests(unittest.TestCase):
         html = "<html><head><title>Access denied</title></head><body><article><p>" + (
             "Please wait while the security system checks this request. " * 12
         ) + "</p></article></body></html>"
-        response = SimpleNamespace(status_code=200, text=html, url="https://example.com/news/story")
+        response = SimpleNamespace(status_code=200, text=html, url="https://example.com/news/story", headers={})
         session = Mock()
         session.get.return_value = response
         args = SimpleNamespace(timeout_seconds=2, min_body_chars=100)
@@ -265,6 +753,7 @@ class CollectorQualityTests(unittest.TestCase):
             status_code=200,
             text=html,
             url="https://example.com/news/story",
+            headers={},
         )
         session = Mock()
         session.get.return_value = response
@@ -440,6 +929,16 @@ class CollectorQualityTests(unittest.TestCase):
                 )
                 self.assertFalse(summary["window_complete"])
                 self.assertAlmostEqual(summary["remaining_window_hours"], 7.6)
+                self.assertEqual(
+                    summary["country_coverage_alerts"],
+                    [{
+                        "country": "Germany",
+                        "reasons": [
+                            "NO_ACCEPTED_ARTICLES",
+                            "FEWER_THAN_3_CONTRIBUTING_SOURCES",
+                        ],
+                    }],
+                )
 
                 resumed = collector.build_summary(
                     db,

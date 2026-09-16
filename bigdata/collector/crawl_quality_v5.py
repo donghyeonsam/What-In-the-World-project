@@ -21,13 +21,15 @@ from bs4 import BeautifulSoup
 import trafilatura
 
 
-COUNTRY_ISO3 = {
-    "Germany": "DEU",
-    "Japan": "JPN",
-    "South Korea": "KOR",
-    "United Kingdom": "GBR",
-    "United States": "USA",
+# Existing registries may omit timezone; new publishers provide it in registry.csv.
+COUNTRY_TIMEZONES = {
+    "Germany": "Europe/Berlin",
+    "Japan": "Asia/Tokyo",
+    "South Korea": "Asia/Seoul",
+    "United Kingdom": "Europe/London",
+    "United States": "UTC",
 }
+
 
 WALL_TITLE_PATTERNS = (
     "willkommen auf golem.de",
@@ -47,16 +49,6 @@ WALL_BODY_PATTERNS = (
 )
 
 GENERIC_SECTIONS = {"news", "latest", "article", "articles", "index", "www", "html"}
-
-COUNTRY_TIMEZONES = {
-    "Germany": "Europe/Berlin",
-    "Japan": "Asia/Tokyo",
-    "South Korea": "Asia/Seoul",
-    "United Kingdom": "Europe/London",
-    # US publishers span multiple zones; keep UTC unless a registry row
-    # explicitly supplies a source timezone.
-    "United States": "UTC",
-}
 
 TITLE_SUFFIX_PATTERN = re.compile(
     r"^(?P<head>.+)\s*(?P<separator>\||｜|\s[-–—:]\s)\s*"

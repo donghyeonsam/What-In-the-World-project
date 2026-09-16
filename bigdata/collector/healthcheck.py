@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 
+import json
 import os
 import sys
 import time
 from pathlib import Path
-
-from confluent_kafka.admin import AdminClient
 
 
 def fail(message):
@@ -28,6 +27,16 @@ if age_seconds > max_age_seconds:
         f"collector heartbeat is stale: {age_seconds:.0f}s "
         f"(limit: {max_age_seconds}s)"
     )
+
+try:
+    collection_mode = json.loads(health_file.read_text(encoding="utf-8") or "{}").get("collection_mode")
+except (ValueError, AttributeError):
+    collection_mode = None
+if collection_mode == "observe":
+    print("Collector observation heartbeat is fresh; Kafka is disabled.")
+    raise SystemExit(0)
+
+from confluent_kafka.admin import AdminClient
 
 bootstrap_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092")
 topic = os.getenv("KAFKA_RAW_TOPIC", "news.raw.v1")
