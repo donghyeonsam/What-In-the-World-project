@@ -7,7 +7,7 @@ body {
   color: var(--wtw-text);
   background: var(--wtw-bg);
   -webkit-font-smoothing: antialiased;
-  overflow: auto;               /* 결정표 7-3: 데스크톱 전용, 좁으면 가로 스크롤 */
+  overflow: auto;
 }
 
 button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; text-align: left; }

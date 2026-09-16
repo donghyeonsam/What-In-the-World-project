@@ -883,6 +883,7 @@ export default function GlobeThree({
 
     wrap.addEventListener('pointerdown', onDown);
     addEventListener('pointerup', onUp);
+    addEventListener('pointercancel', onUp);
     addEventListener('pointermove', onMove);
     wrap.addEventListener('click', onClick);
     renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
@@ -1032,6 +1033,7 @@ export default function GlobeThree({
       delete wrap.dataset.earthTexture;
       removeEventListener('resize', resize);
       removeEventListener('pointerup', onUp);
+      removeEventListener('pointercancel', onUp);
       removeEventListener('pointermove', onMove);
       wrap.removeEventListener('pointerdown', onDown);
       wrap.removeEventListener('click', onClick);

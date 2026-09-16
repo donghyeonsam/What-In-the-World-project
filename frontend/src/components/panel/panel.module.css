@@ -670,3 +670,13 @@
 .panelContent button:focus-visible, .panelContent a:focus-visible, .method summary:focus-visible {
   outline: 2px solid var(--wtw-accent); outline-offset: 3px;
 }
+
+@media (max-width: 420px) {
+  .panelContent { min-width: 0; }
+  .heading h2, .subheading h2, .identity h2 { font-size: 23px; }
+  .kpiGrid { gap: 8px; }
+  .kpiCard { padding: 12px; }
+  .kpiCard strong { font-size: 23px; }
+  .summaryBox { grid-template-columns: minmax(0, 1fr); }
+  .themeIssueList > button { grid-template-columns: 38px minmax(0, 1fr) auto 8px; gap: 6px; }
+}
