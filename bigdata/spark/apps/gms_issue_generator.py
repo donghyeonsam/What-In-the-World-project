@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -14,6 +15,13 @@ from issue_clustering import ClusterCandidate, GeneratedIssue
 
 class GmsIssueGenerationError(RuntimeError):
     """Raised when GMS does not return a valid issue decision."""
+
+
+VAGUE_ISSUE_NAME_PATTERNS = (
+    re.compile(r"(?:관련\s*)?(?:이슈|뉴스)$"),
+    re.compile(r"(?:최신|최근|주요|글로벌)?\s*(?:동향|현황|전망|미래)$"),
+    re.compile(r"(?:발전|변화|문제|논의|경쟁)$"),
+)
 
 
 @dataclass(frozen=True)
@@ -51,20 +59,27 @@ def _extract_json_object(content: str) -> dict[str, Any]:
 
 
 def validate_generated_issue(value: dict[str, Any]) -> GeneratedIssue:
-    if set(value) != {"name", "summary"}:
+    required_fields = {"name", "summary"}
+    if set(value) != required_fields:
         raise GmsIssueGenerationError(
             "GMS content must contain exactly name and summary"
         )
     name = value.get("name")
     summary = value.get("summary")
 
-    if not isinstance(name, str) or not name.strip() or len(name.strip()) > 50:
-        raise GmsIssueGenerationError("name must contain 1 to 50 characters")
+    if not isinstance(name, str) or not 8 <= len(name.strip()) <= 50:
+        raise GmsIssueGenerationError("name must contain 8 to 50 characters")
     if not isinstance(summary, str) or not summary.strip() or len(summary.strip()) > 300:
         raise GmsIssueGenerationError("summary must contain 1 to 300 characters")
 
+    normalized_name = " ".join(name.split())
+    if "기타" in normalized_name or any(
+        pattern.search(normalized_name) for pattern in VAGUE_ISSUE_NAME_PATTERNS
+    ):
+        raise GmsIssueGenerationError("name is too vague to identify a concrete issue")
+
     return GeneratedIssue(
-        name=name.strip(),
+        name=normalized_name,
         summary=summary.strip(),
     )
 
@@ -79,17 +94,31 @@ def _request_body(
         "cluster": {
             "article_count": len(cluster.articles),
             "hdbscan_membership_confidence": cluster.membership_confidence,
-            "article_titles": [article.title for article in cluster.representatives],
+            "representative_articles": [
+                {
+                    "title": article.title,
+                    "summary": article.summary,
+                }
+                for article in cluster.representatives
+            ],
         },
     }
     system_prompt = (
-        "당신은 여러 국가의 뉴스 기사를 하나의 글로벌 이슈로 정규화하는 편집자다. "
-        "기사 제목에 없는 사실을 추측하지 말고 특정 언론사의 표현을 그대로 복사하지 마라. "
-        "응답은 name과 summary 필드만 가진 JSON 객체로 반환한다."
+        "당신은 여러 국가의 뉴스 기사를 동일한 구체적 사건·결정·주장 단위로 "
+        "정규화하는 편집자다. 기사 근거에 없는 사실을 추측하지 마라. 분야명이나 "
+        "포괄적 주제를 이슈로 만들지 마라. '관련 이슈', '최근 뉴스', '동향', '현황', "
+        "'전망', '미래', '발전', '변화', '문제', '논의', '경쟁'처럼 대상 사건을 "
+        "식별할 수 없는 이름을 사용하지 마라. 응답은 name과 summary 필드만 가진 "
+        "JSON 객체로 반환한다."
     )
     user_prompt = (
-        "다음 군집의 이슈 메타데이터를 생성하라. name은 한국어 명사구 50자 이하, "
-        "summary는 사실 중심 300자 이하로 작성한다.\n"
+        "다음 대표 기사들이 공통으로 보도하는 가장 구체적인 사건·결정·주장 하나의 "
+        "메타데이터를 생성하라. name은 8~50자의 한국어 명사구이며 구체적인 인물·기관·"
+        "기업·팀·장소 등 주체, 구체적인 정책·사건·대상, 발생·발표·협상·판결·승패 등 "
+        "행동이나 결과가 드러나야 한다. summary는 "
+        "대표 기사에서 공통으로 확인되는 사실만 300자 이하로 작성한다. 서로 다른 "
+        "사건이 섞여 있더라도 억지로 포괄하는 상위 주제명을 만들지 말고, 가장 많은 "
+        "대표 기사가 함께 지지하는 단일 사건을 선택한다.\n"
         + json.dumps(input_value, ensure_ascii=False, separators=(",", ":"))
     )
     return json.dumps(

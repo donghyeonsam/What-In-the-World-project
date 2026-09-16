@@ -26,6 +26,7 @@ class UnclassifiedArticle:
     title: str
     published_at: str
     unclassified_at: str
+    summary: str | None = None
 
 
 @dataclass(frozen=True)
@@ -53,6 +54,15 @@ def _required_text(value: Any, field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise InvalidUnclassifiedArticle(f"{field} must be a non-empty string")
     return value.strip()
+
+
+def _optional_text(value: Any, field: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise InvalidUnclassifiedArticle(f"{field} must be a string or null")
+    normalized = value.strip()
+    return normalized or None
 
 
 def _required_timestamp(value: Any, field: str) -> str:
@@ -107,6 +117,7 @@ def parse_unclassified_message(raw_value: str) -> UnclassifiedArticle:
         unclassified_at=_required_timestamp(
             payload.get("unclassified_at"), "unclassified_at"
         ),
+        summary=_optional_text(payload.get("summary"), "summary"),
     )
 
 
@@ -141,7 +152,7 @@ def cluster_articles(
     articles: Sequence[UnclassifiedArticle],
     min_cluster_size: int,
     min_samples: int | None = None,
-    representative_count: int = 3,
+    representative_count: int = 8,
     min_membership_confidence: float = 0.0,
 ) -> tuple[ClusterCandidate, ...]:
     """Run HDBSCAN and return deterministic non-noise cluster candidates."""
@@ -219,7 +230,7 @@ def cluster_articles(
 
 def merge_generated_issue_candidates(
     candidates: Sequence[tuple[ClusterCandidate, GeneratedIssue]],
-    representative_count: int = 3,
+    representative_count: int = 8,
 ) -> tuple[tuple[ClusterCandidate, GeneratedIssue], ...]:
     """Merge candidates with the same theme and generated issue name."""
 

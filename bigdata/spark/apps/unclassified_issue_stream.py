@@ -40,6 +40,8 @@ ISSUE_CLUSTER_TRIGGER_COUNT = 50
 ISSUE_CLUSTER_MIN_SIZE = 5
 ISSUE_CLUSTER_MIN_SAMPLES = 3
 ISSUE_CLUSTER_MIN_MEMBERSHIP = 0.60
+ISSUE_CLUSTER_WINDOW_HOURS = 72
+ISSUE_CLUSTER_REPRESENTATIVE_COUNT = 8
 ISSUE_CLUSTER_MAX_ARTICLES_PER_THEME = int(
     os.getenv("ISSUE_CLUSTER_MAX_ARTICLES_PER_THEME", "2000")
 )
@@ -74,6 +76,7 @@ PENDING_SCHEMA = StructType(
             "embedding", ArrayType(DoubleType(), containsNull=False), nullable=False
         ),
         StructField("title", StringType(), nullable=False),
+        StructField("summary", StringType(), nullable=True),
         StructField("published_at", StringType(), nullable=False),
         StructField("unclassified_at", StringType(), nullable=False),
     ]
@@ -107,6 +110,7 @@ def _parse_partition(rows):
             article.theme_id,
             list(article.embedding),
             article.title,
+            article.summary,
             article.published_at,
             article.unclassified_at,
         )
@@ -194,6 +198,7 @@ def _to_article(row) -> UnclassifiedArticle:
         theme_id=row.theme_id,
         embedding=tuple(row.embedding),
         title=row.title,
+        summary=row.summary,
         published_at=row.published_at,
         unclassified_at=row.unclassified_at,
     )
@@ -206,8 +211,11 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
         "CAST(value AS STRING) AS value",
         "partition",
         "offset",
-    ).rdd.mapPartitions(_parse_partition)
+    ).rdd.mapPartitions(_parse_partition).persist(StorageLevel.MEMORY_AND_DISK)
     incoming = spark.createDataFrame(parsed_rows, schema=PENDING_SCHEMA)
+    incoming_theme_ids = [
+        row.theme_id for row in incoming.select("theme_id").distinct().collect()
+    ]
     pending_rows = (
         _read_pending_state(spark)
         .unionByName(incoming)
@@ -220,17 +228,25 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
         # SPARK-59451을 유발할 수 있다. 일반 RDD를 먼저 materialize하고 그 위에
         # DataFrame을 다시 만들어 이후 action들이 동일한 파티션을 재사용하게 한다.
         pending_rows.count()
-        pending = spark.createDataFrame(pending_rows, schema=PENDING_SCHEMA)
+        pending = spark.createDataFrame(pending_rows, schema=PENDING_SCHEMA).filter(
+            F.to_timestamp("published_at")
+            >= F.expr(
+                f"current_timestamp() - INTERVAL {ISSUE_CLUSTER_WINDOW_HOURS} HOURS"
+            )
+        )
 
         triggered_theme_ids = [
             row.theme_id
             for row in pending.groupBy("theme_id")
             .count()
-            .filter(F.col("count") >= ISSUE_CLUSTER_TRIGGER_COUNT)
+            .filter(
+                (F.col("count") >= ISSUE_CLUSTER_TRIGGER_COUNT)
+                & F.col("theme_id").isin(incoming_theme_ids)
+            )
             .select("theme_id")
             .collect()
         ]
-        processed_article_ids: set[str] = set()
+        assigned_article_ids: set[str] = set()
         event_rows: list[tuple[str, str]] = []
         generated_candidates = []
 
@@ -248,23 +264,26 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
                     .collect()
                 ]
 
-                # A triggered slice is consumed once. Articles that HDBSCAN marks as
-                # noise are deliberately removed according to the pipeline contract.
-                selected_ids = {article.article_id for article in selected}
+                # 이슈 군집에 실제로 포함된 기사만 소비한다. HDBSCAN noise와
+                # membership 기준을 통과하지 못한 군집의 기사는 72시간 동안
+                # pending에 남겨 후속 기사와 다시 군집화할 기회를 준다.
                 clusters = cluster_articles(
                     selected,
                     min_cluster_size=ISSUE_CLUSTER_MIN_SIZE,
                     min_samples=ISSUE_CLUSTER_MIN_SAMPLES,
-                    representative_count=3,
+                    representative_count=ISSUE_CLUSTER_REPRESENTATIVE_COUNT,
                     min_membership_confidence=ISSUE_CLUSTER_MIN_MEMBERSHIP,
                 )
                 for cluster in clusters:
                     generated = generate_issue(GMS_CONFIG, theme_name, cluster)
                     generated_candidates.append((cluster, generated))
-                processed_article_ids.update(selected_ids)
+                    assigned_article_ids.update(
+                        article.article_id for article in cluster.articles
+                    )
 
         for cluster, generated in merge_generated_issue_candidates(
-            generated_candidates
+            generated_candidates,
+            representative_count=ISSUE_CLUSTER_REPRESENTATIVE_COUNT,
         ):
             event_rows.extend(build_issue_events(cluster, generated))
 
@@ -279,9 +298,9 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
 
         materialized_remaining = pending
         remaining_rows = None
-        if processed_article_ids:
+        if assigned_article_ids:
             processed_df = spark.createDataFrame(
-                [(article_id,) for article_id in sorted(processed_article_ids)],
+                [(article_id,) for article_id in sorted(assigned_article_ids)],
                 schema=StructType(
                     [StructField("article_id", StringType(), nullable=False)]
                 ),
@@ -303,10 +322,11 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
                 remaining_rows.unpersist()
         print(
             f"Completed unclassified cluster batch {batch_id}: "
-            f"events={len(event_rows)} consumed={len(processed_article_ids)}"
+            f"events={len(event_rows)} assigned={len(assigned_article_ids)}"
         )
     finally:
         pending_rows.unpersist()
+        parsed_rows.unpersist()
 
 
 def _validate_config() -> None:
