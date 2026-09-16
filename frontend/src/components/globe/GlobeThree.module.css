@@ -13,6 +13,17 @@
 .canvas > canvas { display: block; width: 100%; height: 100%; }
 .canvas.dragging { cursor: grabbing; }
 .canvas.pointing { cursor: pointer; }
+.canvas.pending { opacity: 0; pointer-events: none; }
+.canvas.ready { opacity: 1; transition: opacity 450ms ease-out; }
+.loadingOverlay {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  color: #aebdce; text-align: center; font-size: 13px; letter-spacing: .025em;
+}
+.loadingOverlay button {
+  margin-top: 14px; padding: 8px 16px; border: 1px solid #40576c;
+  border-radius: 7px; color: #d4e5ed; background: #152334;
+}
+.spinBtn:disabled { opacity: .35; cursor: default; }
 
 .hud { position: absolute; left: 26px; top: 24px; z-index: 3; pointer-events: none; }
 .hud .kicker {
@@ -40,7 +51,10 @@
 }
 .spinningIcon { display: inline-block; font-size: 18px; animation: spinIndicator 4s linear infinite; }
 @keyframes spinIndicator { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .spinningIcon { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .spinningIcon { animation: none; }
+  .canvas.ready { transition: none; }
+}
 .spinBtn:focus-visible { outline: 2px solid var(--wtw-accent); outline-offset: 3px; }
 .spinBtn.on { color: #c8d2df; }
 .spinBtn:hover { color: #fff; background: rgba(255, 255, 255, 0.06); }

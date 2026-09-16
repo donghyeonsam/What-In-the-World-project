@@ -11,6 +11,9 @@ test('screens render real DTO fields, empty states, and missing-data notices', a
     const render = (Component, props) => renderToStaticMarkup(React.createElement(Component, props));
     const { default: Globe } = await vite.ssrLoadModule('/src/components/globe/GlobeThree.jsx');
     const globe = render(Globe, { countries: [] });
+    assert.match(globe, /지구를 불러오는 중…/);
+    assert.match(globe, /aria-busy="true"/);
+    assert.match(globe, /disabled=""/);
     assert.match(globe, /aria-label="지구 자전 멈춤"/);
     assert.match(globe, /aria-pressed="true"/);
     assert.match(globe, /자전 중/);

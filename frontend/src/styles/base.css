@@ -22,7 +22,7 @@ a { color: inherit; }
   padding: 10px 12px;
   border: 1px solid var(--wtw-line);
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.55);
+  background: rgba(128, 200, 207, 0.06);
   font-size: 9.5px;
   line-height: 1.7;
   color: var(--wtw-muted);

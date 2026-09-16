@@ -16,6 +16,8 @@ import ArticleFeed, { ArticlePreviewList, ResultHead, ArticleFilterBar } from '.
 import ThemeFilterPanel from './components/panel/ThemeFilterPanel.jsx';
 import ApiToneScatter from './components/panel/ApiToneScatter.jsx';
 import s from './components/panel/panel.module.css';
+import NewsPage from './news/NewsPage.jsx';
+import PageTransition from './components/layout/PageTransition.jsx';
 
 const HOME = { type: 'dash', title: '글로벌 동향' };
 
@@ -30,7 +32,30 @@ function Empty({ items, children }) {
 
 
 export default function App() {
-  const [history, setHistory] = useState([HOME]);
+  const [search, setSearch] = useState(() => typeof window === 'undefined' ? '' : window.location.search);
+  useEffect(() => {
+    const sync = () => setSearch(window.location.search);
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
+  const navigate = (next) => {
+    if (next === window.location.search) return;
+    window.history.pushState(null, '', `${window.location.pathname}${next}${window.location.hash}`);
+    setSearch(next);
+  };
+  const route = new URLSearchParams(search).get('view');
+  const page = route === 'news' ? <>
+    <HeaderMinimal route="news" showSearch={false} onRoute={(next) => {
+      if (next !== 'news') navigate(next === 'country' ? '?view=country' : '');
+    }} />
+    <NewsPage search={search} navigate={navigate} />
+  </> : <DashboardApp onNews={() => navigate('?view=news&page=1')} initialCountry={route === 'country'} />;
+  return <PageTransition screenKey={route === 'news' ? 'news' : 'dashboard'}>{page}</PageTransition>;
+}
+
+function DashboardApp({ onNews, initialCountry }) {
+  const [history, setHistory] = useState(() => initialCountry
+    ? [HOME, { type: 'country', countryCode: 'KR', title: '대한민국' }] : [HOME]);
   const view = history[history.length - 1];
   const [spot, setSpot] = useState(null);
   const [mentionDirection, setMentionDirection] = useState('outgoing');
@@ -128,7 +153,7 @@ export default function App() {
     view={view} catalog={catalog} fieldsResource={fields} countryResource={country} themeResource={theme} issueResource={issue} go={go} />;
 
   return <><DashboardLayout panelRef={panelRef}
-    header={<HeaderMinimal route={view.countryCode ? 'country' : 'global'} onRoute={(route) => route === 'global' ? go(HOME) : goCountry(view.countryCode?.toLowerCase() || 'kr')} onSearch={openPalette} />}
+    header={<HeaderMinimal route={view.countryCode ? 'country' : 'global'} onRoute={(route) => route === 'news' ? onNews() : route === 'global' ? go(HOME) : goCountry(view.countryCode?.toLowerCase() || 'kr')} onSearch={openPalette} />}
     stage={<GlobeSlot><GlobeThree countries={countryMetadata} iso3={iso3} tone={mapTone} minSample={null} focus={spot || view.countryCode?.toLowerCase()}
       mentionRelations={relations} spinControl onOpenCountry={goCountry} /></GlobeSlot>}
     panel={<div className={s.panelContent}>{history.length > 1 && <div className={s.panelNav}>

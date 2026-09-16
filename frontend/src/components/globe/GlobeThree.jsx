@@ -147,6 +147,7 @@ export default function GlobeThree({
   const apiRef = useRef(null);
   const tipRef = useRef(null);
   const [autoSpin, setAutoSpin] = useState(() => !prefersReducedMotion());
+  const [earthStatus, setEarthStatus] = useState('loading');
 
   /* 콜백은 ref로 넘긴다 — 씬을 다시 만들지 않기 위해 */
   const cb = useRef({});
@@ -156,6 +157,9 @@ export default function GlobeThree({
   useEffect(() => {
     const wrap = wrapRef.current;
     const reduced = prefersReducedMotion();
+    let textureReady = false;
+    let firstFrameRendered = false;
+    setEarthStatus('loading');
 
     const scene = new THREE.Scene();
     const cam = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
@@ -193,7 +197,13 @@ export default function GlobeThree({
       specular: 0x223344,
       shininess: 10,
     });
-    const disposeEarthTexture = loadEarthTexture(new THREE.TextureLoader(), textureUrls, {
+    let disposeEarthTexture = () => {};
+    const startEarthLoad = () => {
+      disposeEarthTexture();
+      textureReady = false;
+      firstFrameRendered = false;
+      setEarthStatus('loading');
+      disposeEarthTexture = loadEarthTexture(new THREE.TextureLoader(), textureUrls, {
       onLoad(earthTex, url) {
         earthTex.encoding = THREE.sRGBEncoding;
         earthTex.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
@@ -203,11 +213,15 @@ export default function GlobeThree({
         earthMaterial.emissive.set(0xffffff);
         earthMaterial.needsUpdate = true;
         wrap.dataset.earthTexture = url;
+        textureReady = true;
       },
       onError(error) {
         console.warn('지구 표면 텍스처를 불러오지 못했습니다.', error);
+        setEarthStatus('error');
       },
-    });
+      });
+    };
+    startEarthLoad();
     globe.add(new THREE.Mesh(new THREE.SphereGeometry(1, 128, 96), earthMaterial));
     scene.add(new THREE.AmbientLight(0xc9d4e2, 0.5));
     const sun = new THREE.DirectionalLight(0xfff6e8, 0.62);
@@ -773,6 +787,7 @@ export default function GlobeThree({
     };
 
     const onDown = (e) => {
+      if (!firstFrameRendered) return;
       dragging = true;
       vx = 0;
       vy = 0;
@@ -789,6 +804,7 @@ export default function GlobeThree({
       wrap.classList.remove(s.dragging);
     };
     const onMove = (e) => {
+      if (!firstFrameRendered) return;
       if (dragging) {
         const dx = e.clientX - px;
         const dy = e.clientY - py;
@@ -835,6 +851,7 @@ export default function GlobeThree({
       }
     };
     const onWheel = (e) => {
+      if (!firstFrameRendered) return;
       // Ctrl+휠은 브라우저 확대/축소에 맡기고, 지구본 위의 일반 휠만 처리한다.
       if (e.ctrlKey || !Number.isFinite(e.deltaY) || e.deltaY === 0) return;
       e.preventDefault();
@@ -845,6 +862,7 @@ export default function GlobeThree({
       tipRef.current?.classList.remove(s.show);
     };
     const onClick = () => {
+      if (!firstFrameRendered) return;
       if (dragDistance >= 5) {
         dragDistance = 0;
         vx = 0;
@@ -890,6 +908,8 @@ export default function GlobeThree({
     let raf = 0;
     const loop = () => {
       raf = requestAnimationFrame(loop);
+      // 로딩 중에는 초기 방향을 유지한다. 실제 텍스처로 첫 프레임을 그린 뒤 공개한다.
+      if (!textureReady) return;
       t += 0.016;
       if (spin) globe.rotation.y += 0.0016;
       if (focusRotation) {
@@ -917,6 +937,10 @@ export default function GlobeThree({
       fxTick(t);
       updateMentionFlow(mentionGroup, performance.now() / 1000, reduced);
       renderer.render(scene, cam);
+      if (!firstFrameRendered) {
+        firstFrameRendered = true;
+        setEarthStatus('ready');
+      }
     };
     loop();
 
@@ -926,6 +950,9 @@ export default function GlobeThree({
 
     /* ── 바깥에서 쓰는 명령형 API ── */
     apiRef.current = {
+      retryEarth() {
+        if (!textureReady) startEarthLoad();
+      },
       setMentions(links) {
         const hadLinks = mentionGroup.children.length > 0;
         globe.remove(mentionGroup);
@@ -1051,13 +1078,20 @@ export default function GlobeThree({
     <div className={s.wrap}>
       <div
         ref={wrapRef}
-        className={s.canvas}
+        className={`${s.canvas} ${earthStatus === 'ready' ? s.ready : s.pending}`}
+        aria-busy={earthStatus === 'loading'}
         role="application"
         aria-label="분석 대상 국가가 표시된 3D 지구본. 국가를 클릭하면 해당 국가 기사로 이동합니다."
       />
+      {earthStatus !== 'ready' && <div className={s.loadingOverlay}>
+        {earthStatus === 'error' ? <div role="alert">
+          <p>지구를 불러오지 못했습니다.</p>
+          <button type="button" onClick={() => apiRef.current?.retryEarth()}>다시 시도</button>
+        </div> : <p role="status">지구를 불러오는 중…</p>}
+      </div>}
       <div className={s.tip} ref={tipRef} />
       {children}
-      {mentionRelations.length > 0 && <div className={s.relationsLegend} style={spinControl ? { bottom: 88 } : undefined} role="status">
+      {earthStatus === 'ready' && mentionRelations.length > 0 && <div className={s.relationsLegend} style={spinControl ? { bottom: 88 } : undefined} role="status">
         <span style={{ color: mentionRelations[0].incoming ? '#ffb454' : '#6fe7ff' }}>
           {mentionRelations[0].incoming ? '┄▶ 언급한 국가 → 선택 국가' : '┄▶ 선택 국가 → 언급한 국가'}
         </span>
@@ -1068,6 +1102,7 @@ export default function GlobeThree({
           <button
             type="button"
             className={`${s.spinBtn} ${autoSpin ? s.on : ''}`}
+            disabled={earthStatus !== 'ready'}
             title={autoSpin ? '지구 자전 멈춤' : '지구 자전 재개'}
             aria-label={autoSpin ? '지구 자전 멈춤' : '지구 자전 재개'}
             aria-pressed={autoSpin}

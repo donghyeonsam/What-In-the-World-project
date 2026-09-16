@@ -20,17 +20,19 @@ export default function HeaderMinimal({
   routes = [
     { id: 'global', label: '글로벌 동향' },
     { id: 'country', label: '국가 분석' },
+    { id: 'news', label: '전체 뉴스' },
   ],
   route = 'global',
   onRoute,
   onSearch,
+  showSearch = true,
   searchLabel = '국가 검색',
   shortcut = '⌘ K',
 }) {
   return (
     <header className={s.topbar}>
-      <a className={s.brand} href="#" aria-label={`${brand} 홈`} onClick={(e) => e.preventDefault()}>
-        <img src="/witw_logo.png" alt={brand} />
+      <a className={s.brand} href={typeof window === 'undefined' ? '/' : window.location.pathname} aria-label={`${brand} 초기 화면으로 이동`}>
+        <img src="/witw_logo_transparent.png" alt={brand} />
       </a>
 
       <nav className={s.nav} aria-label="주요 메뉴">
@@ -39,6 +41,7 @@ export default function HeaderMinimal({
             key={r.id}
             type="button"
             className={`${s.navItem} ${route === r.id ? s.active : ''}`}
+            aria-current={route === r.id ? 'page' : undefined}
             onClick={() => onRoute?.(r.id)}
           >
             {r.label}
@@ -47,11 +50,11 @@ export default function HeaderMinimal({
       </nav>
 
       <div className={s.actions}>
-        <button type="button" className={s.search} onClick={onSearch} aria-label={searchLabel}>
+        {showSearch && <button type="button" className={s.search} onClick={onSearch} aria-label={searchLabel}>
           <SearchIcon />
           <span>{searchLabel}</span>
           <kbd className={s.kbd}>{shortcut}</kbd>
-        </button>
+        </button>}
       </div>
     </header>
   );
