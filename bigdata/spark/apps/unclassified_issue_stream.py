@@ -146,7 +146,7 @@ def _write_pending_state(spark: SparkSession, remaining, batch_id: int) -> None:
 
     if file_system.exists(temporary_path):
         file_system.delete(temporary_path, True)
-    remaining.write.mode("overwrite").parquet(temporary_path.toString())
+    remaining.coalesce(1).write.mode("overwrite").parquet(temporary_path.toString())
 
     if file_system.exists(backup_path):
         file_system.delete(backup_path, True)
@@ -349,6 +349,7 @@ def main() -> None:
     )
     query = (
         stream.writeStream.foreachBatch(write_cluster_batch)
+        .trigger(processingTime="15 seconds")
         .option("checkpointLocation", SPARK_CHECKPOINT_LOCATION)
         .queryName("news-unclassified-issue-stream-v1")
         .start()
