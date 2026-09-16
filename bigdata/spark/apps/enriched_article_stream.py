@@ -266,6 +266,7 @@ def main() -> None:
     # 체크포인트는 HDFS에 저장해 Driver 컨테이너가 재생성되어도 진행 위치를 보존한다.
     query = (
         enriched_stream.writeStream.foreachBatch(write_event_batch)
+        .trigger(processingTime="15 seconds")
         .option("checkpointLocation", SPARK_CHECKPOINT_LOCATION)
         .queryName("news-enriched-article-events-v1")
         .start()
