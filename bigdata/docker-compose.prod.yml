@@ -247,13 +247,11 @@ services:
       - -c
       - |
         set -euo pipefail
-        # Spark 사용자에게 전체 HDFS가 아니라 전용 체크포인트 경로의 쓰기 권한만 부여한다.
-        hdfs dfs -mkdir -p \
-          /checkpoints/enriched-article-events-v1 \
-          /checkpoints/unclassified-issue-stream-v1 \
-          /checkpoints/unclassified-issue-state-v1
-        hdfs dfs -chown -R spark:supergroup /checkpoints
-        hdfs dfs -chmod -R 775 /checkpoints
+        # 실행 중 생성·삭제되는 Spark 임시 경로와 경합하지 않도록 안정적인
+        # 부모 경로만 준비하고, 버전별 하위 경로는 Spark가 직접 생성하게 한다.
+        hdfs dfs -mkdir -p /checkpoints
+        hdfs dfs -chown spark:supergroup /checkpoints
+        hdfs dfs -chmod 775 /checkpoints
 
     depends_on:
       datanode:
