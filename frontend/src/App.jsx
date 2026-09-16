@@ -17,6 +17,7 @@ import ThemeFilterPanel from './components/panel/ThemeFilterPanel.jsx';
 import ApiToneScatter from './components/panel/ApiToneScatter.jsx';
 import s from './components/panel/panel.module.css';
 import NewsPage from './news/NewsPage.jsx';
+import PageTransition from './components/layout/PageTransition.jsx';
 
 const HOME = { type: 'dash', title: '글로벌 동향' };
 
@@ -43,13 +44,13 @@ export default function App() {
     setSearch(next);
   };
   const route = new URLSearchParams(search).get('view');
-  if (route === 'news') return <>
-    <HeaderMinimal route="news" onRoute={(next) => {
+  const page = route === 'news' ? <>
+    <HeaderMinimal route="news" showSearch={false} onRoute={(next) => {
       if (next !== 'news') navigate(next === 'country' ? '?view=country' : '');
-    }} onSearch={() => document.getElementById('news-country-filter')?.focus()} />
+    }} />
     <NewsPage search={search} navigate={navigate} />
-  </>;
-  return <DashboardApp onNews={() => navigate('?view=news&page=1')} initialCountry={route === 'country'} />;
+  </> : <DashboardApp onNews={() => navigate('?view=news&page=1')} initialCountry={route === 'country'} />;
+  return <PageTransition screenKey={route === 'news' ? 'news' : 'dashboard'}>{page}</PageTransition>;
 }
 
 function DashboardApp({ onNews, initialCountry }) {

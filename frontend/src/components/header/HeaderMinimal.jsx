@@ -25,6 +25,7 @@ export default function HeaderMinimal({
   route = 'global',
   onRoute,
   onSearch,
+  showSearch = true,
   searchLabel = '국가 검색',
   shortcut = '⌘ K',
 }) {
@@ -49,11 +50,11 @@ export default function HeaderMinimal({
       </nav>
 
       <div className={s.actions}>
-        <button type="button" className={s.search} onClick={onSearch} aria-label={searchLabel}>
+        {showSearch && <button type="button" className={s.search} onClick={onSearch} aria-label={searchLabel}>
           <SearchIcon />
           <span>{searchLabel}</span>
           <kbd className={s.kbd}>{shortcut}</kbd>
-        </button>
+        </button>}
       </div>
     </header>
   );
