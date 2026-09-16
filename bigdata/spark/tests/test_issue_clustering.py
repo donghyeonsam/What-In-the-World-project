@@ -47,6 +47,7 @@ class UnclassifiedContractTest(unittest.TestCase):
                     "theme_id": 12,
                     "embedding": [0.1, 0.2],
                     "title": "미국 반도체 규제 확대",
+                    "summary": "미국 정부가 중국 대상 수출 규제를 확대했다.",
                     "published_at": "2026-09-03T03:35:24Z",
                     "unclassified_at": "2026-09-03T04:10:01+00:00",
                 }
@@ -54,6 +55,10 @@ class UnclassifiedContractTest(unittest.TestCase):
         )
         self.assertEqual(parsed.article_id, "a-123")
         self.assertEqual(parsed.embedding, (0.1, 0.2))
+        self.assertEqual(
+            parsed.summary,
+            "미국 정부가 중국 대상 수출 규제를 확대했다.",
+        )
 
     def test_rejects_timestamp_without_timezone(self):
         with self.assertRaisesRegex(InvalidUnclassifiedArticle, "timezone"):
@@ -158,6 +163,37 @@ class IssueEventTest(unittest.TestCase):
 
 
 class HdbscanTransformationTest(unittest.TestCase):
+    def test_selects_eight_representatives_by_default(self):
+        class FakeHdbscan:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def fit_predict(self, embeddings):
+                self.probabilities_ = [1.0] * len(embeddings)
+                return [0] * len(embeddings)
+
+        sklearn_module = types.ModuleType("sklearn")
+        cluster_module = types.ModuleType("sklearn.cluster")
+        cluster_module.HDBSCAN = FakeHdbscan
+        sklearn_module.cluster = cluster_module
+
+        articles = tuple(
+            article(f"a-{index:02d}", (1.0, index / 100.0))
+            for index in range(10)
+        )
+        with patch.dict(
+            sys.modules,
+            {"sklearn": sklearn_module, "sklearn.cluster": cluster_module},
+        ):
+            clusters = cluster_articles(
+                articles,
+                min_cluster_size=2,
+                min_samples=1,
+            )
+
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(len(clusters[0].representatives), 8)
+
     def test_discards_noise_and_selects_centroid_representatives(self):
         class FakeHdbscan:
             def __init__(self, **kwargs):

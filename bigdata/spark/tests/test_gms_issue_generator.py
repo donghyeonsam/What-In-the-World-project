@@ -20,7 +20,7 @@ from issue_clustering import ClusterCandidate, UnclassifiedArticle  # noqa: E402
 class GmsIssueGeneratorTest(unittest.TestCase):
     def setUp(self):
         self.valid = {
-            "name": "새 반도체 규제",
+            "name": "미국 대중국 반도체 수출 규제 확대",
             "summary": "미국이 반도체 수출 규제를 확대했다.",
         }
 
@@ -48,6 +48,7 @@ class GmsIssueGeneratorTest(unittest.TestCase):
             title="미국이 대중국 반도체 수출 규제를 확대했다",
             published_at="2026-09-03T03:35:24Z",
             unclassified_at="2026-09-03T04:10:01Z",
+            summary="미국 정부가 중국에 대한 반도체 수출 규제를 확대했다.",
         )
         cluster = ClusterCandidate(
             theme_id=12,
@@ -68,14 +69,19 @@ class GmsIssueGeneratorTest(unittest.TestCase):
         )
 
         self.assertEqual(
-            prompt_payload["cluster"]["article_titles"],
-            ["미국이 대중국 반도체 수출 규제를 확대했다"],
+            prompt_payload["cluster"]["representative_articles"],
+            [
+                {
+                    "title": "미국이 대중국 반도체 수출 규제를 확대했다",
+                    "summary": "미국 정부가 중국에 대한 반도체 수출 규제를 확대했다.",
+                }
+            ],
         )
         self.assertNotIn("article_id", request["messages"][1]["content"])
 
     def test_validates_existing_issue_metadata_contract(self):
         generated = validate_generated_issue(self.valid)
-        self.assertEqual(generated.name, "새 반도체 규제")
+        self.assertEqual(generated.name, "미국 대중국 반도체 수출 규제 확대")
         self.assertEqual(generated.summary, self.valid["summary"])
 
     def test_rejects_the_expanded_noncanonical_contract(self):
@@ -96,6 +102,15 @@ class GmsIssueGeneratorTest(unittest.TestCase):
     def test_rejects_summary_over_300_characters(self):
         with self.assertRaisesRegex(GmsIssueGenerationError, "summary"):
             validate_generated_issue(dict(self.valid, summary="a" * 301))
+
+    def test_rejects_vague_issue_name(self):
+        with self.assertRaisesRegex(GmsIssueGenerationError, "too vague"):
+            validate_generated_issue(
+                {
+                    "name": "사이버보안 관련 이슈",
+                    "summary": "여러 사이버보안 사건을 다룬다.",
+                }
+            )
 
 
 if __name__ == "__main__":

@@ -56,6 +56,7 @@ ARTICLE_SCHEMA = StructType(
             nullable=False,
         ),
         StructField("title", StringType(), nullable=False),
+        StructField("summary", StringType(), nullable=True),
         StructField("published_at", StringType(), nullable=False),
         StructField("occurred_at", StringType(), nullable=False),
     ]
@@ -94,7 +95,8 @@ def _transform_kafka_partition(rows):
             payload["article_id"],
             payload["theme_id"],
             payload["embedding"],
-            payload["original_title"],
+            payload.get("translated_title") or payload["original_title"],
+            payload.get("summary"),
             payload["published_at"],
             event["occurred_at"],
         )
@@ -162,6 +164,7 @@ def _match_partition(
             "theme_id": row.theme_id,
             "embedding": row.embedding,
             "title": row.title,
+            "summary": row.summary,
             "published_at": row.published_at,
             "occurred_at": row.occurred_at,
         }
