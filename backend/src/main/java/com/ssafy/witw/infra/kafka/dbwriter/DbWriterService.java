@@ -102,6 +102,13 @@ public class DbWriterService {
                 ? null
                 : translatedTitle.trim()
         );
+        // 요약은 없어도 기사를 저장한다. 필수로 막으면 요약 실패 기사가 통째로 버려진다.
+        String summary = payload.summary();
+        article.setSummary(
+            summary == null || summary.isBlank()
+                ? null
+                : summary.trim()
+        );
         article.setOriginalTitle(requireText(payload.originalTitle(), "payload.original_title"));
         article.setCrawledAt(toKstLocalDateTime(require(payload.crawledAt(), "payload.crawled_at")));
         article.setToneScore(requireRange(

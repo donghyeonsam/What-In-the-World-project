@@ -15,6 +15,8 @@ public record ArticleUpsertPayload(
         String url,
         // 기사 타이틀 번역 내용
         @JsonProperty("translated_title") String translatedTitle,
+        // 기사 본문 3문장 한국어 요약
+        String summary,
         @JsonProperty("original_title") String originalTitle,
         @JsonProperty("crawled_at") OffsetDateTime crawledAt,
         List<BigDecimal> embedding,

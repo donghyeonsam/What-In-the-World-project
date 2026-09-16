@@ -166,6 +166,8 @@ def build_article_upsert_event(article: dict[str, Any]) -> dict[str, Any]:
             "translated_title": _optional_text(
                 nlp, "translated_title"
             ),
+            # 본문 3문장 한국어 요약. 실패 시 None 이므로 optional 로 다룬다.
+            "summary": _optional_text(nlp, "summary"),
             "crawled_at": discovered_at,
             "embedding": [float(item) for item in embedding],
             "tone_score": _tone_score(nlp.get("sentiment")),
