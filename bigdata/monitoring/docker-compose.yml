@@ -32,7 +32,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - /sys:/sys:ro
       - /var/lib/docker:/var/lib/docker:ro
-      - /run/docker/containerd/containerd.sock:/run/containerd/containerd.sock:ro
+      - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
     expose:
       - "8080"
     networks:
