@@ -20,6 +20,7 @@ export default function HeaderMinimal({
   routes = [
     { id: 'global', label: '글로벌 동향' },
     { id: 'country', label: '국가 분석' },
+    { id: 'news', label: '전체 뉴스' },
   ],
   route = 'global',
   onRoute,
@@ -39,6 +40,7 @@ export default function HeaderMinimal({
             key={r.id}
             type="button"
             className={`${s.navItem} ${route === r.id ? s.active : ''}`}
+            aria-current={route === r.id ? 'page' : undefined}
             onClick={() => onRoute?.(r.id)}
           >
             {r.label}
