@@ -9,7 +9,7 @@
   --wtw-line-strong: #415363;
   --wtw-accent: #92c5c9;
   --wtw-accent-2: #6b979f;
-  height: calc(100dvh - 68px); overflow: auto; background: var(--wtw-bg); color: var(--wtw-text);
+  min-height: calc(100dvh - 100px); background: var(--wtw-bg); color: var(--wtw-text);
 }
 .content { max-width: 1280px; margin: auto; padding: 48px 40px 64px; }
 .heading { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 32px; }
@@ -72,5 +72,30 @@
 .demo { color: var(--wtw-muted); font-size: 11px; line-height: 1.7; margin-top: 24px; }
 .modalBottom { border-top: 1px solid var(--wtw-line); margin-top: 24px; padding-top: 20px; display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 11px; color: var(--wtw-muted); }
 .modalBottom a { background: var(--wtw-accent); color: var(--wtw-on-accent); padding: 12px 18px; border-radius: 7px; text-decoration: none; font-size: 13px; }
-@media (max-width: 1050px) { .filterGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); } .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 600px) { .content { padding: 28px 16px; } .heading { gap: 12px; } .filters { padding: 18px; } .filterGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .grid { grid-template-columns: 1fr; } .modal { padding: 22px; } .modalBottom { flex-wrap: wrap; } }
+@media (max-width: 1050px) {
+  .filterGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .content { padding: 32px 20px 56px; }
+  .filterGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .submit { grid-column: 1 / -1; }
+  .grid { grid-template-columns: 1fr; }
+  .resultsHead { align-items: flex-start; flex-direction: column; gap: 6px; }
+  .modal { padding: 22px; }
+  .meta { flex-wrap: wrap; }
+  .modalBottom { flex-wrap: wrap; }
+}
+@media (max-width: 420px) {
+  .content { padding: 28px 16px 48px; }
+  .heading { gap: 12px; }
+  .filters { padding: 18px; }
+  .filterGrid { grid-template-columns: minmax(0, 1fr); }
+  .card { padding: 18px; }
+}
+@media (min-width: 701px) {
+  .page { min-height: calc(100dvh - 68px); }
+}
+@media (min-width: 1000px) {
+  .page { height: calc(100dvh - 68px); overflow: auto; }
+}
