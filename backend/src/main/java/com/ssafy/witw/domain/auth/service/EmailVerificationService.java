@@ -220,7 +220,7 @@ public class EmailVerificationService {
     }
 
     private void increaseTryCount(String email, String codeKey, String tryKeyPrefix) {
-        String tryKey = TRY_KEY_PREFIX + email;
+        String tryKey = tryKeyPrefix + email;
         Long count = redisTemplate.opsForValue().increment(tryKey);
 
         if (count == null) throw new GlobalException(ErrorCode.INTERNAL_SERVER_ERROR);
