@@ -1,12 +1,11 @@
 package com.ssafy.witw.domain.auth.controller;
 
+import com.ssafy.witw.common.exception.GlobalException;
 import com.ssafy.witw.common.response.BaseResponse;
+import com.ssafy.witw.common.response.ErrorCode;
 import com.ssafy.witw.common.response.SuccessCode;
-import com.ssafy.witw.domain.auth.dto.request.EmailRequest;
-import com.ssafy.witw.domain.auth.dto.request.EmailVerifyRequest;
-import com.ssafy.witw.domain.auth.dto.request.LoginRequest;
+import com.ssafy.witw.domain.auth.dto.request.*;
 import com.ssafy.witw.domain.auth.dto.response.EmailExistsResponse;
-import com.ssafy.witw.domain.auth.dto.request.SignupRequest;
 import com.ssafy.witw.domain.auth.dto.response.EmailSendResponse;
 import com.ssafy.witw.domain.auth.service.AuthService;
 import com.ssafy.witw.domain.auth.service.EmailVerificationService;
@@ -128,6 +127,26 @@ public class AuthController {
         session.setAttribute("passwordResetEmail", verifiedEmail);
 
         return BaseResponse.success(SuccessCode.PASSWORD_RESET_EMAIL_VERIFY_SUCCESS);
+    }
+
+    @PostMapping("/password/reset")
+    @Operation(summary = "비밀번호 재설정")
+    public ResponseEntity<BaseResponse<Void>> resetPassword(
+            @Valid @RequestBody PasswordResetRequest request, HttpServletRequest httpRequest
+    ){
+        HttpSession session = httpRequest.getSession(false);
+
+        if(session == null) throw new GlobalException(ErrorCode.PASSWORD_RESET_NOT_VERIFIED);
+
+        Object emailAttribute = session.getAttribute("passwordResetEmail");
+
+        if(!(emailAttribute instanceof String email)) throw new GlobalException(ErrorCode.PASSWORD_RESET_NOT_VERIFIED);
+
+        authService.resetPassword(email, request.newPassword());
+
+        session.invalidate();
+
+        return BaseResponse.success(SuccessCode.PASSWORD_RESET_SUCCESS);
     }
 
 }

@@ -51,7 +51,6 @@ public class AuthService {
 
     }
 
-
     private String normalizeEmail(String email) {
         return email.trim().toLowerCase(Locale.ROOT);
     }
@@ -79,5 +78,21 @@ public class AuthService {
 
         return user.getId();
     }
+
+    @Transactional
+    public void resetPassword(String email, String newPassword){
+        String normalizedEmail = normalizeEmail(email);
+
+        User user = userRepository.findByEmailIgnoreCase(normalizedEmail)
+                .orElseThrow(() -> new GlobalException(ErrorCode.PASSWORD_RESET_NOT_VERIFIED));
+
+        if(user.isWithdrawn() || user.getAuthProvider() != AuthProvider.LOCAL)
+            throw new GlobalException(ErrorCode.PASSWORD_RESET_NOT_VERIFIED);
+
+        String passwordHash = passwordEncoder.encode(newPassword);
+
+        user.changePassword(passwordHash);
+    }
+
 
 }
