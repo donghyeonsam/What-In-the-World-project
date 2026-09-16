@@ -179,7 +179,7 @@ def cluster_articles(
         min_cluster_size=min_cluster_size,
         min_samples=min_samples,
         metric="euclidean",
-        cluster_selection_method="eom",
+        cluster_selection_method="leaf",
         # A theme batch can legitimately contain one newly emerging issue.
         allow_single_cluster=True,
     )
