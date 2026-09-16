@@ -1,6 +1,7 @@
 pandas
 feedparser
 requests
+urllib3>=2.2,<3
 trafilatura
 beautifulsoup4
 python-dateutil>=2.9

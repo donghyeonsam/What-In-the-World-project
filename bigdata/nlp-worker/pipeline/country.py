@@ -37,12 +37,58 @@ def get_country_model():
 # Source Country
 # =========================================================
 
+# All 50 publishing countries in the collector registry, using its exact names.
 SOURCE_COUNTRY_CODE_MAP = {
-    "South Korea": "kr",
-    "United States": "us",
-    "Japan": "jp",
-    "United Kingdom": "gb",
+    "Argentina": "ar",
+    "Australia": "au",
+    "Austria": "at",
+    "Bangladesh": "bd",
+    "Belgium": "be",
+    "Brazil": "br",
+    "Canada": "ca",
+    "Chile": "cl",
+    "China": "cn",
+    "Colombia": "co",
+    "Czech Republic": "cz",
+    "Denmark": "dk",
+    "Egypt": "eg",
+    "Finland": "fi",
+    "France": "fr",
     "Germany": "de",
+    "Hong Kong": "hk",
+    "India": "in",
+    "Indonesia": "id",
+    "Iran": "ir",
+    "Iraq": "iq",
+    "Ireland": "ie",
+    "Israel": "il",
+    "Italy": "it",
+    "Japan": "jp",
+    "Kazakhstan": "kz",
+    "Malaysia": "my",
+    "Mexico": "mx",
+    "Netherlands": "nl",
+    "Norway": "no",
+    "Pakistan": "pk",
+    "Peru": "pe",
+    "Philippines": "ph",
+    "Poland": "pl",
+    "Portugal": "pt",
+    "Romania": "ro",
+    "Russia": "ru",
+    "Saudi Arabia": "sa",
+    "Singapore": "sg",
+    "South Africa": "za",
+    "South Korea": "kr",
+    "Spain": "es",
+    "Sweden": "se",
+    "Switzerland": "ch",
+    "Thailand": "th",
+    "Turkey": "tr",
+    "United Arab Emirates": "ae",
+    "United Kingdom": "gb",
+    "United States": "us",
+    "Vietnam": "vn",
 }
 
 
@@ -50,7 +96,17 @@ def get_country_code(country_name):
     if not country_name:
         return None
 
-    return SOURCE_COUNTRY_CODE_MAP.get(country_name.strip())
+    name = country_name.strip()
+    mapped_code = SOURCE_COUNTRY_CODE_MAP.get(name)
+    if mapped_code:
+        return mapped_code
+    # Also accept ISO codes and alternate country names for reprocessed data.
+    try:
+        return pycountry.countries.lookup(name).alpha_2.lower()
+    except LookupError:
+        # CLDR has common English names such as Russia and Iran, whereas ISO
+        # may only expose Russian Federation / Iran, Islamic Republic of.
+        return build_country_name_map("en").get(name.casefold())
 
 
 # =========================================================
@@ -60,6 +116,7 @@ def get_country_code(country_name):
 # 국가명 정규화에도 사용하고,
 # 일부 표현은 기사 전체에서 직접 검색하는 데도 사용한다.
 COUNTRY_ALIASES = {
+    "Turkey": "tr",
     # Korea
     "South Korea": "kr",
     "Republic of Korea": "kr",

@@ -34,18 +34,18 @@ import sys
 import threading
 import time
 import urllib.robotparser
-from collections import Counter
+from collections import Counter, defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
-from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urljoin, urlsplit, urlunsplit
 import xml.etree.ElementTree as ET
 
 import feedparser
-import requests
 from bs4 import BeautifulSoup
+from safe_http import create_public_session
 
 from crawl_quality_v5 import (
     body_prefix_hash,
@@ -77,6 +77,17 @@ TRACKING_QUERY_KEYS = {
 }
 THREAD_LOCAL = threading.local()
 ROBOTS_CACHE = {}
+NON_ARTICLE_EXTENSIONS = (
+    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".svg", ".ico",
+    ".bmp", ".tif", ".tiff", ".mp4", ".webm", ".mov", ".mp3", ".wav",
+    ".ogg", ".flac", ".pdf", ".zip", ".css", ".js",
+)
+
+
+def is_non_article_url(url):
+    # Check the decoded path, not the query: /story?image=photo.jpg is valid.
+    path = unquote(urlsplit(url).path).lower()
+    return path.endswith(NON_ARTICLE_EXTENSIONS)
 
 
 @dataclass(frozen=True)
@@ -101,6 +112,7 @@ class Source:
     display_name: str = ""
     timezone_name: str = "UTC"
     coverage_focus: str = ""
+    domain_gate_required: bool = False
 
 
 @dataclass
@@ -149,6 +161,54 @@ def safe(v):
     return "" if s.lower() in {"nan", "none", "null"} else s
 
 
+def classify_article_outcome(fetch_success, error):
+    """Separate accepted articles, expected exclusions, and real failures."""
+    if fetch_success:
+        return "accepted"
+    reason = safe(error).upper()
+    if (
+        "_DAILY_CAP_" in reason
+        or "DUPLICATE" in reason
+        or reason.startswith("OLD_")
+        or reason.startswith("NON_ARTICLE_")
+    ):
+        return "filtered"
+    if (
+        reason.startswith("SOURCE_QUALITY_GATE:")
+        or reason.startswith("BODY_TOO_SHORT")
+        or reason.startswith("TITLE_MISSING")
+        or reason.startswith("WALL_")
+        or reason.startswith("NO_BODY_LINE_")
+        or "DOMAIN_MISMATCH" in reason
+    ):
+        return "quality_rejected"
+    if (
+        reason.startswith("ROBOTS_DISALLOW")
+        or reason.startswith("HTTP ")
+        or "TIMEOUT" in reason
+        or "CONNECTION" in reason
+        or "TOOMANYREDIRECTS" in reason
+        or "CONTENTDECODINGERROR" in reason
+        or "BLOCKEDREQUEST" in reason
+    ):
+        return "access_failed"
+    return "processing_failed"
+
+
+def summarize_failure_reason(error):
+    """Collapse detailed fetch errors into stable report-friendly reason codes."""
+    reason = safe(error).upper()
+    if not reason:
+        return "UNKNOWN"
+    if reason.startswith("HTTP "):
+        return reason.replace(" ", "_", 1)
+    if reason.startswith("SOURCE_QUALITY_GATE:"):
+        return "SOURCE_QUALITY_GATE"
+    reason = reason.split(":", 1)[0]
+    reason = re.sub(r"\([^)]*\)$", "", reason)
+    return reason or "UNKNOWN"
+
+
 def split_urls(value):
     out = []
     for x in safe(value).split("|"):
@@ -179,11 +239,56 @@ def normalize_url(url):
 
 
 COUNTRY_TLDS = {
+    "Argentina": (".ar",),
+    "Australia": (".au",),
+    "Austria": (".at",),
+    "Bangladesh": (".bd",),
+    "Belgium": (".be",),
+    "Brazil": (".br",),
+    "Canada": (".ca",),
+    "Chile": (".cl",),
+    "China": (".cn",),
+    # .co is widely used by publishers outside Colombia.
+    "Czech Republic": (".cz",),
+    "Denmark": (".dk",),
+    "Egypt": (".eg",),
+    "Finland": (".fi",),
+    "France": (".fr",),
     "Germany": (".de",),
+    "Hong Kong": (".hk",),
+    "India": (".in",),
+    "Indonesia": (".id",),
+    "Iran": (".ir",),
+    "Iraq": (".iq",),
+    "Ireland": (".ie",),
+    "Israel": (".il",),
+    "Italy": (".it",),
     "Japan": (".jp",),
+    "Kazakhstan": (".kz",),
+    "Malaysia": (".my",),
+    "Mexico": (".mx",),
+    "Netherlands": (".nl",),
+    "Norway": (".no",),
+    "Pakistan": (".pk",),
+    "Peru": (".pe",),
+    "Philippines": (".ph",),
+    "Poland": (".pl",),
+    "Portugal": (".pt",),
+    "Romania": (".ro",),
+    "Russia": (".ru",),
+    "Saudi Arabia": (".sa",),
+    "Singapore": (".sg",),
+    "South Africa": (".za",),
     "South Korea": (".kr",),
+    "Spain": (".es",),
+    "Sweden": (".se",),
+    "Switzerland": (".ch",),
+    "Thailand": (".th",),
+    "Turkey": (".tr",),
+    "United Arab Emirates": (".ae",),
     "United Kingdom": (".uk",),
     "United States": (".us",),
+    "Vietnam": (".vn",),
 }
 DOMAIN_COUNTRY_OVERRIDES = {
     "theguardian.com": "United Kingdom",
@@ -196,9 +301,66 @@ def country_domain_mismatch(source):
     if expected:
         return source.country != expected
     for country, suffixes in COUNTRY_TLDS.items():
+        if not source.domain_gate_required and country not in {
+            "Germany", "Japan", "South Korea", "United Kingdom", "United States",
+        }:
+            continue
         if domain.endswith(suffixes):
             return source.country != country
     return False
+
+
+def fair_sources(sources, round_no, per_country=0):
+    """Rotate each country's publishers, then interleave countries.
+
+    Use a fixed stride rather than `round_no % n`: the latter repeatedly
+    polls overlapping windows and gives large countries a slow rotation.
+    """
+    grouped = defaultdict(list)
+    for source in sources:
+        grouped[source.country].append(source)
+    countries = sorted(grouped)
+    offset = (round_no - 1) % len(countries) if countries else 0
+    countries = countries[offset:] + countries[:offset]
+    queues = {}
+    for country in countries:
+        publishers = sorted(grouped[country], key=lambda s: s.source_id)
+        count = min(per_country, len(publishers)) if per_country else len(publishers)
+        start = ((round_no - 1) * count) % len(publishers)
+        queues[country] = deque(
+            publishers[(start + index) % len(publishers)] for index in range(count)
+        )
+    ordered = []
+    while any(queues.values()):
+        for country in countries:
+            if queues[country]:
+                ordered.append(queues[country].popleft())
+    return ordered
+
+
+def fair_articles(candidates, sources, round_no, per_country, per_source):
+    queues = defaultdict(deque)
+    for article, source in candidates:
+        queues[source.source_id].append((article, source))
+    ordered_sources = fair_sources(sources, round_no)
+    country_counts = Counter()
+    source_counts = Counter()
+    ordered = []
+    while True:
+        progressed = False
+        for source in ordered_sources:
+            if not queues[source.source_id]:
+                continue
+            if per_country and country_counts[source.country] >= per_country:
+                continue
+            if per_source and source_counts[source.source_id] >= per_source:
+                continue
+            ordered.append(queues[source.source_id].popleft())
+            source_counts[source.source_id] += 1
+            country_counts[source.country] += 1
+            progressed = True
+        if not progressed:
+            return ordered
 
 
 
@@ -346,7 +508,7 @@ class KafkaRawProducer:
 def get_session():
     s = getattr(THREAD_LOCAL, "session", None)
     if s is None:
-        s = requests.Session()
+        s = create_public_session()
         s.headers.update({
             "User-Agent": USER_AGENT,
             "Accept": "*/*",
@@ -476,6 +638,33 @@ CREATE TABLE IF NOT EXISTS source_daily_accepts (
 CREATE INDEX IF NOT EXISTS idx_source_daily_accepts
 ON source_daily_accepts(source_id, published_day);
 
+CREATE TABLE IF NOT EXISTS country_daily_accepts (
+    normalized_url TEXT PRIMARY KEY,
+    country TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    accepted_day TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_country_daily_accepts
+ON country_daily_accepts(country, accepted_day, source_id);
+
+CREATE TABLE IF NOT EXISTS pending_articles (
+    normalized_url TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    article_json TEXT NOT NULL,
+    queued_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pending_articles_source
+ON pending_articles(source_id, queued_at);
+
+CREATE TABLE IF NOT EXISTS source_poll_health (
+    source_id TEXT PRIMARY KEY,
+    consecutive_errors INTEGER NOT NULL DEFAULT 0,
+    total_errors INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    quarantined_until TEXT,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS quality_samples (
     normalized_url TEXT PRIMARY KEY,
     source_id TEXT NOT NULL,
@@ -546,6 +735,26 @@ ON articles(country, discovered_at);
 
 CREATE INDEX IF NOT EXISTS idx_poll_round
 ON poll_logs(round_no);
+
+CREATE TABLE IF NOT EXISTS round_metrics (
+    round_no INTEGER PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    ended_at TEXT NOT NULL,
+    queue_start_count INTEGER NOT NULL,
+    discovered_count INTEGER NOT NULL,
+    selected_count INTEGER NOT NULL,
+    processed_count INTEGER NOT NULL,
+    accepted_count INTEGER NOT NULL,
+    dropped_stale INTEGER NOT NULL,
+    dropped_overflow INTEGER NOT NULL,
+    queue_end_count INTEGER NOT NULL,
+    queue_oldest_age_minutes REAL NOT NULL,
+    elapsed_ms INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_round_metrics_session
+ON round_metrics(session_id, round_no);
 """
 
 
@@ -561,6 +770,13 @@ class DB:
         self._ensure_column("articles", "published_at_source", "TEXT")
         self._ensure_column("articles", "section", "TEXT")
         self._ensure_column("articles", "section_source", "TEXT")
+        # Preserve quota usage when resuming a v5 database.
+        self.conn.execute(
+            "INSERT OR IGNORE INTO country_daily_accepts "
+            "SELECT s.normalized_url, a.country, s.source_id, substr(s.accepted_at, 1, 10) "
+            "FROM source_daily_accepts s JOIN articles a USING(normalized_url)"
+        )
+        self._remove_non_article_quality_samples()
         self.conn.commit()
         self.lock = threading.Lock()
 
@@ -573,6 +789,26 @@ class DB:
             self.conn.execute(
                 f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
             )
+
+    def _remove_non_article_quality_samples(self):
+        # Older sitemap parsing sampled image files as failed articles. Remove
+        # only those derived quality samples, preserving article/error history
+        # and quota usage. Remaining real samples are evaluated on the next fetch.
+        invalid = [
+            (url, source_id) for url, source_id in self.conn.execute(
+                "SELECT normalized_url, source_id FROM quality_samples"
+            ).fetchall() if is_non_article_url(url)
+        ]
+        if invalid:
+            self.conn.executemany(
+                "DELETE FROM quality_samples WHERE normalized_url=? AND source_id=?",
+                invalid,
+            )
+            self.conn.executemany(
+                "DELETE FROM quality_source_status WHERE source_id=?",
+                [(source_id,) for source_id in {source_id for _, source_id in invalid}],
+            )
+            print(f"[Quality repair] Removed {len(invalid)} non-article samples")
 
     def close(self):
         with self.lock:
@@ -594,6 +830,124 @@ class DB:
                 (key, value),
             )
             self.conn.commit()
+
+    def _increment_meta_locked(self, key, amount):
+        if not amount:
+            return
+        self.conn.execute(
+            """
+            INSERT INTO run_meta(key, value) VALUES(?, ?)
+            ON CONFLICT(key) DO UPDATE SET
+                value=CAST(value AS INTEGER) + CAST(excluded.value AS INTEGER)
+            """,
+            (key, str(int(amount))),
+        )
+
+    def pollable_sources(self, sources, now=None):
+        """Return active sources while a failed source's circuit is open."""
+        now = now or utc_now()
+        with self.lock:
+            quarantine = dict(self.conn.execute(
+                "SELECT source_id, quarantined_until FROM source_poll_health "
+                "WHERE quarantined_until IS NOT NULL"
+            ).fetchall())
+        pollable = []
+        skipped = []
+        for source in sources:
+            until = parse_iso(quarantine.get(source.source_id))
+            if until and until > now:
+                skipped.append((source, until))
+            else:
+                pollable.append(source)
+        return pollable, skipped
+
+    def record_poll_health(
+        self,
+        source_id,
+        failed,
+        error,
+        quarantine_threshold=0,
+        quarantine_minutes=0,
+        now=None,
+    ):
+        """Update consecutive full-source failures and open the circuit if needed."""
+        now = now or utc_now()
+        now_text = iso(now)
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT consecutive_errors, total_errors, quarantined_until "
+                "FROM source_poll_health WHERE source_id=?",
+                (source_id,),
+            ).fetchone()
+            consecutive, total, prior_until = row or (0, 0, None)
+            if failed:
+                consecutive += 1
+                total += 1
+                quarantined_until = prior_until
+                if (
+                    quarantine_threshold
+                    and quarantine_minutes
+                    and consecutive >= quarantine_threshold
+                ):
+                    quarantined_until = iso(
+                        now + timedelta(minutes=quarantine_minutes)
+                    )
+            else:
+                consecutive = 0
+                quarantined_until = None
+                error = ""
+            self.conn.execute(
+                """
+                INSERT INTO source_poll_health(
+                    source_id, consecutive_errors, total_errors, last_error,
+                    quarantined_until, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(source_id) DO UPDATE SET
+                    consecutive_errors=excluded.consecutive_errors,
+                    total_errors=excluded.total_errors,
+                    last_error=excluded.last_error,
+                    quarantined_until=excluded.quarantined_until,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    source_id, consecutive, total, safe(error),
+                    quarantined_until, now_text,
+                ),
+            )
+            self.conn.commit()
+        return consecutive, parse_iso(quarantined_until)
+
+    def prune_inactive_source_state(self, sources):
+        """Drop only transient state for sources removed from the registry."""
+        source_ids = [(source.source_id,) for source in sources]
+        if not source_ids:
+            return {"pending": 0, "endpoints": 0, "health": 0}
+        with self.lock:
+            self.conn.execute(
+                "CREATE TEMP TABLE IF NOT EXISTS active_registry_sources "
+                "(source_id TEXT PRIMARY KEY)"
+            )
+            self.conn.execute("DELETE FROM active_registry_sources")
+            self.conn.executemany(
+                "INSERT INTO active_registry_sources(source_id) VALUES (?)",
+                source_ids,
+            )
+            removed = {}
+            for table in (
+                "pending_articles", "endpoint_baseline", "source_poll_health",
+            ):
+                removed[table] = self.conn.execute(
+                    f"DELETE FROM {table} WHERE NOT EXISTS ("
+                    "SELECT 1 FROM active_registry_sources a "
+                    f"WHERE a.source_id={table}.source_id)"
+                ).rowcount
+            self.conn.execute("DROP TABLE active_registry_sources")
+            self.conn.commit()
+        return {
+            "pending": max(removed["pending_articles"], 0),
+            "endpoints": max(removed["endpoint_baseline"], 0),
+            "health": max(removed["source_poll_health"], 0),
+        }
 
     def ensure_endpoint(self, endpoint_url, source_id, discovery_type):
         with self.lock:
@@ -724,6 +1078,8 @@ class DB:
         )
 
     def record_quality_sample(self, article, fetched, minimum_sample):
+        if is_non_article_url(article.url) or safe(fetched.get("error")).startswith("NON_ARTICLE_"):
+            return "REVIEW", ["NON_ARTICLE_CONTENT"]
         title = safe(fetched.get("title"))
         body = safe(fetched.get("body"))
         digest = title_hash(title) if title else None
@@ -831,6 +1187,129 @@ class DB:
             self.conn.commit()
             return status, reasons
 
+    def enqueue_article(self, article):
+        # Discovery and the durable fetch queue must commit together: a restart
+        # must not leave a seen URL that was never queued for extraction.
+        with self.lock:
+            now = iso(utc_now())
+            cur = self.conn.execute(
+                "INSERT OR IGNORE INTO seen_articles "
+                "(normalized_url, source_id, country, original_url, published_at, first_seen_at, seen_reason) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (article.normalized_url, article.source_id, article.country,
+                 article.url, article.published_at, now, "NEW_DISCOVERY"),
+            )
+            if cur.rowcount:
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO pending_articles VALUES (?, ?, ?, ?)",
+                    (article.normalized_url, article.source_id,
+                     json.dumps(asdict(article), ensure_ascii=False), now),
+                )
+            self.conn.commit()
+            return bool(cur.rowcount)
+
+    def pending_snapshot(self, now=None):
+        """Return queue size and age without mutating pending work."""
+        now = now or utc_now()
+        with self.lock:
+            count, oldest = self.conn.execute(
+                "SELECT COUNT(*), MIN(queued_at) FROM pending_articles"
+            ).fetchone()
+        oldest_dt = parse_iso(oldest)
+        oldest_age_minutes = (
+            max((now - oldest_dt).total_seconds() / 60, 0)
+            if oldest_dt else 0
+        )
+        return {
+            "count": int(count or 0),
+            "oldest_at": oldest or "",
+            "oldest_age_minutes": round(oldest_age_minutes, 1),
+        }
+
+    def prune_pending_queue(
+        self,
+        sources,
+        max_age_minutes=1440,
+        max_pending_per_source=0,
+        now=None,
+    ):
+        """Apply queue retention limits and report the exact cleanup result."""
+        now = now or utc_now()
+        before = self.pending_snapshot(now)
+        with self.lock:
+            # Use SQLite datetime conversion instead of lexical comparison so
+            # old databases with mixed timezone offsets are pruned correctly.
+            stale = self.conn.execute(
+                "DELETE FROM pending_articles "
+                "WHERE datetime(queued_at) < datetime(?)",
+                (iso(now - timedelta(minutes=max_age_minutes)),),
+            ).rowcount if max_age_minutes else 0
+            overflow = 0
+            for source in sources:
+                if max_pending_per_source:
+                    overflow += self.conn.execute(
+                        """
+                        DELETE FROM pending_articles
+                        WHERE source_id=? AND normalized_url NOT IN (
+                            SELECT normalized_url FROM pending_articles
+                            WHERE source_id=?
+                            ORDER BY queued_at DESC, normalized_url DESC
+                            LIMIT ?
+                        )
+                        """,
+                        (
+                            source.source_id,
+                            source.source_id,
+                            max_pending_per_source,
+                        ),
+                    ).rowcount
+            self._increment_meta_locked("pending_dropped_stale", stale)
+            self._increment_meta_locked("pending_dropped_overflow", overflow)
+            self.conn.commit()
+        after = self.pending_snapshot(now)
+        self.last_pending_pruned = {
+            "stale": max(stale, 0),
+            "overflow": max(overflow, 0),
+        }
+        return {
+            "before_count": before["count"],
+            "after_count": after["count"],
+            "stale": max(stale, 0),
+            "overflow": max(overflow, 0),
+            "oldest_age_minutes": after["oldest_age_minutes"],
+        }
+
+    def pending_for_sources(
+        self,
+        sources,
+        per_source,
+        max_age_minutes=1440,
+        max_pending_per_source=0,
+    ):
+        self.prune_pending_queue(
+            sources,
+            max_age_minutes,
+            max_pending_per_source,
+        )
+        candidates = []
+        with self.lock:
+            for source in sources:
+                rows = self.conn.execute(
+                    "SELECT article_json FROM pending_articles WHERE source_id=? "
+                    "ORDER BY queued_at DESC, normalized_url DESC LIMIT ?",
+                    (source.source_id, per_source if per_source else -1),
+                ).fetchall()
+                candidates.extend((Article(**json.loads(row[0])), source) for row in rows)
+        return candidates
+
+    def complete_pending(self, article):
+        with self.lock:
+            self.conn.execute(
+                "DELETE FROM pending_articles WHERE normalized_url=?",
+                (article.normalized_url,),
+            )
+            self.conn.commit()
+
     def reserve_delivery(
         self,
         article,
@@ -838,11 +1317,14 @@ class DB:
         body,
         discovered_at,
         daily_limit,
+        country_daily_limit=0,
+        country_source_daily_limit=0,
     ):
         digest = title_hash(title)
         body_digest = body_prefix_hash(body)
         published = parse_iso(article.published_at) or parse_iso(discovered_at) or utc_now()
         published_day = published.date().isoformat()
+        accepted_day = (parse_iso(discovered_at) or utc_now()).date().isoformat()
         with self.lock:
             if self.conn.execute(
                 "SELECT 1 FROM accepted_title_hashes WHERE title_hash=?",
@@ -863,6 +1345,16 @@ class DB:
             ).fetchone()[0]
             if accepted >= daily_limit:
                 return False, f"SOURCE_DAILY_CAP_{daily_limit}"
+
+            country_accepted, source_accepted = self.conn.execute(
+                "SELECT COUNT(*), COALESCE(SUM(source_id=?), 0) "
+                "FROM country_daily_accepts WHERE country=? AND accepted_day=?",
+                (article.source_id, article.country, accepted_day),
+            ).fetchone()
+            if country_daily_limit and country_accepted >= country_daily_limit:
+                return False, f"COUNTRY_DAILY_CAP_{country_daily_limit}"
+            if country_source_daily_limit and source_accepted >= country_source_daily_limit:
+                return False, f"COUNTRY_SOURCE_DAILY_CAP_{country_source_daily_limit}"
 
             accepted_at = iso(utc_now())
             try:
@@ -899,6 +1391,10 @@ class DB:
                         published_day,
                         accepted_at,
                     ),
+                )
+                self.conn.execute(
+                    "INSERT INTO country_daily_accepts VALUES (?, ?, ?, ?)",
+                    (article.normalized_url, article.country, article.source_id, accepted_day),
                 )
                 self.conn.commit()
                 return True, ""
@@ -952,6 +1448,30 @@ class DB:
                     row["new_article_count"], row["rss_status"],
                     row["sitemap_status"], row["latest_status"],
                     row["elapsed_ms"], row["error"],
+                ),
+            )
+            self.conn.commit()
+
+    def save_round_metrics(self, row):
+        with self.lock:
+            self.conn.execute(
+                """
+                INSERT OR REPLACE INTO round_metrics(
+                    round_no, session_id, started_at, ended_at,
+                    queue_start_count, discovered_count, selected_count,
+                    processed_count, accepted_count, dropped_stale,
+                    dropped_overflow, queue_end_count,
+                    queue_oldest_age_minutes, elapsed_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    row["round_no"], row["session_id"], row["started_at"],
+                    row["ended_at"], row["queue_start_count"],
+                    row["discovered_count"], row["selected_count"],
+                    row["processed_count"], row["accepted_count"],
+                    row["dropped_stale"], row["dropped_overflow"],
+                    row["queue_end_count"], row["queue_oldest_age_minutes"],
+                    row["elapsed_ms"],
                 ),
             )
             self.conn.commit()
@@ -1041,6 +1561,7 @@ def load_sources(path, include_review):
                 safe(r.get("timezone")) or timezone_for_country(country)
             ),
             coverage_focus=safe(r.get("coverage_focus")).upper(),
+            domain_gate_required=safe(r.get("domain_gate_required")).lower() == "true",
         )
         if country_domain_mismatch(source):
             print(
@@ -1107,7 +1628,7 @@ def parse_feed_endpoint(source, endpoint, db, args):
     item_limit = source.max_items_per_poll or args.max_feed_entries
     for e in feed.entries[:item_limit]:
         link = safe(e.get("link"))
-        if not link:
+        if not link or is_non_article_url(link):
             continue
 
         published = None
@@ -1177,6 +1698,14 @@ def local_tag(tag):
 
 
 def extract_sitemap_records(data):
+    # Some publishers put whitespace before the XML declaration. Trim only
+    # the leading padding/BOM; keep strict XML parsing for the actual document.
+    if isinstance(data, bytes):
+        data = data.lstrip(b" \t\r\n")
+        if data.startswith(b"\xef\xbb\xbf"):
+            data = data[3:].lstrip(b" \t\r\n")
+    else:
+        data = data.lstrip("\ufeff \t\r\n")
     root = ET.fromstring(data)
     name = local_tag(root.tag)
     out = []
@@ -1185,15 +1714,18 @@ def extract_sitemap_records(data):
         for node in root:
             if local_tag(node.tag) != "url":
                 continue
-            loc = None
-            date_value = None
-            for ch in node.iter():
-                n = local_tag(ch.tag)
-                if n == "loc" and loc is None:
-                    loc = safe(ch.text)
-                elif n in {"publication_date", "lastmod"} and not date_value:
-                    date_value = safe(ch.text)
-            if loc:
+            namespace = node.tag.rsplit("}", 1)[0] + "}" if node.tag.startswith("{") else ""
+            # The article URL is a direct sitemap <loc>, never image:loc or
+            # video metadata, even when the extension appears first.
+            loc_node = node.find(f"{namespace}loc")
+            loc = safe(loc_node.text) if loc_node is not None else ""
+            publication_date = next((
+                safe(ch.text) for ch in node.iter()
+                if local_tag(ch.tag) == "publication_date" and safe(ch.text)
+            ), "")
+            lastmod = node.find(f"{namespace}lastmod")
+            date_value = publication_date or (safe(lastmod.text) if lastmod is not None else None)
+            if loc and not is_non_article_url(loc):
                 out.append(("url", loc, date_value))
         return out
 
@@ -1213,7 +1745,7 @@ def extract_sitemap_records(data):
                 out.append(("index", loc, lastmod))
         return out
 
-    return out
+    raise ValueError(f"UNSUPPORTED_SITEMAP_ROOT: {name}")
 
 
 def parse_sitemap_endpoint(source, endpoint, db, args):
@@ -1318,7 +1850,7 @@ def robots_allowed(url, timeout):
 
 
 def looks_like_article(url, source):
-    if not url.startswith(("http://", "https://")):
+    if not url.startswith(("http://", "https://")) or is_non_article_url(url):
         return False
 
     if source.article_url_regex:
@@ -1402,6 +1934,7 @@ def discover_source(source, db, args):
     rss_status = []
     sitemap_status = []
     latest_status = []
+    successful_endpoints = 0
 
     for endpoint in source.rss_urls:
         x, status, err = parse_feed_endpoint(source, endpoint, db, args)
@@ -1409,6 +1942,8 @@ def discover_source(source, db, args):
         rss_status.append(str(status))
         if err:
             errors.append(f"RSS:{err}")
+        else:
+            successful_endpoints += 1
 
     for endpoint in source.sitemap_urls:
         x, status, err = parse_sitemap_endpoint(source, endpoint, db, args)
@@ -1416,6 +1951,8 @@ def discover_source(source, db, args):
         sitemap_status.append(str(status))
         if err:
             errors.append(f"SITEMAP:{err}")
+        else:
+            successful_endpoints += 1
 
     for endpoint in source.latest_page_urls:
         x, status, err = parse_latest_endpoint(source, endpoint, db, args)
@@ -1423,6 +1960,8 @@ def discover_source(source, db, args):
         latest_status.append(str(status))
         if err:
             errors.append(f"LATEST:{err}")
+        else:
+            successful_endpoints += 1
 
     # dedupe only identical endpoint+normalized_url records first
     merged = {}
@@ -1437,6 +1976,7 @@ def discover_source(source, db, args):
         "rss_status": ",".join(rss_status),
         "sitemap_status": ",".join(sitemap_status),
         "latest_status": ",".join(latest_status),
+        "successful_endpoints": successful_endpoints,
         "error": " | ".join(errors[:8]),
         "elapsed_ms": int((time.perf_counter() - started) * 1000),
     }
@@ -1444,6 +1984,24 @@ def discover_source(source, db, args):
 
 def fetch_article(article, source, args):
     started = time.perf_counter()
+    if is_non_article_url(article.url):
+        return {
+            "success": False, "http_status": None, "title": "", "body": "",
+            "body_length": 0, "elapsed_ms": 0, "error": "NON_ARTICLE_URL",
+        }
+    def publisher_url_allowed(url):
+        host = (urlsplit(url).hostname or "").lower().removeprefix("www.")
+        return host == source.domain or host.endswith("." + source.domain)
+
+    def domain_error(status=None):
+        return {
+            "success": False, "http_status": status, "title": "", "body": "",
+            "body_length": 0, "elapsed_ms": int((time.perf_counter() - started) * 1000),
+            "error": "ARTICLE_PUBLISHER_DOMAIN_MISMATCH",
+        }
+
+    if source.domain_gate_required and not publisher_url_allowed(article.url):
+        return domain_error()
     allowed, _ = robots_allowed(article.url, args.timeout_seconds)
     if not allowed:
         return {
@@ -1474,6 +2032,21 @@ def fetch_article(article, source, args):
                 "body_length": 0,
                 "elapsed_ms": int((time.perf_counter() - started) * 1000),
                 "error": f"HTTP {r.status_code}",
+            }
+
+        if source.domain_gate_required and not publisher_url_allowed(r.url):
+            return domain_error(r.status_code)
+
+        content_type = safe(r.headers.get("Content-Type")).split(";", 1)[0].strip().lower()
+        if (
+            is_non_article_url(r.url)
+            or content_type.startswith(("image/", "audio/", "video/"))
+            or content_type == "application/pdf"
+        ):
+            return {
+                "success": False, "http_status": r.status_code, "title": "", "body": "",
+                "body_length": 0, "elapsed_ms": int((time.perf_counter() - started) * 1000),
+                "error": "NON_ARTICLE_CONTENT",
             }
 
         soup = BeautifulSoup(r.text, "html.parser")
@@ -1719,14 +2292,35 @@ def final_baseline_refresh(sources, db, args):
 
 
 
-def poll_round(round_no, sources, db, args, experiment_start, kafka_producer):
+def poll_round(
+    round_no,
+    sources,
+    db,
+    args,
+    experiment_start,
+    kafka_producer,
+    session_id=None,
+):
     print(f"\n[Round {round_no}] {utc_now().astimezone().strftime('%Y-%m-%d %H:%M:%S %Z')}")
     round_started = time.monotonic()
+    round_started_at = utc_now()
+    queue_start = db.pending_snapshot(round_started_at)
+    configured_sources = list(sources)
+    pollable_sources, quarantined = db.pollable_sources(configured_sources)
+    if quarantined:
+        print(
+            f"  circuit breaker skipped   : {len(quarantined):,} source(s)"
+        )
+    poll_sources = fair_sources(
+        pollable_sources,
+        round_no,
+        getattr(args, "max_sources_per_country_per_round", 0),
+    )
 
     with ThreadPoolExecutor(max_workers=args.poll_workers) as pool:
         futures = {
             pool.submit(discover_source, s, db, args): s
-            for s in sources
+            for s in poll_sources
         }
         results = []
         for future in as_completed(futures):
@@ -1740,9 +2334,32 @@ def poll_round(round_no, sources, db, args, experiment_start, kafka_producer):
                     "rss_status": "",
                     "sitemap_status": "",
                     "latest_status": "",
+                    "successful_endpoints": 0,
                     "error": f"{type(e).__name__}: {e}",
                     "elapsed_ms": 0,
                 })
+
+    for result in results:
+        full_source_failure = (
+            bool(safe(result["error"]))
+            and result.get("successful_endpoints", 0) == 0
+        )
+        consecutive, quarantined_until = db.record_poll_health(
+            result["source"].source_id,
+            full_source_failure,
+            result["error"],
+            getattr(args, "poll_error_quarantine_threshold", 0),
+            getattr(args, "poll_error_quarantine_minutes", 0),
+        )
+        if (
+            full_source_failure
+            and quarantined_until
+            and consecutive == getattr(args, "poll_error_quarantine_threshold", 0)
+        ):
+            print(
+                f"  [QUARANTINE] {result['source'].country} / "
+                f"{result['source'].source_name} until {iso(quarantined_until)}"
+            )
 
     new_articles = []
     source_new = Counter()
@@ -1772,9 +2389,29 @@ def poll_round(round_no, sources, db, args, experiment_start, kafka_producer):
                         old_filtered += 1
                     continue
 
-                if db.mark_seen(a, "NEW_DISCOVERY"):
+                if db.enqueue_article(a):
                     new_articles.append((a, source))
                     source_new[source.source_id] += 1
+
+    discovered_count = len(new_articles)
+    new_articles = fair_articles(
+        db.pending_for_sources(
+            configured_sources,
+            getattr(args, "max_fetches_per_source_per_round", 0),
+            getattr(args, "pending_max_age_minutes", 1440),
+            getattr(args, "max_pending_per_source", 0),
+        ),
+        configured_sources, round_no,
+        getattr(args, "max_fetches_per_country_per_round", 0),
+        getattr(args, "max_fetches_per_source_per_round", 0),
+    )
+    pruned = getattr(db, "last_pending_pruned", {})
+    if pruned.get("stale") or pruned.get("overflow"):
+        print(
+            "  pending queue pruned       : "
+            f"stale={pruned.get('stale', 0):,}, "
+            f"overflow={pruned.get('overflow', 0):,}"
+        )
 
     discovered_at = iso(utc_now())
 
@@ -1786,9 +2423,17 @@ def poll_round(round_no, sources, db, args, experiment_start, kafka_producer):
                 pool.submit(fetch_article, article, source, args): (article, source)
                 for article, source in new_articles
             }
-            for future in as_completed(futures):
-                article, source = futures[future]
-                fetched = future.result()
+            # Accept in country/publisher order even when faster publishers
+            # finish first, so duplicates and caps do not favor response speed.
+            for future, (article, source) in futures.items():
+                try:
+                    fetched = future.result()
+                except Exception as exc:
+                    fetched = {
+                        "success": False, "http_status": None, "title": "",
+                        "body": "", "body_length": 0, "elapsed_ms": 0,
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
 
                 if fetched.get("title"):
                     fetched["title"] = db.clean_title_suffix(
@@ -1843,6 +2488,8 @@ def poll_round(round_no, sources, db, args, experiment_start, kafka_producer):
                         fetched["body"],
                         discovered_at,
                         source.max_articles_per_day,
+                        getattr(args, "max_articles_per_country_per_day", 0),
+                        getattr(args, "max_articles_per_source_country_day", 0),
                     )
                     if not allowed:
                         fetched["success"] = False
@@ -1850,10 +2497,17 @@ def poll_round(round_no, sources, db, args, experiment_start, kafka_producer):
 
                 fetch_results[article.normalized_url] = fetched
                 db.save_article(article, fetched, discovered_at)
-                raw_event = build_raw_article_event(article, fetched, discovered_at)
                 # Only articles with a valid extracted body enter news.raw.v1.
-                if fetched["success"] and kafka_producer.publish(raw_event):
+                if (
+                    fetched["success"]
+                    and not getattr(args, "observe_only", False)
+                    and kafka_producer is not None
+                    and kafka_producer.publish(
+                        build_raw_article_event(article, fetched, discovered_at)
+                    )
+                ):
                     kafka_queued += 1
+                db.complete_pending(article)
 
     if kafka_queued:
         stats = kafka_producer.flush_round()
@@ -1869,7 +2523,7 @@ def poll_round(round_no, sources, db, args, experiment_start, kafka_producer):
 
     source_result_map = {r["source"].source_id: r for r in results}
 
-    for source in sources:
+    for source in poll_sources:
         r = source_result_map.get(source.source_id, {
             "articles": [], "rss_status": "", "sitemap_status": "",
             "latest_status": "", "elapsed_ms": 0, "error": "",
@@ -1892,11 +2546,35 @@ def poll_round(round_no, sources, db, args, experiment_start, kafka_producer):
         })
 
     success = sum(1 for x in fetch_results.values() if x["success"])
+    round_ended_at = utc_now()
+    elapsed_seconds = time.monotonic() - round_started
+    queue_end = db.pending_snapshot(round_ended_at)
+    db.save_round_metrics({
+        "round_no": round_no,
+        "session_id": session_id or iso(experiment_start),
+        "started_at": iso(round_started_at),
+        "ended_at": iso(round_ended_at),
+        "queue_start_count": queue_start["count"],
+        "discovered_count": discovered_count,
+        "selected_count": len(new_articles),
+        "processed_count": len(fetch_results),
+        "accepted_count": success,
+        "dropped_stale": int(pruned.get("stale", 0)),
+        "dropped_overflow": int(pruned.get("overflow", 0)),
+        "queue_end_count": queue_end["count"],
+        "queue_oldest_age_minutes": queue_end["oldest_age_minutes"],
+        "elapsed_ms": int(elapsed_seconds * 1000),
+    })
     print(
         f"  new={len(new_articles):,} | body_success={success:,} | "
         f"body_fail={len(new_articles)-success:,} | "
         f"late_baseline_seeded={baseline_seeded:,} | "
         f"old_published_filtered={old_filtered:,}"
+    )
+    print(
+        "  pending queue             : "
+        f"{queue_start['count']:,} -> {queue_end['count']:,} "
+        f"(oldest={queue_end['oldest_age_minutes']:.1f}m)"
     )
 
     by_country = Counter(a.country for a, _ in new_articles)
@@ -1906,13 +2584,13 @@ def poll_round(round_no, sources, db, args, experiment_start, kafka_producer):
         ))
 
     if source_new:
-        source_names = {s.source_id: s for s in sources}
+        source_names = {s.source_id: s for s in configured_sources}
         print("  top sources: " + ", ".join(
             f"{source_names[sid].source_name}={cnt}"
             for sid, cnt in source_new.most_common(8)
         ))
 
-    return len(new_articles), time.monotonic() - round_started
+    return discovered_count, elapsed_seconds
 
 
 def export_csvs(db, output_dir):
@@ -1986,6 +2664,9 @@ def build_summary(
     ended_at,
     required_window_hours=24.0,
     active_runtime_seconds=None,
+    session_id=None,
+    pending_max_age_minutes=None,
+    startup_queue_metrics=None,
 ):
     wall_clock_seconds = max((ended_at - started_at).total_seconds(), 1)
     elapsed_seconds = max(
@@ -2009,6 +2690,15 @@ def build_summary(
         rounds = db.conn.execute(
             "SELECT round_no, SUM(new_article_count) FROM poll_logs GROUP BY round_no ORDER BY round_no"
         ).fetchall()
+        round_queue_metrics = {
+            row[0]: row[1:] for row in db.conn.execute(
+                "SELECT round_no, session_id, queue_start_count, "
+                "discovered_count, selected_count, processed_count, "
+                "accepted_count, dropped_stale, dropped_overflow, "
+                "queue_end_count, queue_oldest_age_minutes, elapsed_ms "
+                "FROM round_metrics ORDER BY round_no"
+            ).fetchall()
+        }
         errors = db.conn.execute(
             "SELECT COUNT(*) FROM poll_logs WHERE error IS NOT NULL AND TRIM(error)<>''"
         ).fetchone()[0]
@@ -2016,10 +2706,252 @@ def build_summary(
         body = db.conn.execute(
             "SELECT COALESCE(AVG(body_length),0), COALESCE(AVG(fetch_elapsed_ms),0) FROM articles"
         ).fetchone()
+        successful_countries = dict(db.conn.execute(
+            "SELECT country, COUNT(*) FROM articles WHERE fetch_success=1 GROUP BY country"
+        ).fetchall())
+        successful_sources = db.conn.execute(
+            "SELECT country, source_id, COUNT(*) FROM articles WHERE fetch_success=1 "
+            "GROUP BY country, source_id"
+        ).fetchall()
+        pending_count = db.conn.execute("SELECT COUNT(*) FROM pending_articles").fetchone()[0]
+        pending_oldest = db.conn.execute(
+            "SELECT MIN(queued_at) FROM pending_articles"
+        ).fetchone()[0]
+        outcome_rows = db.conn.execute(
+            "SELECT fetch_success, fetch_error, COUNT(*) FROM articles "
+            "GROUP BY fetch_success, fetch_error"
+        ).fetchall()
+        source_outcome_rows = db.conn.execute(
+            "SELECT source_id, fetch_success, fetch_error, COUNT(*) "
+            "FROM articles GROUP BY source_id, fetch_success, fetch_error"
+        ).fetchall()
+        poll_health = {
+            row[0]: row[1:] for row in db.conn.execute(
+                "SELECT source_id, consecutive_errors, total_errors, "
+                "last_error, quarantined_until FROM source_poll_health"
+            ).fetchall()
+        }
+        pending_drop_meta = dict(db.conn.execute(
+            "SELECT key, value FROM run_meta WHERE key IN "
+            "('pending_dropped_stale', 'pending_dropped_overflow')"
+        ).fetchall())
+        source_articles = {
+            row[0]: row[1:] for row in db.conn.execute(
+                "SELECT source_id, COUNT(*), SUM(fetch_success), AVG(fetch_elapsed_ms) "
+                "FROM articles GROUP BY source_id"
+            ).fetchall()
+        }
+        source_polls = {
+            row[0]: row[1:] for row in db.conn.execute(
+                "SELECT source_id, COUNT(*), "
+                "SUM(CASE WHEN TRIM(COALESCE(error,''))<>'' THEN 1 ELSE 0 END), "
+                "MAX(polled_at) FROM poll_logs GROUP BY source_id"
+            ).fetchall()
+        }
+        last_errors = dict(db.conn.execute(
+            "SELECT p.source_id, p.error FROM poll_logs p "
+            "JOIN (SELECT source_id, MAX(id) AS last_id FROM poll_logs GROUP BY source_id) x "
+            "ON p.id=x.last_id"
+        ).fetchall())
+        session_queue_totals = (
+            db.conn.execute(
+                "SELECT COALESCE(SUM(discovered_count),0), "
+                "COALESCE(SUM(processed_count),0), "
+                "COALESCE(SUM(dropped_stale),0), "
+                "COALESCE(SUM(dropped_overflow),0) "
+                "FROM round_metrics WHERE session_id=?",
+                (session_id,),
+            ).fetchone()
+            if session_id else (0, 0, 0, 0)
+        )
 
     ready_ep, total_ep = count_ready_endpoints(db)
+    article_outcomes = Counter()
+    for fetch_success, error, count in outcome_rows:
+        article_outcomes[classify_article_outcome(bool(fetch_success), error)] += count
+    for name in (
+        "accepted", "filtered", "quality_rejected",
+        "access_failed", "processing_failed",
+    ):
+        article_outcomes.setdefault(name, 0)
+    source_outcomes = defaultdict(Counter)
+    source_failure_reasons = defaultdict(Counter)
+    for source_id, fetch_success, error, count in source_outcome_rows:
+        outcome = classify_article_outcome(bool(fetch_success), error)
+        source_outcomes[source_id][outcome] += count
+        if not fetch_success:
+            source_failure_reasons[source_id][
+                summarize_failure_reason(error)
+            ] += count
+    eligible_attempts = total - article_outcomes["filtered"]
+    pending_oldest_dt = parse_iso(pending_oldest)
+    pending_oldest_age_minutes = (
+        max((ended_at - pending_oldest_dt).total_seconds() / 60, 0)
+        if pending_oldest_dt else 0
+    )
+    quarantined_source_ids = {
+        source_id
+        for source_id, (_consecutive, _total_errors, _error, until) in poll_health.items()
+        if parse_iso(until) and parse_iso(until) > ended_at
+    }
+    source_coverage = []
+    for configured in sources:
+        attempted, accepted, latency = source_articles.get(configured.source_id, (0, 0, 0))
+        outcome_counts = source_outcomes[configured.source_id]
+        failure_reasons = source_failure_reasons[configured.source_id]
+        poll_count, poll_errors, last_polled = source_polls.get(configured.source_id, (0, 0, None))
+        consecutive_errors, total_poll_errors, health_error, quarantined_until = (
+            poll_health.get(configured.source_id, (0, 0, "", None))
+        )
+        source_coverage.append({
+            "country": configured.country,
+            "source_id": configured.source_id,
+            "source_name": configured.source_name,
+            "polls": poll_count,
+            "poll_errors": poll_errors,
+            "last_polled_at": last_polled,
+            "last_poll_error": last_errors.get(configured.source_id) or "",
+            "consecutive_poll_errors": consecutive_errors,
+            "total_full_source_failures": total_poll_errors,
+            "quarantined_until": quarantined_until or "",
+            "attempted_articles": attempted,
+            "successful_articles": accepted,
+            "article_success_rate_pct": round(accepted / attempted * 100, 2) if attempted else None,
+            "filtered_articles": outcome_counts["filtered"],
+            "quality_rejected_articles": outcome_counts["quality_rejected"],
+            "access_failed_articles": outcome_counts["access_failed"],
+            "processing_failed_articles": outcome_counts["processing_failed"],
+            "dominant_failure_reason": (
+                failure_reasons.most_common(1)[0][0]
+                if failure_reasons else ""
+            ),
+            "average_fetch_latency_ms": round(latency or 0, 1) if attempted else None,
+            "status": (
+                "NOT_POLLED" if not poll_count else
+                "QUARANTINED" if configured.source_id in quarantined_source_ids else
+                "POLL_ERROR" if last_errors.get(configured.source_id) else
+                "ARTICLES_ACCEPTED" if accepted else
+                "ARTICLE_CHECK_FAILED" if attempted else
+                "NO_NEW_ARTICLES"
+            ),
+        })
+
+    country_coverage = [
+        {
+            "country": name,
+            "configured_sources": sum(s.country == name for s in sources),
+            "successful_articles": successful_countries.get(name, 0),
+            "contributing_sources": sum(
+                c == name for c, _, _ in successful_sources
+            ),
+            "largest_source_share": round(
+                max(
+                    (n for c, _, n in successful_sources if c == name),
+                    default=0,
+                ) / successful_countries.get(name, 1),
+                4,
+            ),
+            "polled_sources": sum(
+                row["polls"] > 0
+                for row in source_coverage if row["country"] == name
+            ),
+            "polls": sum(
+                row["polls"]
+                for row in source_coverage if row["country"] == name
+            ),
+            "poll_errors": sum(
+                row["poll_errors"]
+                for row in source_coverage if row["country"] == name
+            ),
+            "attempted_articles": sum(
+                row["attempted_articles"]
+                for row in source_coverage if row["country"] == name
+            ),
+            "article_success_rate_pct": (
+                round(
+                    successful_countries.get(name, 0) / sum(
+                        row["attempted_articles"]
+                        for row in source_coverage
+                        if row["country"] == name
+                    ) * 100,
+                    2,
+                )
+                if any(
+                    row["attempted_articles"]
+                    for row in source_coverage if row["country"] == name
+                ) else None
+            ),
+        }
+        for name in sorted({s.country for s in sources})
+    ]
+    country_coverage_alerts = []
+    for row in country_coverage:
+        reasons = []
+        if not row["successful_articles"]:
+            reasons.append("NO_ACCEPTED_ARTICLES")
+        if row["contributing_sources"] < 3:
+            reasons.append("FEWER_THAN_3_CONTRIBUTING_SOURCES")
+        if row["largest_source_share"] > 0.50:
+            reasons.append("LARGEST_SOURCE_SHARE_GT_50_PERCENT")
+        if reasons:
+            country_coverage_alerts.append({
+                "country": row["country"],
+                "reasons": reasons,
+            })
+
+    by_round = []
+    for round_no, new_article_count in rounds:
+        metrics = round_queue_metrics.get(round_no)
+        row = {
+            "round_no": round_no,
+            "new_articles": new_article_count or 0,
+        }
+        if metrics:
+            (
+                metric_session_id,
+                queue_start_count,
+                discovered_count,
+                selected_count,
+                processed_count,
+                accepted_count,
+                dropped_stale,
+                dropped_overflow,
+                queue_end_count,
+                queue_oldest_age_minutes,
+                elapsed_ms,
+            ) = metrics
+            row.update({
+                "session_id": metric_session_id,
+                "queue_start_count": queue_start_count,
+                "discovered_count": discovered_count,
+                "selected_count": selected_count,
+                "processed_count": processed_count,
+                "accepted_count": accepted_count,
+                "dropped_stale": dropped_stale,
+                "dropped_overflow": dropped_overflow,
+                "queue_end_count": queue_end_count,
+                "queue_oldest_age_minutes": round(
+                    queue_oldest_age_minutes or 0, 1
+                ),
+                "elapsed_ms": elapsed_ms,
+            })
+        by_round.append(row)
+
+    startup_queue_metrics = startup_queue_metrics or {
+        "before_count": pending_count,
+        "after_count": pending_count,
+        "stale": 0,
+        "overflow": 0,
+        "oldest_age_minutes": pending_oldest_age_minutes,
+    }
+    session_discovered, session_processed, session_stale, session_overflow = (
+        session_queue_totals
+    )
+    session_stale += int(startup_queue_metrics.get("stale", 0))
+    session_overflow += int(startup_queue_metrics.get("overflow", 0))
 
     return {
+        "collection_mode": db.get_meta("collection_mode") or "publish",
         "experiment_started_at_utc": iso(started_at),
         "experiment_ended_at_utc": iso(ended_at),
         "elapsed_hours": elapsed_hours,
@@ -2031,11 +2963,35 @@ def build_summary(
             3,
         ),
         "sources": len(sources),
+        "countries": len({s.country for s in sources}),
+        "pending_fetches": pending_count,
+        "pending_oldest_age_minutes": round(pending_oldest_age_minutes, 1),
+        "pending_dropped_stale": int(pending_drop_meta.get("pending_dropped_stale", 0)),
+        "pending_dropped_overflow": int(pending_drop_meta.get("pending_dropped_overflow", 0)),
+        "pending_dropped_stale_session": int(session_stale),
+        "pending_dropped_overflow_session": int(session_overflow),
+        "pending_discovered_session": int(session_discovered),
+        "pending_processed_session": int(session_processed),
+        "pending_max_age_minutes_configured": pending_max_age_minutes,
+        "pending_age_limit_exceeded": bool(
+            pending_max_age_minutes
+            and pending_oldest_age_minutes > pending_max_age_minutes
+        ),
+        "startup_queue_cleanup": startup_queue_metrics,
+        "quarantined_sources": len(quarantined_source_ids),
+        "source_coverage": source_coverage,
+        "country_coverage": country_coverage,
+        "country_coverage_alerts": country_coverage_alerts,
         "endpoints_ready": ready_ep,
         "endpoints_total": total_ep,
         "new_articles": total,
         "fetch_success": success,
         "fetch_success_rate_pct": round(success / total * 100, 2) if total else 0,
+        "article_outcomes": dict(article_outcomes),
+        "eligible_article_success_rate_pct": (
+            round(success / eligible_attempts * 100, 2)
+            if eligible_attempts else 0
+        ),
         "articles_per_hour": round(total / (elapsed_seconds / 3600), 2),
         "articles_per_minute": round(total / (elapsed_seconds / 60), 2),
         "peak_per_round": max((x[1] or 0 for x in rounds), default=0),
@@ -2044,8 +3000,27 @@ def build_summary(
         "average_fetch_latency_ms": round(body[1], 1),
         "by_country": [{"country": c, "articles": n} for c, n in country],
         "top_sources": [{"source_name": n, "country": c, "articles": k} for n, c, k in source],
-        "by_round": [{"round_no": r, "new_articles": n} for r, n in rounds],
+        "by_round": by_round,
     }
+
+
+def write_summary(summary_path, summary):
+    """Refresh readable reports alongside the full collection summary."""
+    import csv
+
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    for filename, key in (
+        ("country_status.csv", "country_coverage"),
+        ("source_status.csv", "source_coverage"),
+    ):
+        rows = summary[key]
+        if rows:
+            with (summary_path.parent / filename).open("w", encoding="utf-8-sig", newline="") as output:
+                writer = csv.DictWriter(output, fieldnames=list(rows[0]))
+                writer.writeheader()
+                writer.writerows(rows)
 
 
 def print_summary(s):
@@ -2053,23 +3028,61 @@ def print_summary(s):
     print("24H COLLECTION PoC v3 RESULT")
     print("=" * 100)
     print(f"Sources                    : {s['sources']:,}")
+    print(f"Collection mode            : {s['collection_mode']}")
     print(f"Endpoints ready            : {s['endpoints_ready']:,}/{s['endpoints_total']:,}")
     print(f"New articles               : {s['new_articles']:,}")
     print(f"Fetch success rate         : {s['fetch_success_rate_pct']:.2f}%")
+    print(
+        f"Eligible success rate      : "
+        f"{s['eligible_article_success_rate_pct']:.2f}%"
+    )
+    print(
+        "Article outcomes           : "
+        + ", ".join(f"{k}={v:,}" for k, v in s["article_outcomes"].items())
+    )
+    print(
+        f"Pending queue              : {s['pending_fetches']:,} "
+        f"(oldest={s['pending_oldest_age_minutes']:.1f}m, "
+        f"dropped stale={s['pending_dropped_stale']:,}, "
+        f"overflow={s['pending_dropped_overflow']:,})"
+    )
+    print(
+        "Pending this session       : "
+        f"discovered={s['pending_discovered_session']:,}, "
+        f"processed={s['pending_processed_session']:,}, "
+        f"stale={s['pending_dropped_stale_session']:,}, "
+        f"overflow={s['pending_dropped_overflow_session']:,}"
+    )
+    if s["pending_age_limit_exceeded"]:
+        print(
+            "Pending queue warning     : oldest item exceeds configured "
+            f"{s['pending_max_age_minutes_configured']} minute limit"
+        )
+    print(f"Quarantined sources        : {s['quarantined_sources']:,}")
     print(f"Articles / hour            : {s['articles_per_hour']:.2f}")
     print(f"Articles / minute          : {s['articles_per_minute']:.2f}")
     print(f"Peak per polling round     : {s['peak_per_round']:,}")
     print(f"Poll error rate            : {s['poll_error_rate_pct']:.2f}%")
     print(f"Required window complete   : {s['window_complete']}")
     print("\n[Country]")
-    for row in s["by_country"]:
-        print(f"  {row['country']:<20} {row['articles']:>8,}")
+    for row in s["country_coverage"]:
+        rate = row["article_success_rate_pct"]
+        print(
+            f"  {row['country']:<20} accepted={row['successful_articles']:>6,} "
+            f"sources={row['contributing_sources']}/{row['configured_sources']} "
+            f"article_success={'N/A' if rate is None else str(rate) + '%'} "
+            f"poll_errors={row['poll_errors']}/{row['polls']}"
+        )
 
 
 def parse_args():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--registry", default="output1_5/merged_pre24h_source_registry_v2.csv")
+    ap.add_argument("--registry")
     ap.add_argument("--output-dir", default="output2")
+    ap.add_argument(
+        "--observe-only", action="store_true",
+        help="Collect and report locally without Kafka; use an isolated observe subdirectory",
+    )
     ap.add_argument("--duration-hours", type=float, default=24.0)
     ap.add_argument("--duration-minutes", type=float)
     ap.add_argument(
@@ -2080,6 +3093,15 @@ def parse_args():
     ap.add_argument("--poll-seconds", type=int, default=300)
     ap.add_argument("--poll-workers", type=int, default=20)
     ap.add_argument("--fetch-workers", type=int, default=16)
+    ap.add_argument("--max-sources-per-country-per-round", type=int)
+    ap.add_argument("--max-fetches-per-country-per-round", type=int)
+    ap.add_argument("--max-fetches-per-source-per-round", type=int)
+    ap.add_argument("--max-articles-per-country-per-day", type=int)
+    ap.add_argument("--max-articles-per-source-country-day", type=int)
+    ap.add_argument("--pending-max-age-minutes", type=int)
+    ap.add_argument("--max-pending-per-source", type=int)
+    ap.add_argument("--poll-error-quarantine-threshold", type=int)
+    ap.add_argument("--poll-error-quarantine-minutes", type=int)
     ap.add_argument("--timeout-seconds", type=int, default=12)
     ap.add_argument("--max-feed-entries", type=int, default=200)
     ap.add_argument("--max-sitemap-urls", type=int, default=500)
@@ -2105,10 +3127,49 @@ def parse_args():
         help="Raw article Kafka topic",
     )
     args = ap.parse_args()
+    if args.registry is None:
+        args.registry = str(Path(__file__).with_name(
+            "registry_50country.csv" if args.observe_only else "registry.csv"
+        ))
     if args.required_window_hours <= 0:
         ap.error("--required-window-hours must be greater than zero")
     if args.title_suffix_min_occurrences <= 0:
         ap.error("--title-suffix-min-occurrences must be greater than zero")
+    observe_limits = {
+        "max_sources_per_country_per_round": 10,
+        "max_fetches_per_country_per_round": 10,
+        "max_fetches_per_source_per_round": 3,
+        "max_articles_per_country_per_day": 1000,
+        "max_articles_per_source_country_day": 150,
+    }
+    for name, observe_default in observe_limits.items():
+        if getattr(args, name) is None:
+            # Keep the existing five-country collector uncapped by new budgets.
+            setattr(args, name, observe_default if args.observe_only else 0)
+        if getattr(args, name) < 0:
+            ap.error(f"--{name.replace('_', '-')} must be zero or greater")
+    reliability_defaults = {
+        "pending_max_age_minutes": (120, 1440),
+        "max_pending_per_source": (100, 0),
+        "poll_error_quarantine_threshold": (6, 0),
+        "poll_error_quarantine_minutes": (360, 0),
+    }
+    for name, (observe_default, publish_default) in reliability_defaults.items():
+        if getattr(args, name) is None:
+            setattr(
+                args,
+                name,
+                observe_default if args.observe_only else publish_default,
+            )
+        if getattr(args, name) < 0:
+            ap.error(f"--{name.replace('_', '-')} must be zero or greater")
+    if bool(args.poll_error_quarantine_threshold) != bool(
+        args.poll_error_quarantine_minutes
+    ):
+        ap.error(
+            "--poll-error-quarantine-threshold and "
+            "--poll-error-quarantine-minutes must both be zero or positive"
+        )
     return args
 
 
@@ -2116,10 +3177,14 @@ def main():
     args = parse_args()
     registry = Path(args.registry)
     out = Path(args.output_dir)
+    if args.observe_only:
+        out = out / "observe"
     out.mkdir(parents=True, exist_ok=True)
 
-    health_path = Path(
-        os.getenv("COLLECTOR_HEALTH_FILE", str(out / "collector.heartbeat"))
+    health_path = (
+        out / "collector.heartbeat" if args.observe_only else Path(
+            os.getenv("COLLECTOR_HEALTH_FILE", str(out / "collector.heartbeat"))
+        )
     )
     health_path.parent.mkdir(parents=True, exist_ok=True)
     health_path.unlink(missing_ok=True)
@@ -2129,7 +3194,7 @@ def main():
     kafka_failed_path = out / "kafka_failed.jsonl"
 
     if args.reset:
-        for p in [db_path, summary_path, kafka_failed_path, out / "articles.csv", out / "poll_logs.csv", out / "endpoint_baseline.csv"]:
+        for p in [db_path, summary_path, kafka_failed_path, out / "articles.csv", out / "poll_logs.csv", out / "endpoint_baseline.csv", out / "country_status.csv", out / "source_status.csv"]:
             if p.exists():
                 p.unlink()
 
@@ -2148,21 +3213,54 @@ def main():
     print(f"Run mode        : {'FOREVER' if args.run_forever else 'BOUNDED'}")
     print(f"Warmup retries  : {args.warmup_retries}")
     print(f"Published guard : {args.published_tolerance_minutes} min")
-    print(f"Required window : {args.required_window_hours:g}h")
-    print(f"Kafka bootstrap : {args.kafka_bootstrap}")
-    print(f"Kafka topic     : {args.kafka_topic}")
-
-    kafka_producer = KafkaRawProducer(
-        args.kafka_bootstrap,
-        args.kafka_topic,
-        kafka_failed_path,
+    print(f"Pending max age : {args.pending_max_age_minutes} min")
+    print(f"Pending/source  : {args.max_pending_per_source or 'unlimited'}")
+    print(
+        "Poll quarantine : "
+        f"{args.poll_error_quarantine_threshold or 'disabled'} consecutive / "
+        f"{args.poll_error_quarantine_minutes or 0} min"
     )
-    print("Kafka connection: OK")
+    print(f"Required window : {args.required_window_hours:g}h")
+    kafka_producer = None
+    if args.observe_only:
+        print("Delivery        : OBSERVE ONLY (Kafka disabled)")
+    else:
+        print(f"Kafka bootstrap : {args.kafka_bootstrap}")
+        print(f"Kafka topic     : {args.kafka_topic}")
+        kafka_producer = KafkaRawProducer(
+            args.kafka_bootstrap, args.kafka_topic, kafka_failed_path,
+        )
+        print("Kafka connection: OK")
 
     db = DB(db_path)
+    process_session_id = iso(utc_now())
+    startup_queue_metrics = None
 
     try:
+        db.set_meta("collection_mode", "observe" if args.observe_only else "publish")
         initialize_endpoints(sources, db)
+        removed_state = db.prune_inactive_source_state(sources)
+        if any(removed_state.values()):
+            print(
+                "Removed-source state pruned: "
+                + ", ".join(
+                    f"{name}={count:,}"
+                    for name, count in removed_state.items()
+                )
+            )
+        startup_queue_metrics = db.prune_pending_queue(
+            sources,
+            args.pending_max_age_minutes,
+            args.max_pending_per_source,
+        )
+        print(
+            "Startup pending cleanup: "
+            f"{startup_queue_metrics['before_count']:,} -> "
+            f"{startup_queue_metrics['after_count']:,} "
+            f"(stale={startup_queue_metrics['stale']:,}, "
+            f"overflow={startup_queue_metrics['overflow']:,}, "
+            f"oldest={startup_queue_metrics['oldest_age_minutes']:.1f}m)"
+        )
 
         # Warm-up retries. Endpoints that still fail are NOT dangerous:
         # their first later success will baseline-seed and emit zero new articles.
@@ -2180,9 +3278,12 @@ def main():
                 "Warm-up / Final Baseline Refresh skipped."
             )
         else:
+            startup_sources = fair_sources(
+                sources, 1, args.max_sources_per_country_per_round
+            )
             if db.get_meta("warmup_complete") != "1":
                 for attempt in range(1, args.warmup_retries + 1):
-                    warmup_round(sources, db, args, attempt)
+                    warmup_round(startup_sources, db, args, attempt)
                     ready, total = count_ready_endpoints(db)
                     print(f"  endpoint baseline ready: {ready}/{total}")
                     if ready == total:
@@ -2195,7 +3296,9 @@ def main():
 
             # CRITICAL FIX:
             # Refresh ALL currently visible URLs immediately before experiment start.
-            final_baseline_refresh(sources, db, args)
+            # Remaining publishers initialize lazily on their first poll. The
+            # existing baseline-only guard prevents a historical article dump.
+            final_baseline_refresh(startup_sources, db, args)
 
             # Experiment clock starts AFTER the final baseline snapshot.
             started_at = utc_now()
@@ -2205,8 +3308,10 @@ def main():
 
         # Readiness is reported only after endpoint initialization and baseline
         # preparation have completed successfully.
-        health_path.touch()
-
+        health_path.write_text(
+            json.dumps({"collection_mode": "observe" if args.observe_only else "publish"}),
+            encoding="utf-8",
+        )
         try:
             prior_active_runtime = float(
                 db.get_meta("active_runtime_seconds") or 0
@@ -2214,6 +3319,13 @@ def main():
         except (TypeError, ValueError):
             prior_active_runtime = 0.0
         session_started_at = utc_now()
+        write_summary(summary_path, build_summary(
+            db, sources, started_at, session_started_at,
+            args.required_window_hours, prior_active_runtime,
+            session_id=process_session_id,
+            pending_max_age_minutes=args.pending_max_age_minutes,
+            startup_queue_metrics=startup_queue_metrics,
+        ))
 
         def active_runtime_seconds():
             return prior_active_runtime + max(
@@ -2244,7 +3356,8 @@ def main():
         while deadline is None or utc_now() < deadline:
             health_path.touch()
             _, elapsed = poll_round(
-                round_no, sources, db, args, started_at, kafka_producer
+                round_no, sources, db, args, started_at, kafka_producer,
+                session_id=process_session_id,
             )
             export_csvs(db, out)
             snapshot_ended_at = utc_now()
@@ -2257,11 +3370,11 @@ def main():
                 snapshot_ended_at,
                 args.required_window_hours,
                 active_seconds,
+                session_id=process_session_id,
+                pending_max_age_minutes=args.pending_max_age_minutes,
+                startup_queue_metrics=startup_queue_metrics,
             )
-            summary_path.write_text(
-                json.dumps(summary, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            write_summary(summary_path, summary)
             health_path.touch()
             round_no += 1
 
@@ -2288,11 +3401,11 @@ def main():
                 ended_at,
                 args.required_window_hours,
                 active_seconds,
+                session_id=process_session_id,
+                pending_max_age_minutes=args.pending_max_age_minutes,
+                startup_queue_metrics=startup_queue_metrics,
             )
-            summary_path.write_text(
-                json.dumps(summary, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            write_summary(summary_path, summary)
             export_csvs(db, out)
             print_summary(summary)
 
@@ -2309,11 +3422,11 @@ def main():
                 interrupted_at,
                 args.required_window_hours,
                 active_seconds,
+                session_id=process_session_id,
+                pending_max_age_minutes=args.pending_max_age_minutes,
+                startup_queue_metrics=startup_queue_metrics,
             )
-            summary_path.write_text(
-                json.dumps(summary, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            write_summary(summary_path, summary)
             if not summary["window_complete"]:
                 print(
                     "Collection window is incomplete: "
@@ -2322,7 +3435,8 @@ def main():
                 )
     finally:
         try:
-            kafka_producer.close()
+            if kafka_producer is not None:
+                kafka_producer.close()
         except Exception:
             pass
         db.close()
