@@ -1,12 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useResource } from '../data/useResource.js';
-import { dateLabel, safeUrl } from '../data/responseAdapters.js';
+import { dateLabel, flagOf, safeUrl } from '../data/responseAdapters.js';
+import { countryMetadata } from '../data/countries.js';
 import { newsSource, isMockNews } from './newsSource.js';
 import { PAGE_SIZE, newsSearch, queryError, readNewsQuery } from './newsQuery.js';
 import s from './NewsPage.module.css';
 
 function Failure({ error, retry }) {
   return <div className={s.empty} role="alert"><p>{error.message}</p><button onClick={retry}>다시 시도</button></div>;
+}
+
+const flagImages = Object.fromEntries(countryMetadata.map(({ code, flagImage }) => [code, flagImage]));
+
+function CountryFlag({ code }) {
+  const countryCode = code?.toUpperCase();
+  const flagImage = flagImages[countryCode];
+  return <span className={s.countryFlag} aria-hidden="true">
+    {flagImage ? <img src={flagImage} alt="" /> : flagOf(countryCode)}
+  </span>;
 }
 
 function ArticleModal({ id, onClose, source }) {
@@ -24,7 +35,7 @@ function ArticleModal({ id, onClose, source }) {
     <div className={s.modalTop}><span>ARTICLE BRIEF</span><button autoFocus onClick={onClose} aria-label="기사 상세 닫기">×</button></div>
     <h2 id="news-article-title">{data?.articleTitle || (article.loading ? '기사를 불러오는 중…' : '기사 상세')}</h2>
     {article.error ? <Failure error={article.error} retry={article.retry} /> : data ? <>
-      <p className={s.meta}>{data.countryName} · {data.articlePublisher || '매체 미상'} · {dateLabel(data.publishedAt)}</p>
+      <p className={s.meta}><CountryFlag code={data.countryCode} />{data.countryName} · {data.articlePublisher || '매체 미상'} · {dateLabel(data.publishedAt)}</p>
       <div className={s.summary}><h3>기사 요약</h3><p>{data.summary?.trim() || '제공된 기사 요약이 없습니다.'}</p></div>
       {isMockNews && <p className={s.demo}>실제 보도가 아닌 예시입니다. 원문 링크는 예시 사이트로 연결됩니다.</p>}
       <div className={s.modalBottom}>{url ? <a href={url} target="_blank" rel="noopener noreferrer">원문 읽기 ↗</a> : <span>제공된 원문 링크가 없습니다.</span>}<span>원문은 새 탭에서 열립니다.</span></div>
@@ -81,7 +92,7 @@ export default function NewsPage({ search, navigate, source = newsSource }) {
           : !error && list.data && <>
             {!list.data.items.length ? <div className={s.empty}><h3>{query.page > Math.max(totalPages, 1) ? '존재하지 않는 페이지입니다.' : '조건에 맞는 뉴스가 없습니다.'}</h3><p>다른 국가나 주제를 선택하거나 조회 기간을 넓혀보세요.</p><button onClick={query.page > 1 ? () => pageTo(1) : reset}>{query.page > 1 ? '첫 페이지로' : '필터 초기화'}</button></div>
               : <div className={s.grid}>{list.data.items.map((article) => <button key={article.articleId} className={s.card} onClick={() => setSelected(article.articleId)}>
-                <div className={s.cardTop}><span>{article.countryName}</span><span>{article.fieldName} / {article.themeName}</span></div>
+                <div className={s.cardTop}><span className={s.countryBadge}><CountryFlag code={article.countryCode} />{article.countryName}</span><span>{article.fieldName} / {article.themeName}</span></div>
                 <h3>{article.articleTitle || '제목 없음'}</h3>
                 <p>{article.summary || '기사를 선택해 상세 내용을 확인하세요.'}</p>
                 <div className={s.cardBottom}><span>{article.articlePublisher || '매체 미상'}<time dateTime={article.publishedAt}>{dateLabel(article.publishedAt)}</time></span><span aria-hidden="true">↗</span></div>
