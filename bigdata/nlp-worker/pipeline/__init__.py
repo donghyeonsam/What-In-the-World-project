@@ -10,6 +10,7 @@ from .embedding import create_article_embedding
 from .classifier import classify_theme
 from .sentiment import analyze_sentiment
 from .title_translation import translate_title
+from .summarize import summarize
 
 
 class InvalidArticle(ValueError):
@@ -122,6 +123,11 @@ def process_article(article):
 
         # 한국어 표시용 제목
         "translated_title": translated_title,
+
+        # 본문 3문장 한국어 요약
+        # 다른 필드와 달리 실패해도 예외를 던지지 않고 None 을 돌려준다.
+        # 요약 하나 때문에 기사 전체를 버리지 않기 위해서다.
+        "summary": summarize(article, language_code),
 
         "field_id": theme["field_id"],
         "theme_id": theme["theme_id"],
