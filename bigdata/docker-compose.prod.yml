@@ -167,11 +167,17 @@ services:
       - --output-dir
       - /data/collector
       - --poll-seconds
-      - "300"
+      - "600"
       - --poll-workers
-      - "20"
+      - "8"
       - --fetch-workers
-      - "16"
+      - "8"
+      - --max-sources-per-country-per-round
+      - "5"
+      - --max-fetches-per-country-per-round
+      - "10"
+      - --max-fetches-per-source-per-round
+      - "3"
       - --pending-max-age-minutes
       - "120"
       - --max-pending-per-source
