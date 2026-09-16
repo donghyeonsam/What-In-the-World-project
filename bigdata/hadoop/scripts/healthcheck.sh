@@ -24,16 +24,15 @@ http_get() {
 
 case "${1:-}" in
   namenode)
-    namenode_response="$(http_get 127.0.0.1 9870 \
-      '/jmx?qry=Hadoop:service=NameNode,name=FSNamesystemState')"
-    [[ "$namenode_response" =~ \"NumLiveDataNodes\"[[:space:]]*:[[:space:]]*[0-9]+ ]]
+    # DataNode가 시작되기 전에도 NameNode 자체의 HTTP readiness는 판정할 수
+    # 있어야 한다. 구체적인 Live DataNode 수는 datanode 검사에서 확인한다.
+    http_get 127.0.0.1 9870 /jmx >/dev/null
     ;;
   datanode)
     datanode_response="$(http_get 127.0.0.1 9864 /jmx)"
     [[ "$datanode_response" =~ \"NumFailedVolumes\"[[:space:]]*:[[:space:]]*0[[:space:]]*([,}]) ]]
 
-    namenode_response="$(http_get namenode 9870 \
-      '/jmx?qry=Hadoop:service=NameNode,name=FSNamesystemState')"
+    namenode_response="$(http_get namenode 9870 /jmx)"
     [[ "$namenode_response" =~ \"NumLiveDataNodes\"[[:space:]]*:[[:space:]]*[1-9][0-9]*[[:space:]]*([,}]) ]]
     ;;
   *)
