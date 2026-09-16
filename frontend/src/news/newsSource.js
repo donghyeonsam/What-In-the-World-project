@@ -6,7 +6,8 @@ export const httpNewsSource = {
   list: (query, { signal } = {}) => request('/articles', { signal, params: query }),
   detail: (id, { signal } = {}) => request(`/articles/${encodeURIComponent(id)}`, { signal }),
 };
-export const isMockNews = import.meta.env?.VITE_NEWS_SOURCE !== 'api';
+// The archive uses the backend by default. Set VITE_NEWS_SOURCE=mock only for demos.
+export const isMockNews = import.meta.env?.VITE_NEWS_SOURCE === 'mock';
 const source = () => isMockNews
   ? import('./newsMock.js').then((module) => module.mockNewsSource)
   : Promise.resolve(httpNewsSource);

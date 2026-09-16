@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readNewsQuery, newsSearch, queryError } from '../src/news/newsQuery.js';
 import { mockNewsSource, mockFilters, mockArticles } from '../src/news/newsMock.js';
-import { httpNewsSource } from '../src/news/newsSource.js';
+import { httpNewsSource, isMockNews, newsSource } from '../src/news/newsSource.js';
 
 test('news query survives share/reload and rejects invalid dates, pages and taxonomy', () => {
   const query = { countryCode: 'KR', fieldId: '2', themeId: '21', from: '2026-01-01', to: '2026-09-16', page: 3 };
@@ -40,6 +40,7 @@ test('mock pagination filters the whole archive before slicing; detail shares th
 });
 
 test('HTTP source uses documented endpoints, query and envelope without mock fallback', async () => {
+  assert.equal(isMockNews, false);
   const originalFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url) => {
@@ -48,12 +49,14 @@ test('HTTP source uses documented endpoints, query and envelope without mock fal
   };
   try {
     await httpNewsSource.filters();
+    await newsSource.filters();
     const result = await httpNewsSource.list({ countryCode: 'KR', fieldId: '2', themeId: '21', from: '2026-01-01', to: '2026-09-16', page: 2, size: 12 });
     await httpNewsSource.detail('article/id');
     assert.equal(calls[0].pathname, '/api/v1/articles/filters');
-    assert.equal(calls[1].searchParams.get('page'), '2');
-    assert.equal(calls[1].searchParams.get('countryCode'), 'KR');
-    assert.equal(calls[2].pathname, '/api/v1/articles/article%2Fid');
+    assert.equal(calls[1].pathname, '/api/v1/articles/filters');
+    assert.equal(calls[2].searchParams.get('page'), '2');
+    assert.equal(calls[2].searchParams.get('countryCode'), 'KR');
+    assert.equal(calls[3].pathname, '/api/v1/articles/article%2Fid');
     assert.equal(result.marker, 'server');
     globalThis.fetch = async () => ({ ok: false, status: 500, json: async () => ({ message: 'server error' }) });
     await assert.rejects(httpNewsSource.list({ page: 1, size: 12 }), /server error/);
