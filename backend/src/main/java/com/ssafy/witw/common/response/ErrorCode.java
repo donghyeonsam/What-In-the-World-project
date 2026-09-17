@@ -41,7 +41,10 @@ public enum ErrorCode {
     EMAIL_NOT_VERIFIED(HttpStatus.FORBIDDEN, "AU07", "이메일 인증이 완료되지 않았습니다."),
     LOGIN_FAILED(HttpStatus.UNAUTHORIZED, "AU08", "이메일 또는 비밀번호가 올바르지 않습니다."),
     CURRENT_PASSWORD_INVALID(HttpStatus.BAD_REQUEST, "AU09", "현재 비밀번호가 올바르지 않습니다."),
-    PASSWORD_RESET_NOT_VERIFIED(HttpStatus.UNAUTHORIZED, "AU10", "비밀번호 재설정을 위한 이메일 인증이 필요합니다.");
+    PASSWORD_RESET_NOT_VERIFIED(HttpStatus.UNAUTHORIZED, "AU10", "비밀번호 재설정을 위한 이메일 인증이 필요합니다."),
+    SSAFY_AUTH_FAILED(HttpStatus.UNAUTHORIZED, "AU11", "SSAFY 인증에 실패했습니다."),
+    AUTH_PROVIDER_CONFLICT(HttpStatus.CONFLICT, "AU12", "이미 다른 방식으로 가입된 이메일입니다."),
+    SSAFY_SERVER_ERROR(HttpStatus.BAD_GATEWAY, "AU13", "SSAFY 인증 서버와 통신할 수 없습니다.");
 
 
     private final HttpStatus status;
