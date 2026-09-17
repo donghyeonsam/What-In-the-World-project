@@ -1,5 +1,6 @@
 package com.ssafy.witw.domain.user.dao;
 
+import com.ssafy.witw.domain.user.entity.AuthProvider;
 import com.ssafy.witw.domain.user.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -12,5 +13,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByEmailIgnoreCase(String email);
 
     boolean existsByEmailIgnoreCaseAndWithdrawnAtIsNull(String email);
+
+    Optional<User> findByAuthProviderAndProviderId(AuthProvider authProvider, String providerId);
 
 }
