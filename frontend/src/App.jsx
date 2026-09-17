@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { api } from './data/api.js';
 import { useResource } from './data/useResource.js';
+import { loadIssueCountryAnalysis } from './data/issueCountryAnalysis.js';
 import { articleCard, themeCard, mentionRows, globeTones, fmt, flagOf } from './data/responseAdapters.js';
 import { countryMetadata, iso3 } from './data/countries.js';
 import { mentionLinks } from './lib/mentionLinks.js';
@@ -88,6 +89,15 @@ function DashboardApp({ onNews, initialCountry }) {
 
   const catalog = useMemo(() => (fields.data || []).flatMap((field) => field.themes.map((item) => ({ ...item, fieldId: field.fieldId, fieldName: field.fieldName }))), [fields.data]);
   const rows = (issue.data?.countryTones || []).filter((row) => !view.countryCode || row.country.countryCode.toUpperCase() === view.countryCode);
+  const selectedTone = view.type === 'issue' ? rows.find((row) => row.country.countryCode.toLowerCase() === spot) : null;
+  const analysis = useResource(selectedTone ? `analysis:${view.issueId}:${spot}` : null,
+    () => loadIssueCountryAnalysis({
+      issueId: view.issueId,
+      issueTitle: issue.data.issuePreview.issueTitle,
+      countryCode: selectedTone?.country.countryCode,
+      countryName: selectedTone?.country.countryName,
+      articleCount: selectedTone?.articleCount,
+    }));
   const mapTone = useMemo(() => view.type === 'issue' && issue.data && !issue.error
     ? { name: issue.data.issuePreview.issueTitle, t: globeTones(issue.data.countryTones, view.countryCode) }
     : null,
@@ -134,7 +144,7 @@ function DashboardApp({ onNews, initialCountry }) {
     <SubHeading title={data.issuePreview.issueTitle} desc={data.issuePreview.themeTitle} />
     <KpiCards items={[{ label: '전 세계 관련 기사 · 전체 기간', value: fmt(data.issueInfo.articleCount), unit: '건' }, { label: '보도 국가 · 전체 기간', value: fmt(data.issueInfo.countryCount), unit: '개국' }]} />
     <SectionTitle title={view.countryCode ? `${countryName}의 논조` : '국가별 논조'} note="최근 24시간 발행 기사 기준" />
-    <ApiToneScatter rows={rows} spot={spot} onSelectCountry={(id) => setSpot((old) => old === id ? null : id)} />
+    <ApiToneScatter rows={rows} spot={spot} analysis={analysis} onSelectCountry={(id) => setSpot((old) => old === id ? null : id)} />
     <SectionTitle title={view.countryCode ? `${countryName} 대표 기사` : '대표 기사 · 전 세계'} action={{ label: '더 보기 →', onClick: openArticles }} />
     <ArticleFeed articles={data.representArticles.slice(0, 3).map(articleCard)} />
   </>}</ResourceState>;
