@@ -98,6 +98,35 @@ class CollectorQualityTests(unittest.TestCase):
         self.assertEqual(observation.poll_error_quarantine_threshold, 6)
         self.assertEqual(observation.poll_error_quarantine_minutes, 360)
 
+    def test_global47_profile_uses_free_collection_and_excludes_failed_countries(self):
+        with patch.object(sys, "argv", [
+            "collector", "--collection-profile", "global47",
+        ]):
+            args = collector.parse_args()
+
+        self.assertEqual(Path(args.registry).name, "registry_50country.csv")
+        self.assertEqual(args.exclude_countries, ["China", "Egypt", "Norway"])
+        self.assertEqual(args.max_articles_per_country_per_day, 0)
+        self.assertEqual(args.max_articles_per_source_country_day, 0)
+        self.assertEqual(
+            collector.source_daily_limit_for_profile("global47", 150),
+            0,
+        )
+        self.assertEqual(
+            collector.source_daily_limit_for_profile("legacy5", 150),
+            150,
+        )
+        sources = collector.load_sources(
+            Path(args.registry), False, args.exclude_countries
+        )
+        self.assertEqual(len(sources), 1142)
+        self.assertEqual(len({source.country for source in sources}), 47)
+        self.assertTrue(
+            {"China", "Egypt", "Norway"}.isdisjoint(
+                {source.country for source in sources}
+            )
+        )
+
     def test_observation_keeps_production_state_and_never_connects_to_kafka(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)

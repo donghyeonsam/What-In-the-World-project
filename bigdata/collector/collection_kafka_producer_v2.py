@@ -82,6 +82,16 @@ NON_ARTICLE_EXTENSIONS = (
     ".bmp", ".tif", ".tiff", ".mp4", ".webm", ".mov", ".mp3", ".wav",
     ".ogg", ".flac", ".pdf", ".zip", ".css", ".js",
 )
+COLLECTION_PROFILES = ("legacy5", "global47")
+PROFILE_EXCLUDED_COUNTRIES = {
+    "legacy5": frozenset(),
+    "global47": frozenset({"China", "Egypt", "Norway"}),
+}
+
+
+def source_daily_limit_for_profile(collection_profile, configured_limit):
+    """Global scoring, rather than collection truncation, handles volume bias."""
+    return configured_limit if collection_profile == "legacy5" else 0
 
 
 def is_non_article_url(url):
@@ -1477,10 +1487,11 @@ class DB:
             self.conn.commit()
 
 
-def load_sources(path, include_review):
+def load_sources(path, include_review, excluded_countries=()):
     df = pd_read_csv(path)
     sources = []
     seen_ids = set()
+    excluded_countries = set(excluded_countries)
 
     for _, r in df.iterrows():
         status = safe(r.get("ingestion_status")).upper()
@@ -1523,6 +1534,8 @@ def load_sources(path, include_review):
                 return default
 
         country = safe(r.get("country"))
+        if country in excluded_countries:
+            continue
         domain = safe(r.get("domain")).lower().removeprefix("www.")
         if not domain:
             raise ValueError(f"Active registry row has no domain: {source_id}")
@@ -2487,7 +2500,10 @@ def poll_round(
                         fetched["title"],
                         fetched["body"],
                         discovered_at,
-                        source.max_articles_per_day,
+                        source_daily_limit_for_profile(
+                            getattr(args, "collection_profile", "legacy5"),
+                            source.max_articles_per_day,
+                        ),
                         getattr(args, "max_articles_per_country_per_day", 0),
                         getattr(args, "max_articles_per_source_country_day", 0),
                     )
@@ -2952,6 +2968,7 @@ def build_summary(
 
     return {
         "collection_mode": db.get_meta("collection_mode") or "publish",
+        "collection_profile": db.get_meta("collection_profile") or "legacy5",
         "experiment_started_at_utc": iso(started_at),
         "experiment_ended_at_utc": iso(ended_at),
         "elapsed_hours": elapsed_hours,
@@ -3077,7 +3094,23 @@ def print_summary(s):
 
 def parse_args():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--registry")
+    ap.add_argument(
+        "--collection-profile",
+        choices=COLLECTION_PROFILES,
+        default=os.getenv("COLLECTOR_PROFILE", "legacy5"),
+        help="legacy5 uses registry.csv; global47 uses registry_50country.csv "
+        "without China, Egypt, and Norway",
+    )
+    ap.add_argument(
+        "--exclude-country",
+        action="append",
+        default=[],
+        help="Country name to exclude; repeat for multiple countries",
+    )
+    ap.add_argument(
+        "--registry",
+        default=os.getenv("COLLECTOR_REGISTRY_PATH") or None,
+    )
     ap.add_argument("--output-dir", default="output2")
     ap.add_argument(
         "--observe-only", action="store_true",
@@ -3129,8 +3162,14 @@ def parse_args():
     args = ap.parse_args()
     if args.registry is None:
         args.registry = str(Path(__file__).with_name(
-            "registry_50country.csv" if args.observe_only else "registry.csv"
+            "registry_50country.csv"
+            if args.observe_only or args.collection_profile == "global47"
+            else "registry.csv"
         ))
+    args.exclude_countries = sorted(
+        PROFILE_EXCLUDED_COUNTRIES[args.collection_profile]
+        | {safe(country) for country in args.exclude_country if safe(country)}
+    )
     if args.required_window_hours <= 0:
         ap.error("--required-window-hours must be greater than zero")
     if args.title_suffix_min_occurrences <= 0:
@@ -3142,10 +3181,18 @@ def parse_args():
         "max_articles_per_country_per_day": 1000,
         "max_articles_per_source_country_day": 150,
     }
+    expanded_profile = args.observe_only or args.collection_profile == "global47"
+    volume_limit_names = {
+        "max_articles_per_country_per_day",
+        "max_articles_per_source_country_day",
+    }
     for name, observe_default in observe_limits.items():
         if getattr(args, name) is None:
             # Keep the existing five-country collector uncapped by new budgets.
-            setattr(args, name, observe_default if args.observe_only else 0)
+            default = observe_default if expanded_profile else 0
+            if args.collection_profile == "global47" and name in volume_limit_names:
+                default = 0
+            setattr(args, name, default)
         if getattr(args, name) < 0:
             ap.error(f"--{name.replace('_', '-')} must be zero or greater")
     reliability_defaults = {
@@ -3159,7 +3206,7 @@ def parse_args():
             setattr(
                 args,
                 name,
-                observe_default if args.observe_only else publish_default,
+                observe_default if expanded_profile else publish_default,
             )
         if getattr(args, name) < 0:
             ap.error(f"--{name.replace('_', '-')} must be zero or greater")
@@ -3198,15 +3245,31 @@ def main():
             if p.exists():
                 p.unlink()
 
-    sources = load_sources(registry, args.include_review)
+    sources = load_sources(
+        registry,
+        args.include_review,
+        args.exclude_countries,
+    )
     if not sources:
         raise RuntimeError("No sources loaded from registry.")
+    if args.collection_profile == "global47":
+        countries = {source.country for source in sources}
+        if len(countries) != 47:
+            raise RuntimeError(
+                "global47 profile must load exactly 47 countries; "
+                f"loaded {len(countries)}"
+            )
     args.domain_limiter = DomainLimiter(sources)
 
     print("=" * 100)
     print("Collector v1 - RAW ARTICLE COLLECTION")
     print("=" * 100)
     print(f"Registry        : {registry}")
+    print(f"Profile         : {args.collection_profile}")
+    print(
+        "Excluded        : "
+        f"{', '.join(args.exclude_countries) if args.exclude_countries else 'none'}"
+    )
     print(f"Output          : {out.resolve()}")
     print(f"Sources         : {len(sources)}")
     print(f"Poll interval   : {args.poll_seconds}s")
@@ -3238,6 +3301,7 @@ def main():
 
     try:
         db.set_meta("collection_mode", "observe" if args.observe_only else "publish")
+        db.set_meta("collection_profile", args.collection_profile)
         initialize_endpoints(sources, db)
         removed_state = db.prune_inactive_source_state(sources)
         if any(removed_state.values()):
@@ -3309,7 +3373,10 @@ def main():
         # Readiness is reported only after endpoint initialization and baseline
         # preparation have completed successfully.
         health_path.write_text(
-            json.dumps({"collection_mode": "observe" if args.observe_only else "publish"}),
+            json.dumps({
+                "collection_mode": "observe" if args.observe_only else "publish",
+                "collection_profile": args.collection_profile,
+            }),
             encoding="utf-8",
         )
         try:

@@ -172,7 +172,10 @@ function DashboardApp({ onNews, initialCountry, asOf, timeProps, trip, onArrive 
     <Empty items={data.globalIssues}><IssueCardList issues={data.globalIssues.map((item) => ({ title: item.issueName, field: item.fieldName, theme: item.themeName, count: `${fmt(item.articleCount)}건` }))} onSelect={(index) => openIssue(data.globalIssues[index])} /></Empty>
   </div>}</ResourceState>;
   else if (view.type === 'country') body = <ResourceState resource={country}>{(data) => <>
-    <CountryIdentity flag={flagOf(data.countryCode)} flagImage={`/flags/${data.countryCode.toLowerCase()}.svg`} name={data.countryName} />
+    <CountryIdentity flag={flagOf(data.countryCode)}
+      flagImage={countryMetadata.find((item) => item.code === data.countryCode.toUpperCase())?.flagImage}
+      flagClass={countryMetadata.find((item) => item.code === data.countryCode.toUpperCase())?.flagClass}
+      name={data.countryName} />
     <KpiCards items={[{ label: '최근 24시간 수집 기사', value: fmt(data.todayArticleCount), unit: '건' }, { label: '기사량 세계 순위', value: fmt(data.globalRank), unit: '위' }]} />
     <SectionTitle title="인기 테마" action={{ label: '전체 보기 →', onClick: () => go({ type: 'themes', title: `${data.countryName} 인기 테마`, countryCode: view.countryCode }) }} />
     <Empty items={data.popularThemes}><ThemeCardList themes={data.popularThemes.map(themeCard)} onSelect={(index) => openTheme(data.popularThemes[index])} /></Empty>
@@ -229,7 +232,7 @@ function DashboardApp({ onNews, initialCountry, asOf, timeProps, trip, onArrive 
     panel={<div className={s.panelContent}>{history.length > 1 && <div className={s.panelNav}>
       <BackLink onClick={() => setHistory((old) => old.slice(0, -1))}>← 이전 화면</BackLink>
     </div>}{body}</div>} />
-    <CommandPalette open={paletteOpen} onClose={closePalette} quick={countryMetadata.map((item) => ({ flag: item.flag, flagImage: item.flagImage, name: item.name }))}
+    <CommandPalette open={paletteOpen} onClose={closePalette} quick={countryMetadata.map((item) => ({ flag: item.flag, flagImage: item.flagImage, flagClass: item.flagClass, name: item.name }))}
       onSelect={(name) => goCountry(countryMetadata.find((item) => item.name === name).id)} /></>;
 }
 
