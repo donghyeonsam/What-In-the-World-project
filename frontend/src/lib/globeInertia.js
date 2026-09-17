@@ -1,6 +1,7 @@
 const DRAG_RADIANS_PER_PIXEL = 0.0045;
 const MAX_YAW_SPEED = 10;
 const MAX_PITCH_SPEED = 3.5;
+const RELEASE_SPEED_SCALE = 0.9;
 const DRAG = 0.6;
 const FRICTION = 0.28;
 
@@ -36,7 +37,10 @@ export function globeReleaseVelocity(samples, releasedAt = samples.at(-1)?.time)
   if (!duration) return { yaw: 0, pitch: 0 };
   const speed = globeDragVelocity(dx, dy, duration);
   const freshness = Math.max(0, 1 - Math.max(0, age - 24) / 76);
-  return { yaw: speed.yaw * freshness, pitch: speed.pitch * freshness };
+  return {
+    yaw: speed.yaw * freshness * RELEASE_SPEED_SCALE,
+    pitch: speed.pitch * freshness * RELEASE_SPEED_SCALE,
+  };
 }
 
 // Exact integration of linear drag + gentle constant friction: strong flicks coast,
