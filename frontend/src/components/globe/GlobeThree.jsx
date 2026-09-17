@@ -119,6 +119,7 @@ function disposeObj(o) {
  *          pinCities?: Record<string, [number, number][]>,
  *          pinsOf?: (country: object) => {title: string, tr: number}[],
  *          onOpenCountry?: (id: string) => void,
+ *          onGlobeMove?: () => void,
  *          countryClickHint?: string,
  *          onSelectPin?: (pin: {cid: string, idx: number, title: string}) => void,
  *          showBeacons?: boolean, spinControl?: boolean,
@@ -138,6 +139,7 @@ export default function GlobeThree({
   pinCities = {},
   pinsOf,
   onOpenCountry,
+  onGlobeMove,
   countryClickHint = '클릭하면 국가 분석으로 이동',
   onSelectPin,
   showBeacons = false,
@@ -157,13 +159,14 @@ export default function GlobeThree({
   const calloutAnchorRef = useRef(null);
   const calloutSizeRef = useRef({ width: 0, height: 0 });
   const calloutCountryRef = useRef(calloutCountry);
+  const userClearedFocusRef = useRef(false);
   calloutCountryRef.current = calloutCountry;
   const [autoSpin, setAutoSpin] = useState(() => !prefersReducedMotion());
   const [earthStatus, setEarthStatus] = useState('loading');
 
   /* 콜백은 ref로 넘긴다 — 씬을 다시 만들지 않기 위해 */
   const cb = useRef({});
-  cb.current = { onOpenCountry, onSelectPin, onMeteorImpact, pinsOf, countryClickHint };
+  cb.current = { onOpenCountry, onGlobeMove, onSelectPin, onMeteorImpact, pinsOf, countryClickHint };
 
   /* ── 씬 생성 (마운트 1회) ── */
   useEffect(() => {
@@ -765,6 +768,7 @@ export default function GlobeThree({
     let dragSamples = [];
     let activePointer = null;
     let caughtInertia = false;
+    let selectionClearedDuringDrag = false;
     let spin = !reduced;
     setAutoSpin(spin);
     let focusRotation = null;
@@ -815,6 +819,7 @@ export default function GlobeThree({
       px = e.clientX;
       py = e.clientY;
       dragDistance = 0;
+      selectionClearedDuringDrag = false;
       wrap.classList.add(s.dragging);
       spin = false;
       setAutoSpin(false);
@@ -843,6 +848,12 @@ export default function GlobeThree({
         const dy = e.clientY - py;
         if (dx || dy) userRotated = true;
         dragDistance += Math.hypot(dx, dy);
+        if (!selectionClearedDuringDrag && dragDistance >= 3 && cb.current.onGlobeMove) {
+          selectionClearedDuringDrag = true;
+          userClearedFocusRef.current = true;
+          targetZ = cam.position.z;
+          cb.current.onGlobeMove();
+        }
         const now = e.timeStamp;
         lastMoveAt = now;
         dragSamples.push({ x: e.clientX, y: e.clientY, time: now });
@@ -896,12 +907,17 @@ export default function GlobeThree({
       const delta = Math.max(-200, Math.min(200, e.deltaY * unit));
       targetZ = clampCameraZ(targetZ * Math.exp(delta * WHEEL_ZOOM_SPEED));
       userZoomed = true;
+      if (cb.current.onGlobeMove) {
+        userClearedFocusRef.current = true;
+        cb.current.onGlobeMove();
+      }
       tipRef.current?.classList.remove(s.show);
     };
     const onClick = (e) => {
       if (!firstFrameRendered) return;
-      if (dragDistance >= 5 || caughtInertia) {
+      if (dragDistance >= 5 || selectionClearedDuringDrag || caughtInertia) {
         dragDistance = 0;
+        selectionClearedDuringDrag = false;
         caughtInertia = false;
         return;
       }
@@ -1160,6 +1176,15 @@ export default function GlobeThree({
         setCountryOutlineActive(highlightId);
         syncBeacons(highlightId);
       },
+      releaseFocus() {
+        focusedId = null;
+        focusRotation = null;
+        userZoomed = true;
+        userRotated = true;
+        clearCountryFx();
+        setCountryOutlineActive(highlightId);
+        syncBeacons(highlightId);
+      },
       /* 줌·핀 없이 윤곽만 강조한다 — 목록을 좁혔을 뿐 화면을 옮긴 게 아니므로 */
       setHighlight(id) {
         highlightId = id || null;
@@ -1203,9 +1228,12 @@ export default function GlobeThree({
   }, [tone, minSample]);
 
   useEffect(() => {
-    if (focus) apiRef.current?.focusCountry(focus);
+    if (userClearedFocusRef.current) {
+      userClearedFocusRef.current = false;
+      apiRef.current?.releaseFocus();
+    } else if (focus) apiRef.current?.focusCountry(focus);
     else apiRef.current?.reset();
-  }, [focus]);
+  }, [focus, calloutCountry]);
 
   useEffect(() => {
     apiRef.current?.setMentions(mentionRelations);
@@ -1272,7 +1300,13 @@ export default function GlobeThree({
             title={autoSpin ? '지구 자전 멈춤' : '지구 자전 재개'}
             aria-label={autoSpin ? '지구 자전 멈춤' : '지구 자전 재개'}
             aria-pressed={autoSpin}
-            onClick={() => apiRef.current?.setSpin(!autoSpin)}
+            onClick={() => {
+              if (calloutCountryRef.current && cb.current.onGlobeMove) {
+                userClearedFocusRef.current = true;
+                cb.current.onGlobeMove();
+              }
+              apiRef.current?.setSpin(!autoSpin);
+            }}
           >
             <span className={autoSpin ? s.spinningIcon : undefined} aria-hidden="true">{autoSpin ? '↻' : '▶'}</span>
             <span>{autoSpin ? '자전 중' : '자전 재개'}</span>
