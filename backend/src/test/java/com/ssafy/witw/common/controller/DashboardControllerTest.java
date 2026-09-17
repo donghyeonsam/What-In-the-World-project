@@ -2,6 +2,7 @@ package com.ssafy.witw.common.controller;
 
 import com.ssafy.witw.common.exception.GlobalException;
 import com.ssafy.witw.common.response.ErrorCode;
+import com.ssafy.witw.common.security.config.SecurityConfig;
 import com.ssafy.witw.domain.article.dto.ArticleTone;
 import com.ssafy.witw.domain.article.dto.RepresentArticle;
 import com.ssafy.witw.domain.country.controller.CountryController;
@@ -23,7 +24,6 @@ import com.ssafy.witw.domain.theme.dto.PopularThemeResponse;
 import com.ssafy.witw.domain.theme.dto.PopularThemeTrend;
 import com.ssafy.witw.domain.theme.dto.ThemeOverviewResponse;
 import com.ssafy.witw.domain.theme.service.ThemeService;
-import com.ssafy.witw.common.security.config.SecurityConfig;
 import com.ssafy.witw.infra.OpenApiConfig;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -47,8 +47,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.LocalDateTime;
 import java.util.List;
 
-import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.hasSize;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -75,10 +77,29 @@ class DashboardControllerTest {
     @MockitoBean private IssueService issueService;
 
     @Test
+    void 선택_시점을_KST로_변환하여_전달한다() throws Exception {
+        var selected = LocalDateTime.of(2025, 9, 16, 10, 50);
+        when(issueService.getGlobalIssueRank(selected))
+                .thenReturn(new GlobalIssueRankResponse(0, 0, List.of()));
+
+        mvc.perform(get("/api/v1/global/issues").param("asOf", "2025-09-16T01:50:00Z"))
+                .andExpect(status().isOk());
+        verify(issueService).getGlobalIssueRank(selected);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"invalid", "2025-09-16T10:50:00", "2999-09-16T10:50:00Z"})
+    void 잘못된_시각과_시간대_없는_시각과_미래_시각은_거부한다(String asOf) throws Exception {
+        mvc.perform(get("/api/v1/global/issues").param("asOf", asOf))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(issueService);
+    }
+
+    @Test
     @DisplayName("[글로벌 대시보드] 로그인 없이 기사 수와 이슈 순위를 공통 응답으로 조회한다")
     void 로그인_없이_글로벌_기사_수와_이슈_순위를_조회한다() throws Exception {
         // given
-        when(issueService.getGlobalIssueRank()).thenReturn(new GlobalIssueRankResponse(100, 20,
+        when(issueService.getGlobalIssueRank(any(LocalDateTime.class))).thenReturn(new GlobalIssueRankResponse(100, 20,
                 List.of(new GlobalIssueRankResponse.GlobalIssue(1, "환경", "기후", "폭염", 10, TIME))));
 
         // when / then
@@ -92,14 +113,14 @@ class DashboardControllerTest {
                 .andExpect(jsonPath("$.data.recent24ArticleCount").value(20))
                 .andExpect(jsonPath("$.data.globalIssues[0].issueId").value(1))
                 .andExpect(jsonPath("$.data.globalIssues[0].firstSeenAt").value("2026-09-08T12:00:00"));
-        verify(issueService).getGlobalIssueRank();
+        verify(issueService).getGlobalIssueRank(any(LocalDateTime.class));
     }
 
     @Test
     @DisplayName("[글로벌 이슈 상세] 로그인 없이 이슈 정보와 좌표를 포함한 국가별 논조를 조회한다")
     void 로그인_없이_이슈_상세와_국가별_논조를_조회한다() throws Exception {
         // given
-        when(issueService.getGlobalIssueDetail(1)).thenReturn(new GlobalIssueDetailResponse(
+        when(issueService.getGlobalIssueDetail(eq(1L), any(LocalDateTime.class))).thenReturn(new GlobalIssueDetailResponse(
                 new IssueInfo(1, "폭염", 10, 1), List.of(countryTone())));
 
         // when / then
@@ -112,14 +133,14 @@ class DashboardControllerTest {
                 .andExpect(jsonPath("$.data.countryTones[0].toneAvg").value(50.0))
                 .andExpect(jsonPath("$.data.countryTones[0].toneSd").value(12.5))
                 .andExpect(jsonPath("$.data.countryTones[0].articleCount").value(4));
-        verify(issueService).getGlobalIssueDetail(1);
+        verify(issueService).getGlobalIssueDetail(eq(1L), any(LocalDateTime.class));
     }
 
     @Test
     @DisplayName("[이슈 미리보기] 로그인 없이 기본 대표 기사 3개를 요청하고 기사 날짜와 논조를 반환한다")
     void 로그인_없이_이슈_미리보기의_기본_대표_기사를_조회한다() throws Exception {
         // given
-        when(issueService.getIssueOverview(1, 3, null)).thenReturn(new IssueOverviewResponse(
+        when(issueService.getIssueOverview(eq(1L), eq(3), eq(null), any(LocalDateTime.class))).thenReturn(new IssueOverviewResponse(
                 new IssueOverviewResponse.IssuePreview("폭염", "기후", 10),
                 List.of(countryTone()), List.of(article())));
 
@@ -130,14 +151,14 @@ class DashboardControllerTest {
                 .andExpect(jsonPath("$.data.representArticles[0].articleTone").value("NEUTRAL"))
                 .andExpect(jsonPath("$.data.representArticles[0].url").value("https://example.com/article-1"))
                 .andExpect(jsonPath("$.data.representArticles[0].publishedAt").value("2026-09-08T12:00:00"));
-        verify(issueService).getIssueOverview(1, 3, null);
+        verify(issueService).getIssueOverview(eq(1L), eq(3), eq(null), any(LocalDateTime.class));
     }
 
     @Test
     @DisplayName("[국가 대시보드] 로그인 없이 소문자 국가 코드를 대문자로 변환하여 조회한다")
     void 로그인_없이_소문자_국가_코드로_대시보드를_조회한다() throws Exception {
         // given
-        when(countryService.getCountryMain("KR")).thenReturn(new CountryMainResponse("KR", "대한민국", 12, 2,
+        when(countryService.getCountryMain(eq("KR"), any(LocalDateTime.class))).thenReturn(new CountryMainResponse("KR", "대한민국", 12, 2,
                 List.of(new PopularTheme(1, "환경", "기후", 5)),
                 List.of(new CountryMainResponse.MentionRatio("US", "미국", 0.5)),
                 List.of(), List.of(article())));
@@ -151,14 +172,14 @@ class DashboardControllerTest {
                 .andExpect(jsonPath("$.data.popularThemes[0].themeId").value(1))
                 .andExpect(jsonPath("$.data.sourceMentions[0].mentionRatio").value(0.5))
                 .andExpect(jsonPath("$.data.targetMentions").isEmpty());
-        verify(countryService).getCountryMain("KR");
+        verify(countryService).getCountryMain(eq("KR"), any(LocalDateTime.class));
     }
 
     @Test
     @DisplayName("[국가별 인기 테마] 로그인 없이 기본 3개 테마와 시간별 기사 수를 조회한다")
     void 로그인_없이_인기_테마와_시간별_기사_수를_조회한다() throws Exception {
         // given
-        when(themeService.getPopularThemes("KR", 3)).thenReturn(new PopularThemeResponse("KR", "대한민국",
+        when(themeService.getPopularThemes(eq("KR"), eq(3), any(LocalDateTime.class))).thenReturn(new PopularThemeResponse("KR", "대한민국",
                 List.of(new PopularThemeTrend(1, "환경", "기후", 5,
                         new PopularThemeTrend.ThemeTimeStamp(60,
                                 List.of(new PopularThemeTrend.TimeStamp(TIME, 5)))))));
@@ -170,14 +191,14 @@ class DashboardControllerTest {
                 .andExpect(jsonPath("$.data.popularThemes[0].themeTimeStamp.interval").value(60))
                 .andExpect(jsonPath("$.data.popularThemes[0].themeTimeStamp.timestamp[0].time")
                         .value("2026-09-08T12:00:00"));
-        verify(themeService).getPopularThemes("KR", 3);
+        verify(themeService).getPopularThemes(eq("KR"), eq(3), any(LocalDateTime.class));
     }
 
     @Test
     @DisplayName("[테마 개요] 로그인 없이 기본 주요 이슈 3개와 대표 기사 10개를 요청한다")
     void 로그인_없이_테마_개요를_기본_조회_개수로_조회한다() throws Exception {
         // given
-        when(themeService.getThemeOverview(1L, 3, 10, null)).thenReturn(new ThemeOverviewResponse(1L, "기후", "기후 뉴스",
+        when(themeService.getThemeOverview(eq(1L), eq(3), eq(10), eq(null), any(LocalDateTime.class))).thenReturn(new ThemeOverviewResponse(1L, "기후", "기후 뉴스",
                 List.of(new ThemeOverviewResponse.PrimaryIssue(1L, "폭염")), List.of(article())));
 
         // when / then
@@ -186,14 +207,14 @@ class DashboardControllerTest {
                 .andExpect(jsonPath("$.data.themeName").value("기후"))
                 .andExpect(jsonPath("$.data.primaryIssues[0].issueId").value(1))
                 .andExpect(jsonPath("$.data.representArticles[0].articleId").value("article-1"));
-        verify(themeService).getThemeOverview(1L, 3, 10, null);
+        verify(themeService).getThemeOverview(eq(1L), eq(3), eq(10), eq(null), any(LocalDateTime.class));
     }
 
     @Test
     @DisplayName("[분야별 테마] 로그인 없이 기사 없는 테마도 0건으로 반환한다")
     void 로그인_없이_분야별_테마를_조회한다() throws Exception {
         // given
-        when(themeService.getThemesByField()).thenReturn(List.of(new FieldThemesResponse(1L, "환경",
+        when(themeService.getThemesByField(any(LocalDateTime.class))).thenReturn(List.of(new FieldThemesResponse(1L, "환경",
                 List.of(new FieldThemesResponse.ThemeCount(1L, "기후", 0)))));
 
         // when / then
@@ -208,9 +229,9 @@ class DashboardControllerTest {
     @DisplayName("[조회 개수] 최소·최대 조회 개수를 서비스에 그대로 전달한다")
     void 최소_최대_조회_개수를_서비스에_전달한다(int limit) throws Exception {
         // given
-        when(themeService.getPopularThemes("KR", limit)).thenReturn(new PopularThemeResponse("KR", "대한민국", List.of()));
-        when(themeService.getThemeOverview(1L, limit, limit, null)).thenReturn(new ThemeOverviewResponse(1L, "기후", "설명", List.of(), List.of()));
-        when(issueService.getIssueOverview(1, limit, null)).thenReturn(new IssueOverviewResponse(
+        when(themeService.getPopularThemes(eq("KR"), eq(limit), any(LocalDateTime.class))).thenReturn(new PopularThemeResponse("KR", "대한민국", List.of()));
+        when(themeService.getThemeOverview(eq(1L), eq(limit), eq(limit), eq(null), any(LocalDateTime.class))).thenReturn(new ThemeOverviewResponse(1L, "기후", "설명", List.of(), List.of()));
+        when(issueService.getIssueOverview(eq(1L), eq(limit), eq(null), any(LocalDateTime.class))).thenReturn(new IssueOverviewResponse(
                 new IssueOverviewResponse.IssuePreview("폭염", "기후", 0), List.of(), List.of()));
 
         // when / then
@@ -218,9 +239,9 @@ class DashboardControllerTest {
         mvc.perform(get("/api/v1/themes/1/overview").param("issueLimit", String.valueOf(limit))
                 .param("articleLimit", String.valueOf(limit))).andExpect(status().isOk());
         mvc.perform(get("/api/v1/issues/1/overview").param("articleLimit", String.valueOf(limit))).andExpect(status().isOk());
-        verify(themeService).getPopularThemes("KR", limit);
-        verify(themeService).getThemeOverview(1L, limit, limit, null);
-        verify(issueService).getIssueOverview(1, limit, null);
+        verify(themeService).getPopularThemes(eq("KR"), eq(limit), any(LocalDateTime.class));
+        verify(themeService).getThemeOverview(eq(1L), eq(limit), eq(limit), eq(null), any(LocalDateTime.class));
+        verify(issueService).getIssueOverview(eq(1L), eq(limit), eq(null), any(LocalDateTime.class));
     }
 
     @ParameterizedTest
@@ -260,11 +281,11 @@ class DashboardControllerTest {
     @DisplayName("[미존재 데이터] 없는 이슈·테마·국가는 서비스 오류 코드를 유지하여 404로 응답한다")
     void 존재하지_않는_조회_대상은_404로_응답한다(String path, String code) throws Exception {
         // given
-        when(issueService.getGlobalIssueDetail(99)).thenThrow(new GlobalException(ErrorCode.ENTITY_NOT_FOUND));
-        when(issueService.getIssueOverview(99, 3, null)).thenThrow(new GlobalException(ErrorCode.ENTITY_NOT_FOUND));
-        when(themeService.getThemeOverview(99L, 3, 10, null)).thenThrow(new GlobalException(ErrorCode.THEME_NOT_FOUND));
-        when(countryService.getCountryMain("ZZ")).thenThrow(new GlobalException(ErrorCode.COUNTRY_NOT_FOUND));
-        when(themeService.getPopularThemes("ZZ", 3)).thenThrow(new GlobalException(ErrorCode.COUNTRY_NOT_FOUND));
+        when(issueService.getGlobalIssueDetail(eq(99L), any(LocalDateTime.class))).thenThrow(new GlobalException(ErrorCode.ENTITY_NOT_FOUND));
+        when(issueService.getIssueOverview(eq(99L), eq(3), eq(null), any(LocalDateTime.class))).thenThrow(new GlobalException(ErrorCode.ENTITY_NOT_FOUND));
+        when(themeService.getThemeOverview(eq(99L), eq(3), eq(10), eq(null), any(LocalDateTime.class))).thenThrow(new GlobalException(ErrorCode.THEME_NOT_FOUND));
+        when(countryService.getCountryMain(eq("ZZ"), any(LocalDateTime.class))).thenThrow(new GlobalException(ErrorCode.COUNTRY_NOT_FOUND));
+        when(themeService.getPopularThemes(eq("ZZ"), eq(3), any(LocalDateTime.class))).thenThrow(new GlobalException(ErrorCode.COUNTRY_NOT_FOUND));
 
         // when / then
         mvc.perform(get(path)).andExpect(status().isNotFound())
@@ -275,7 +296,7 @@ class DashboardControllerTest {
     @DisplayName("[서버 오류] 내부 예외 내용은 노출하지 않고 공통 500 응답을 반환한다")
     void 예상하지_못한_오류는_공통_500으로_응답한다() throws Exception {
         // given
-        when(issueService.getGlobalIssueRank()).thenThrow(new IllegalStateException("internal database detail"));
+        when(issueService.getGlobalIssueRank(any(LocalDateTime.class))).thenThrow(new IllegalStateException("internal database detail"));
 
         // when / then
         mvc.perform(get("/api/v1/global/issues"))
@@ -334,7 +355,7 @@ class DashboardControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.info.title").value("WITW 조회 API"))
                 .andExpect(jsonPath("$.paths.*", hasSize(7)))
-                .andExpect(jsonPath("$.paths['/api/v1/themes/{themeId}/overview'].get.parameters", hasSize(4)))
+                .andExpect(jsonPath("$.paths['/api/v1/themes/{themeId}/overview'].get.parameters", hasSize(5)))
                 .andExpect(jsonPath("$.paths['/api/v1/global/issues'].get.responses['200'].content['application/json'].schema").exists())
                 .andExpect(jsonPath("$.paths['/api/v1/global/issues'].get.responses['400'].content['application/json'].schema['$ref']")
                         .value("#/components/schemas/ApiError"));

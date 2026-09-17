@@ -14,6 +14,9 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.LocalDateTime;
+
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -44,7 +47,7 @@ class GlobalExceptionHandlerTest {
     void GlobalException은_ErrorCode에_정의된_응답으로_변환된다(
             ErrorCode errorCode, int expectedStatus, String expectedCode) throws Exception {
         // given
-        when(themeService.getThemesByField()).thenThrow(new GlobalException(errorCode));
+        when(themeService.getThemesByField(any(LocalDateTime.class))).thenThrow(new GlobalException(errorCode));
 
         // when
         var result = mvc.perform(get("/api/v1/themes/by-field"));
@@ -62,7 +65,7 @@ class GlobalExceptionHandlerTest {
     @DisplayName("[예외 처리] 처리하지 않은 예외는 내부 메시지를 감추고 500으로 응답한다")
     void 처리하지_않은_예외는_500_공통_오류로_응답한다() throws Exception {
         // given
-        when(themeService.getThemesByField())
+        when(themeService.getThemesByField(any(LocalDateTime.class)))
                 .thenThrow(new IllegalStateException("DB 커넥션 풀 고갈 - 노출되면 안 되는 내부 메시지"));
 
         // when

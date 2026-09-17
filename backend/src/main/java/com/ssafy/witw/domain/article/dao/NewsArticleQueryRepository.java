@@ -22,8 +22,8 @@ public class NewsArticleQueryRepository {
 
     public SearchResult search(String countryCode, Long fieldId, Long themeId,
                                LocalDateTime fromInclusive, LocalDateTime toExclusive,
-                               int page, int size) {
-        String where = " where a.deletedAt is null"
+                               int page, int size, LocalDateTime asOf) {
+        String where = " where (a.deletedAt is null or a.deletedAt > :asOf) and a.createdAt <= :asOf and a.publishedAt < :asOf"
                 + (countryCode == null ? "" : " and c.countryCode = :countryCode")
                 + (fieldId == null ? "" : " and f.id = :fieldId")
                 + (themeId == null ? "" : " and t.id = :themeId")
@@ -35,6 +35,7 @@ public class NewsArticleQueryRepository {
         TypedQuery<Long> countQuery = entityManager.createQuery(
                 "select count(a)" + joins + where, Long.class);
         bind(countQuery, countryCode, fieldId, themeId, fromInclusive, toExclusive);
+        countQuery.setParameter("asOf", asOf);
         long total = countQuery.getSingleResult();
         long offset = ((long) page - 1L) * size;
         if (offset >= total) {
@@ -47,29 +48,31 @@ public class NewsArticleQueryRepository {
                 "select a" + fetchJoins + where + " order by a.publishedAt desc, a.id desc",
                 Article.class);
         bind(listQuery, countryCode, fieldId, themeId, fromInclusive, toExclusive);
+        listQuery.setParameter("asOf", asOf);
         return new SearchResult(listQuery.setFirstResult((int) offset).setMaxResults(size).getResultList(), total);
     }
 
-    public Optional<Article> findVisibleById(String articleId) {
+    public Optional<Article> findVisibleById(String articleId, LocalDateTime asOf) {
         return entityManager.createQuery("""
                 select a from Article a
                 join fetch a.publisherCountryCode
                 join fetch a.theme t
                 join fetch t.field
-                where a.id = :articleId and a.deletedAt is null
+                where a.id = :articleId and (a.deletedAt is null or a.deletedAt > :asOf) and a.createdAt <= :asOf and a.publishedAt < :asOf
                 """, Article.class)
+                .setParameter("asOf", asOf)
                 .setParameter("articleId", articleId)
                 .getResultStream()
                 .findFirst();
     }
 
-    public List<Country> findPublisherCountries() {
+    public List<Country> findPublisherCountries(LocalDateTime asOf) {
         return entityManager.createQuery("""
                 select distinct c from Article a
                 join a.publisherCountryCode c
-                where a.deletedAt is null
+                where (a.deletedAt is null or a.deletedAt > :asOf) and a.createdAt <= :asOf and a.publishedAt < :asOf
                 order by c.nameKo, c.countryCode
-                """, Country.class).getResultList();
+                """, Country.class).setParameter("asOf", asOf).getResultList();
     }
 
     private static void bind(TypedQuery<?> query, String countryCode, Long fieldId, Long themeId,
