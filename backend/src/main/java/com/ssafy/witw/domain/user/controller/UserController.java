@@ -4,6 +4,7 @@ import com.ssafy.witw.common.exception.GlobalException;
 import com.ssafy.witw.common.response.BaseResponse;
 import com.ssafy.witw.common.response.ErrorCode;
 import com.ssafy.witw.common.response.SuccessCode;
+import com.ssafy.witw.domain.user.dto.request.PasswordChangeRequest;
 import com.ssafy.witw.domain.user.dto.request.WithdrawRequest;
 import com.ssafy.witw.domain.user.dto.response.UserResponse;
 import com.ssafy.witw.domain.user.service.UserService;
@@ -63,6 +64,25 @@ public class UserController {
         UserResponse response = userService.getCurrentUser(userId);
 
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS, response);
+    }
+
+    @PatchMapping("/password")
+    @Operation(summary = "로그인 사용자 비밀번호 변경")
+    public ResponseEntity<BaseResponse<Void>> changePassword(
+            @Valid @RequestBody PasswordChangeRequest request, HttpServletRequest httpRequest
+    ){
+        HttpSession session = httpRequest.getSession(false);
+
+        if(session == null) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+        Object attribute = session.getAttribute("userId");
+        if(!(attribute instanceof Long userId)) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+        userService.changePassword(userId, request);
+
+        session.invalidate();
+
+        return BaseResponse.success(SuccessCode.PASSWORD_CHANGE_SUCCESS);
     }
 
 }

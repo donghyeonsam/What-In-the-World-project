@@ -3,6 +3,7 @@ package com.ssafy.witw.domain.user.service;
 import com.ssafy.witw.common.exception.GlobalException;
 import com.ssafy.witw.common.response.ErrorCode;
 import com.ssafy.witw.domain.user.dao.UserRepository;
+import com.ssafy.witw.domain.user.dto.request.PasswordChangeRequest;
 import com.ssafy.witw.domain.user.dto.request.WithdrawRequest;
 import com.ssafy.witw.domain.user.dto.response.UserResponse;
 import com.ssafy.witw.domain.user.entity.AuthProvider;
@@ -42,6 +43,22 @@ public class UserService {
         if(user.isWithdrawn()) throw new GlobalException(ErrorCode.UNAUTHORIZED);
 
         return UserResponse.from(user);
+    }
+
+    @Transactional
+    public void changePassword(Long userId, PasswordChangeRequest request){
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new GlobalException(ErrorCode.UNAUTHORIZED));
+
+        if(user.isWithdrawn()) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+        if(user.getAuthProvider() != AuthProvider.LOCAL || user.getPasswordHash() == null
+            || !passwordEncoder.matches(request.currentPassword(), user.getPasswordHash()))
+            throw new GlobalException(ErrorCode.CURRENT_PASSWORD_INVALID);
+
+        String newPasswordHash = passwordEncoder.encode(request.newPassword());
+
+        user.changePassword(newPasswordHash);
     }
 
 
