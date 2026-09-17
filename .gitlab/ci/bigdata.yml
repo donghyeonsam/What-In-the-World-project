@@ -154,7 +154,7 @@ deploy-bigdata:
 
     # Topic과 checkpoint 준비가 끝난 뒤 Collector, HDFS writer, Spark stream 시작
     - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" up -d --no-deps --wait --wait-timeout 900 collector silver-writer spark-enriched-stream spark-unclassified-issue-stream
-
+    - docker restart -t 180 news-spark-enriched-stream news-spark-unclassified-issue-stream
     # -----------------------------------------------------
     # BigData Prometheus / Grafana / Exporter 배포
     # -----------------------------------------------------
