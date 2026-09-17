@@ -37,11 +37,11 @@ export async function request(path, { signal, params = {} } = {}) {
 }
 
 export const api = {
-  dashboard: (signal) => request('/global/issues', { signal }),
-  fields: (signal) => request('/themes/by-field', { signal }),
-  country: (code, signal) => request(`/countries/${encodeURIComponent(code.toUpperCase())}`, { signal }),
-  popular: (code, signal) => request(`/countries/${encodeURIComponent(code.toUpperCase())}/themes/popular`, { signal, params: { limit: 10 } }),
-  theme: (id, countryCode, signal) => request(`/themes/${encodeURIComponent(id)}/overview`, { signal, params: { issueLimit: 10, articleLimit: 10, countryCode } }),
-  issue: (id, signal) => request(`/global/issues/${encodeURIComponent(id)}`, { signal }),
-  overview: (id, countryCode, signal) => request(`/issues/${encodeURIComponent(id)}/overview`, { signal, params: { articleLimit: 10, countryCode } }),
+  dashboard: (signal, asOf) => request('/global/issues', { signal, params: { asOf } }),
+  fields: (signal, asOf) => request('/themes/by-field', { signal, params: { asOf } }),
+  country: (code, signal, asOf) => request(`/countries/${encodeURIComponent(code.toUpperCase())}`, { signal, params: { asOf } }),
+  popular: (code, signal, asOf) => request(`/countries/${encodeURIComponent(code.toUpperCase())}/themes/popular`, { signal, params: { limit: 10, asOf } }),
+  theme: (id, countryCode, signal, asOf) => request(`/themes/${encodeURIComponent(id)}/overview`, { signal, params: { issueLimit: 10, articleLimit: 10, countryCode, asOf } }),
+  issue: (id, signal, asOf) => request(`/global/issues/${encodeURIComponent(id)}`, { signal, params: { asOf } }),
+  overview: (id, countryCode, signal, asOf) => request(`/issues/${encodeURIComponent(id)}/overview`, { signal, params: { articleLimit: 10, countryCode, asOf } }),
 };

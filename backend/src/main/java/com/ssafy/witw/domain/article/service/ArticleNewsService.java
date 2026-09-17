@@ -2,6 +2,7 @@ package com.ssafy.witw.domain.article.service;
 
 import com.ssafy.witw.common.exception.GlobalException;
 import com.ssafy.witw.common.response.ErrorCode;
+import com.ssafy.witw.common.time.QueryTime;
 import com.ssafy.witw.domain.article.dao.NewsArticleQueryRepository;
 import com.ssafy.witw.domain.article.dto.ArticleDetailResponse;
 import com.ssafy.witw.domain.article.dto.ArticleFiltersResponse;
@@ -32,7 +33,11 @@ public class ArticleNewsService {
     private final ThemeRepository themeRepository;
 
     public ArticleFiltersResponse getFilters() {
-        List<ArticleFiltersResponse.CountryOption> countries = queryRepository.findPublisherCountries()
+        return getFilters(QueryTime.now());
+    }
+
+    public ArticleFiltersResponse getFilters(LocalDateTime asOf) {
+        List<ArticleFiltersResponse.CountryOption> countries = queryRepository.findPublisherCountries(asOf)
                 .stream()
                 .map(country -> new ArticleFiltersResponse.CountryOption(
                         country.getCountryCode(), country.getNameKo()))
@@ -57,6 +62,11 @@ public class ArticleNewsService {
 
     public ArticlePageResponse getArticles(String countryCode, Long fieldId, Long themeId,
                                            LocalDate from, LocalDate to, int page, int size) {
+        return getArticles(countryCode, fieldId, themeId, from, to, page, size, QueryTime.now());
+    }
+
+    public ArticlePageResponse getArticles(String countryCode, Long fieldId, Long themeId,
+                                           LocalDate from, LocalDate to, int page, int size, LocalDateTime asOf) {
         if (page < 1 || size < 1 || size > 100
                 || ((long) page - 1L) * size > Integer.MAX_VALUE
                 || (fieldId != null && fieldId < 1)
@@ -85,7 +95,7 @@ public class ArticleNewsService {
         LocalDateTime fromInclusive = from == null ? null : from.atStartOfDay();
         LocalDateTime toExclusive = to == null ? null : to.plusDays(1).atStartOfDay();
         var result = queryRepository.search(normalizedCountry, fieldId, themeId,
-                fromInclusive, toExclusive, page, size);
+                fromInclusive, toExclusive, page, size, asOf);
         long totalPages = result.totalElements() / size
                 + (result.totalElements() % size == 0 ? 0 : 1);
         return new ArticlePageResponse(result.items().stream().map(ArticleListItem::from).toList(),
@@ -93,10 +103,14 @@ public class ArticleNewsService {
     }
 
     public ArticleDetailResponse getArticle(String articleId) {
+        return getArticle(articleId, QueryTime.now());
+    }
+
+    public ArticleDetailResponse getArticle(String articleId, LocalDateTime asOf) {
         if (articleId == null || articleId.isBlank()) {
             throw new GlobalException(ErrorCode.INVALID_INPUT_VALUE);
         }
-        return queryRepository.findVisibleById(articleId)
+        return queryRepository.findVisibleById(articleId, asOf)
                 .map(ArticleDetailResponse::from)
                 .orElseThrow(() -> new GlobalException(ErrorCode.ENTITY_NOT_FOUND));
     }

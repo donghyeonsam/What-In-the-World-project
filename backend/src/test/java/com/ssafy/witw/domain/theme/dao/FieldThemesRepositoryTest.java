@@ -46,7 +46,7 @@ class FieldThemesRepositoryTest extends TestContainerSupport {
         insertArticle("deleted", now.minusHours(1), true);
 
         // when
-        var rows = repository.findThemesByField();
+        var rows = repository.findThemesByField(now);
 
         // then
         assertThat(rows)

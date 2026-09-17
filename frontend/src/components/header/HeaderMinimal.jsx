@@ -1,4 +1,5 @@
 import s from './HeaderMinimal.module.css';
+import { timeLabel } from '../../timeMachine/timeMachine.js';
 
 const SearchIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -26,12 +27,16 @@ export default function HeaderMinimal({
   onRoute,
   onSearch,
   showSearch = true,
+  asOf = null,
+  timeMachineOpen = false,
+  onTimeMachine,
+  onLive,
   searchLabel = '국가 검색',
   shortcut = '⌘ K',
 }) {
   return (
     <header className={s.topbar}>
-      <a className={s.brand} href={typeof window === 'undefined' ? '/' : window.location.pathname} aria-label={`${brand} 초기 화면으로 이동`}>
+      <a className={s.brand} href={`${typeof window === 'undefined' ? '/' : window.location.pathname}${asOf ? `?${new URLSearchParams({ asOf })}` : ''}`} aria-label={`${brand} 초기 화면으로 이동`}>
         <img src="/witw_logo_transparent.png" alt={brand} />
       </a>
 
@@ -47,9 +52,11 @@ export default function HeaderMinimal({
             {r.label}
           </button>
         ))}
+        {onTimeMachine && <button type="button" className={`${s.navItem} ${timeMachineOpen ? s.active : ''}`} onClick={onTimeMachine} aria-haspopup="dialog" aria-expanded={timeMachineOpen}>타임머신</button>}
       </nav>
 
       <div className={s.actions}>
+        {asOf && <button className={s.archiveBadge} onClick={onLive} title="현재 시점으로 돌아오기"><span>{timeLabel(asOf)} 기준</span><strong>현재로 ↗</strong></button>}
         {showSearch && <button type="button" className={s.search} onClick={onSearch} aria-label={searchLabel}>
           <SearchIcon />
           <span>{searchLabel}</span>
