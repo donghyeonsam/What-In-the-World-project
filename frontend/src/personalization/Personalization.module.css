@@ -33,6 +33,12 @@
 .chip svg { width: 14px; height: 14px; }
 .primary, .secondary, .follow { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 10px 14px; border-radius: 8px; font-size: 13px; text-align: center; }
 .primary { width: 100%; background: var(--wtw-accent); color: var(--wtw-on-accent); font-weight: 600; }
+.ssafyLogin { width: 100%; min-height: 48px; margin-top: 18px; padding: 0 16px; display: flex; align-items: center; justify-content: center; gap: 11px; border: 1px solid #5ab7c3; border-radius: 9px; background: linear-gradient(135deg, #69d0d8, #80c8cf); color: #071a22; }
+.ssafyLogin span { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 7px; background: #071a22; color: #80dce2; font-size: 13px; font-weight: 800; }
+.ssafyLogin b { font-size: 13px; }
+.ssafyLogin:hover { filter: brightness(1.06); transform: translateY(-1px); }
+.divider { display: flex; align-items: center; gap: 12px; margin: 20px 0 2px; color: var(--wtw-muted); font-size: 10px; }
+.divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--wtw-line); }
 .secondary, .follow { border: 1px solid var(--wtw-line-strong); color: var(--wtw-accent); background: var(--wtw-surface); }
 .follow { margin: 8px 0 16px; }
 .follow[aria-pressed=true] { border-color: var(--wtw-accent); }

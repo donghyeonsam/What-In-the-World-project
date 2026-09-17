@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseInterests, loadPersonalNews, accountStorageKey } from '../src/personalization/model.js';
 import { accountApi } from '../src/personalization/accountApi.js';
+import { readSsafyCallback } from '../src/personalization/ssafyOAuth.js';
 
 const interests = { countries: [], themes: [{ id: 1, name: '경제' }], issues: [{ id: 2, name: '금리' }] };
 test('interests reject malformed values and isolate storage by account', () => {
@@ -44,6 +45,7 @@ test('account API sends session cookies, correct bodies and accepts success with
   globalThis.fetch = async (url, options) => { calls.push({ url, ...options }); return new Response(JSON.stringify({ status: 200, message: '성공' })); };
   try {
     await accountApi.login('test@example.com', 'test-password');
+    await accountApi.ssafyLogin('authorization-code');
     await accountApi.signup('test@example.com', 'test-password');
     await accountApi.sendCode('test@example.com');
     await accountApi.verifyCode('test@example.com', 'AB12345');
@@ -52,9 +54,27 @@ test('account API sends session cookies, correct bodies and accepts success with
     assert.ok(calls.every((call) => call.credentials === 'include'));
     assert.equal(calls[0].method, 'POST');
     assert.deepEqual(JSON.parse(calls[0].body), { email: 'test@example.com', password: 'test-password' });
-    assert.equal(calls[4].method, 'PATCH'); assert.equal(calls[4].url, '/api/v1/users/password');
-    assert.deepEqual(JSON.parse(calls[4].body), { currentPassword: 'old-password', newPassword: 'new-password' });
+    assert.equal(calls[1].url, '/api/v1/auth/ssafy');
+    assert.deepEqual(JSON.parse(calls[1].body), { code: 'authorization-code' });
+    assert.equal(calls[5].method, 'PATCH'); assert.equal(calls[5].url, '/api/v1/users/password');
+    assert.deepEqual(JSON.parse(calls[5].body), { currentPassword: 'old-password', newPassword: 'new-password' });
     globalThis.fetch = async () => new Response(JSON.stringify({ status: 401, message: '로그인 필요' }), { status: 401 });
     await assert.rejects(accountApi.me(), { status: 401 });
   } finally { globalThis.fetch = original; }
+});
+
+test('SSAFY callback validates state once and restores the pre-login URL', () => {
+  const values = new Map([
+    ['witw_ssafy_oauth_state', 'safe-state'],
+    ['witw_ssafy_oauth_return', '/?view=news&page=2'],
+  ]);
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    removeItem: (key) => values.delete(key),
+  };
+  assert.deepEqual(readSsafyCallback('?code=one-time-code&state=safe-state', storage), {
+    code: 'one-time-code', returnUrl: '/?view=news&page=2',
+  });
+  assert.equal(values.size, 0);
+  assert.throws(() => readSsafyCallback('?code=replayed&state=safe-state', storage), /확인할 수 없습니다/);
 });

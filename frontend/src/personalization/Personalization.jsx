@@ -5,6 +5,7 @@ import { useResource } from '../data/useResource.js';
 import { dateLabel, safeUrl } from '../data/responseAdapters.js';
 import { httpNewsSource } from '../news/newsSource.js';
 import { accountApi } from './accountApi.js';
+import { readSsafyCallback } from './ssafyOAuth.js';
 import { AuthForm, PasswordForm } from './AccountForms.jsx';
 import { accountStorageKey, emptyInterests, parseInterests, loadPersonalNews } from './model.js';
 import s from './Personalization.module.css';
@@ -46,6 +47,29 @@ export function PersonalizationProvider({ children }) {
     const controller = new AbortController();
     refreshSession(controller.signal);
     return () => { controller.abort(); revision.current++; };
+  }, []);
+  useEffect(() => {
+    let callback;
+    try { callback = readSsafyCallback(window.location.search); }
+    catch (error) {
+      const clean = new URL(window.location.href);
+      ['code', 'state', 'error', 'error_description'].forEach((key) => clean.searchParams.delete(key));
+      window.history.replaceState(null, '', `${clean.pathname}${clean.search}${clean.hash}`);
+      setNotice(error.message); setPanel('profile'); setChecking(false);
+      return;
+    }
+    if (!callback) return;
+    // Remove the one-time authorization code before the request so a refresh or
+    // React StrictMode remount cannot exchange it twice.
+    window.history.replaceState(null, '', callback.returnUrl);
+    setPanel('profile'); setChecking(true); setNotice('SSAFY 계정을 연결하고 있습니다…');
+    accountApi.ssafyLogin(callback.code)
+      .then(() => refreshSession())
+      .then((current) => {
+        if (!current) throw new Error('로그인 세션을 확인하지 못했습니다.');
+        setNotice(''); setPanel('profile');
+      })
+      .catch((error) => { setSession(null); setSessionError(error.message); setNotice(''); setPanel('profile'); setChecking(false); });
   }, []);
   useEffect(() => {
     if (!session) return;
