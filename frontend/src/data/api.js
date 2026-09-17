@@ -8,7 +8,7 @@ export class ApiError extends Error {
   }
 }
 
-export async function request(path, { signal, params = {} } = {}) {
+export async function request(path, { signal, params = {}, method = 'GET', body: payload, allowEmpty = false } = {}) {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
@@ -20,10 +20,12 @@ export async function request(path, { signal, params = {} } = {}) {
   const timeout = setTimeout(() => controller.abort(new Error('요청 시간이 초과되었습니다.')), 15000);
   try {
     const response = await fetch(`${API_BASE}${path}${query.size ? `?${query}` : ''}`, {
-      signal: controller.signal, headers: { Accept: 'application/json' },
+      signal: controller.signal, method, credentials: 'include',
+      headers: { Accept: 'application/json', ...(payload === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
     });
     const body = await response.json().catch(() => null);
-    if (!response.ok || !body || body.status >= 400 || !('data' in body)) {
+    if (!response.ok || !body || body.status >= 400 || (!allowEmpty && !('data' in body))) {
       throw new ApiError(body?.message || `데이터를 불러오지 못했습니다 (${response.status}).`, response.status);
     }
     return body.data;

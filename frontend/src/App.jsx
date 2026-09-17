@@ -23,6 +23,7 @@ import NewsPage from './news/NewsPage.jsx';
 import PageTransition from './components/layout/PageTransition.jsx';
 import { TimeMachinePicker, TimeTravelEffects, StageClock, useTimeTravel } from './timeMachine/TimeMachine.jsx';
 import { readAsOf, timeLabel } from './timeMachine/timeMachine.js';
+import { PersonalizationProvider, InterestButton } from './personalization/Personalization.jsx';
 
 const HOME = { type: 'dash', title: '글로벌 동향' };
 
@@ -37,6 +38,10 @@ function Empty({ items, children }) {
 
 
 export default function App() {
+  return <PersonalizationProvider><AppContent /></PersonalizationProvider>;
+}
+
+function AppContent() {
   const [search, setSearch] = useState(() => typeof window === 'undefined' ? '' : window.location.search);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [trip, setTrip] = useState(null);
@@ -178,6 +183,7 @@ function DashboardApp({ onNews, initialCountry, asOf, timeProps, trip, onArrive 
   </>}</ResourceState>;
   else if (view.type === 'theme') body = <ResourceState resource={theme}>{(data) => <>
     <SubHeading title={data.themeName} desc={data.themeDescription} />
+    <InterestButton kind="themes" id={view.themeId} name={data.themeName} />
     {view.countryCode && <PolicyNote>주요 이슈는 전 세계 기준이며, 대표 기사는 {countryName} 발행 기사만 표시합니다.</PolicyNote>}
     <SectionTitle title="주요 이슈" note="전 세계 기사량 순 · 최대 10개" />
     <Empty items={data.primaryIssues}><ThemeIssueList issues={data.primaryIssues.map((item) => ({ title: item.issueTitle }))} onSelect={(index) => openIssue(data.primaryIssues[index])} /></Empty>
@@ -186,6 +192,7 @@ function DashboardApp({ onNews, initialCountry, asOf, timeProps, trip, onArrive 
   </>}</ResourceState>;
   else if (view.type === 'issue') body = <ResourceState resource={issue}>{(data) => <>
     <SubHeading title={data.issuePreview.issueTitle} desc={data.issuePreview.themeTitle} />
+    <InterestButton kind="issues" id={view.issueId} name={data.issuePreview.issueTitle} />
     <KpiCards items={[{ label: '전 세계 관련 기사 · 전체 기간', value: fmt(data.issueInfo.articleCount), unit: '건' }, { label: '보도 국가 · 전체 기간', value: fmt(data.issueInfo.countryCount), unit: '개국' }]} />
     <SectionTitle title={view.countryCode ? `${countryName}의 논조` : '국가별 논조'} note="최근 24시간 발행 기사 기준" />
     <ApiToneScatter rows={rows} spot={spot} onSelectCountry={selectIssueCountry} />
