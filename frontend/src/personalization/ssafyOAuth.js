@@ -1,6 +1,6 @@
 const DEFAULT_AUTHORIZE_URL = 'https://project.ssafy.com/oauth/sso-check';
 const SSAFY_CLIENT_ID = '86976ec9-cbb3-4768-a339-e03ce05e2e39';
-const SSAFY_REDIRECT_URI = 'https://dev.witw.kro.kr/';
+const SSAFY_REDIRECT_URI = 'https://dev.witw.kro.kr/auth/ssafy/callback';
 const STATE_KEY = 'witw_ssafy_oauth_state';
 const RETURN_KEY = 'witw_ssafy_oauth_return';
 
