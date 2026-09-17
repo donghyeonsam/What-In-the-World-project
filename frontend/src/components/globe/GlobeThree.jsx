@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { toneRGB, NO_SAMPLE, rgbHex } from '../../lib/tone.js';
 import { shortLon, prefersReducedMotion } from '../../lib/format.js';
 import { countryCameraZ } from '../../lib/globeFocus.js';
+import { advanceGlobeInertia, globeReleaseVelocity } from '../../lib/globeInertia.js';
 import { earthTextureUrls, loadEarthTexture } from '../../lib/earthTextures.js';
 import { createMentionGroup, updateMentionFlow } from '../../lib/mentionLinks.js';
 import s from './GlobeThree.module.css';
@@ -749,6 +750,10 @@ export default function GlobeThree({
     let dragDistance = 0;
     let vx = 0;
     let vy = 0;
+    let lastMoveAt = 0;
+    let dragSamples = [];
+    let activePointer = null;
+    let caughtInertia = false;
     let spin = !reduced;
     setAutoSpin(spin);
     let focusRotation = null;
@@ -787,10 +792,15 @@ export default function GlobeThree({
     };
 
     const onDown = (e) => {
-      if (!firstFrameRendered) return;
+      if (!firstFrameRendered || e.button !== 0 || e.isPrimary === false || activePointer !== null) return;
+      activePointer = e.pointerId;
+      caughtInertia = Math.hypot(vx, vy) > 0.15;
+      wrap.setPointerCapture?.(e.pointerId);
       dragging = true;
       vx = 0;
       vy = 0;
+      lastMoveAt = e.timeStamp;
+      dragSamples = [{ x: e.clientX, y: e.clientY, time: lastMoveAt }];
       px = e.clientX;
       py = e.clientY;
       dragDistance = 0;
@@ -799,21 +809,35 @@ export default function GlobeThree({
       setAutoSpin(false);
       focusRotation = null;
     };
-    const onUp = () => {
+    const onUp = (e) => {
+      if (!dragging || e.pointerId !== activePointer) return;
+      if (e.type === 'pointercancel' || reduced || dragDistance < 5
+          || e.timeStamp - lastMoveAt > 100) {
+        vx = 0;
+        vy = 0;
+      } else {
+        ({ yaw: vx, pitch: vy } = globeReleaseVelocity(dragSamples, e.timeStamp));
+      }
+      if (wrap.hasPointerCapture?.(e.pointerId)) wrap.releasePointerCapture(e.pointerId);
+      activePointer = null;
+      dragSamples = [];
       dragging = false;
       wrap.classList.remove(s.dragging);
     };
     const onMove = (e) => {
       if (!firstFrameRendered) return;
+      if (dragging && e.pointerId !== activePointer) return;
       if (dragging) {
         const dx = e.clientX - px;
         const dy = e.clientY - py;
         if (dx || dy) userRotated = true;
         dragDistance += Math.hypot(dx, dy);
-        vx = dx * 0.0045;
-        vy = dy * 0.0045;
-        globe.rotation.y += vx;
-        globe.rotation.x = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, globe.rotation.x + vy));
+        const now = e.timeStamp;
+        lastMoveAt = now;
+        dragSamples.push({ x: e.clientX, y: e.clientY, time: now });
+        while (dragSamples.length > 2 && now - dragSamples[1].time > 100) dragSamples.shift();
+        globe.rotation.y += dx * 0.0045;
+        globe.rotation.x = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, globe.rotation.x + dy * 0.0045));
         px = e.clientX;
         py = e.clientY;
       }
@@ -854,6 +878,8 @@ export default function GlobeThree({
       if (!firstFrameRendered) return;
       // Ctrl+휠은 브라우저 확대/축소에 맡기고, 지구본 위의 일반 휠만 처리한다.
       if (e.ctrlKey || !Number.isFinite(e.deltaY) || e.deltaY === 0) return;
+      vx = 0;
+      vy = 0;
       e.preventDefault();
       const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? wrap.clientHeight : 1;
       const delta = Math.max(-200, Math.min(200, e.deltaY * unit));
@@ -861,14 +887,16 @@ export default function GlobeThree({
       userZoomed = true;
       tipRef.current?.classList.remove(s.show);
     };
-    const onClick = () => {
+    const onClick = (e) => {
       if (!firstFrameRendered) return;
-      if (dragDistance >= 5) {
+      if (dragDistance >= 5 || caughtInertia) {
         dragDistance = 0;
-        vx = 0;
-        vy = 0;
+        caughtInertia = false;
         return;
       }
+      const bounds = wrap.getBoundingClientRect();
+      mouse.set(((e.clientX - bounds.left) / bounds.width) * 2 - 1,
+        -((e.clientY - bounds.top) / bounds.height) * 2 + 1);
       ray.setFromCamera(mouse, cam);
       const hit = pickHit();
       if (!hit) return;
@@ -907,12 +935,29 @@ export default function GlobeThree({
 
     let t = 0;
     let raf = 0;
+    let lastFrameAt = performance.now();
     const loop = () => {
       raf = requestAnimationFrame(loop);
+      const now = performance.now();
+      const elapsedMs = now - lastFrameAt;
+      lastFrameAt = now;
       // 로딩 중에는 초기 방향을 유지한다. 실제 텍스처로 첫 프레임을 그린 뒤 공개한다.
       if (!textureReady) return;
       t += 0.016;
       if (spin) globe.rotation.y += 0.0016;
+      else if (!dragging && !focusRotation && !reduced && (vx || vy)) {
+        if (elapsedMs > 250) {
+          vx = 0;
+          vy = 0;
+        } else {
+          const next = advanceGlobeInertia(globe.rotation.y, globe.rotation.x,
+            vx, vy, elapsedMs, PITCH_LIMIT);
+          globe.rotation.y = next.yaw;
+          globe.rotation.x = next.pitch;
+          vx = next.yawSpeed;
+          vy = next.pitchSpeed;
+        }
+      }
       if (focusRotation) {
         globe.rotation.x += (focusRotation.pitch - globe.rotation.x) * COUNTRY_FOCUS_LERP;
         globe.rotation.y += (focusRotation.yaw - globe.rotation.y) * COUNTRY_FOCUS_LERP;
@@ -981,6 +1026,8 @@ export default function GlobeThree({
       focusCountry(id) {
         const c = countries.find((x) => x.id === id);
         if (!c) return;
+        vx = 0;
+        vy = 0;
         focusedId = id;
         clearCountryFx();
         /* 나라를 정면에 세우되 북쪽은 위로 — 세계지도와 같은 자세다 */
@@ -1000,6 +1047,8 @@ export default function GlobeThree({
         spawnCountryFx(c);
       },
       reset() {
+        vx = 0;
+        vy = 0;
         focusedId = null;
         focusRotation = null;
         targetZ = IDLE_CAMERA_Z;
