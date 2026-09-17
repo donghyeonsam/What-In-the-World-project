@@ -4,6 +4,7 @@ import com.ssafy.witw.common.exception.GlobalException;
 import com.ssafy.witw.common.response.ErrorCode;
 import com.ssafy.witw.domain.user.dao.UserRepository;
 import com.ssafy.witw.domain.user.dto.request.WithdrawRequest;
+import com.ssafy.witw.domain.user.dto.response.UserResponse;
 import com.ssafy.witw.domain.user.entity.AuthProvider;
 import com.ssafy.witw.domain.user.entity.User;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +33,15 @@ public class UserService {
         }
 
         user.withdraw();
+    }
+
+    public UserResponse getCurrentUser(Long userId){
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new GlobalException(ErrorCode.UNAUTHORIZED));
+
+        if(user.isWithdrawn()) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+        return UserResponse.from(user);
     }
 
 
