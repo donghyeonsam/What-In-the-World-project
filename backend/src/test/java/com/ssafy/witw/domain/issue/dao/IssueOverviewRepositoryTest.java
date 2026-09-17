@@ -87,7 +87,7 @@ class IssueOverviewRepositoryTest extends TestContainerSupport {
         기사추가("tone-other", OTHER_ISSUE_ID, "ZQ", 100, 0.5, now.minusHours(1), false);
 
         // when
-        var tones = issueRepository.findCountryTonesLast24Hours(ISSUE_ID);
+        var tones = issueRepository.findCountryTonesLast24Hours(ISSUE_ID, now);
 
         // then
         assertThat(tones).as("발행 국가별로 평균 내림차순 조회")

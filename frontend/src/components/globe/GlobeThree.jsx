@@ -129,6 +129,7 @@ function disposeObj(o) {
  */
 export default function GlobeThree({
   countries,
+  timeTravel = null,
   texture,
   iso3 = { kr: ['KOR'], us: ['USA'], uk: ['GBR'], au: ['AUS'], me: ['ARE', 'QAT'], af: ['ZAF', 'KEN'], br: ['BRA'] },
   tone = null,
@@ -151,6 +152,8 @@ export default function GlobeThree({
   callout = null,
   children,
 }) {
+  const travelRef = useRef(timeTravel);
+  travelRef.current = timeTravel;
   const wrapRef = useRef(null);
   const apiRef = useRef(null);
   const tipRef = useRef(null);
@@ -1059,7 +1062,14 @@ export default function GlobeThree({
       // 로딩 중에는 초기 방향을 유지한다. 실제 텍스처로 첫 프레임을 그린 뒤 공개한다.
       if (!textureReady) return;
       t += 0.016;
-      if (spin) globe.rotation.y += 0.0016;
+      const travel = travelRef.current;
+      if (travel != null) {
+        vx = 0;
+        vy = 0;
+        const speed = Math.sin(Math.PI * Math.min(1, travel));
+        if (!reduced) globe.rotation.y -= Math.min(elapsedMs, 50) * (0.0003 + 0.009 * speed * speed);
+      }
+      else if (spin) globe.rotation.y += 0.0016;
       else if (!dragging && !focusRotation && !reduced && (vx || vy)) {
         if (elapsedMs > 250) {
           vx = 0;
@@ -1073,7 +1083,7 @@ export default function GlobeThree({
           vy = next.pitchSpeed;
         }
       }
-      if (focusRotation) {
+      if (focusRotation && travel == null) {
         globe.rotation.x += (focusRotation.pitch - globe.rotation.x) * COUNTRY_FOCUS_LERP;
         globe.rotation.y += (focusRotation.yaw - globe.rotation.y) * COUNTRY_FOCUS_LERP;
         globe.rotation.z += (0 - globe.rotation.z) * COUNTRY_FOCUS_LERP;
@@ -1086,7 +1096,7 @@ export default function GlobeThree({
         }
       }
       const zoomLerp = focusedId && !userZoomed && !userRotated ? COUNTRY_FOCUS_LERP : CAMERA_LERP;
-      cam.position.z += (targetZ - cam.position.z) * zoomLerp;
+      cam.position.z += ((travel != null ? IDLE_CAMERA_Z : targetZ) - cam.position.z) * zoomLerp;
       if (!reduced) {
         rings.forEach((r) => {
           const sc = 1 + 0.55 * (Math.sin(t * 2.2 + r.userData.t) * 0.5 + 0.5);

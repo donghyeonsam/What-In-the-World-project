@@ -61,12 +61,40 @@
 
 /* ── 오른쪽: 라이트 인사이트 패널 ── */
 .panel {
+  position: relative;
   background: var(--wtw-panel);
   min-width: 0;
   padding: 24px 20px 44px;
   scrollbar-width: thin;
   color: var(--wtw-text);
   font-family: var(--wtw-body);
+}
+
+.timeTravel .panel { overflow: hidden; }
+.timeTravel .panelBody {
+  pointer-events: none;
+  will-change: transform, filter;
+  animation: rewindData 650ms linear infinite;
+}
+.timeTravel .panel::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 2;
+  background: linear-gradient(180deg, var(--wtw-panel) 0%, transparent 22%, transparent 72%, var(--wtw-panel) 100%),
+    repeating-linear-gradient(0deg, transparent 0 10px, #467d7520 11px, transparent 12px);
+}
+.rewindLabel {
+  position: absolute; top: 22px; left: 28px; right: 28px; z-index: 3;
+  padding: 12px 16px; border: 1px solid #41978344; border-radius: 8px;
+  background: var(--wtw-panel); color: var(--wtw-accent); font-size: 12px;
+  letter-spacing: .06em; box-shadow: 0 8px 40px #061c1920;
+}
+@keyframes rewindData {
+  0% { transform: translateY(100px); opacity: 0; filter: blur(3px); }
+  18% { opacity: .75; filter: blur(.6px); }
+  75% { opacity: .65; filter: blur(1.5px); }
+  100% { transform: translateY(-220px); opacity: 0; filter: blur(4px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .timeTravel .panelBody { animation: none; opacity: .45; }
 }
 
 @media (min-width: 700px) {

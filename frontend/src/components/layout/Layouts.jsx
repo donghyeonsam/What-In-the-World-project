@@ -10,19 +10,20 @@ import s from './layout.module.css';
  *          panel: React.ReactNode, panelTone?: 'pos'|'neg'|'neu'|null,
  *          panelRef?: React.Ref<HTMLElement>}} props
  */
-export default function DashboardLayout({ header, stage, panel, panelTone = null, panelRef }) {
+export default function DashboardLayout({ header, stage, panel, panelTone = null, panelRef, timeTravel = false }) {
   const toneClass = panelTone
     ? { pos: s.tonePos, neg: s.toneNeg, neu: s.toneNeu }[panelTone]
     : '';
   return (
-    <div className={s.shell}>
-      {header}
+    <div className={`${s.shell} ${timeTravel ? s.timeTravel : ''}`}>
+      <div {...(timeTravel ? { inert: '' } : {})}>{header}</div>
       <main className={s.dashboard}>
         <section className={s.stage} aria-label="글로벌 지도">
           {stage}
         </section>
-        <aside className={`${s.panel} ${toneClass}`} aria-live="polite" ref={panelRef}>
-          {panel}
+        <aside className={`${s.panel} ${toneClass}`} aria-live={timeTravel ? 'off' : 'polite'} aria-busy={timeTravel} ref={panelRef}>
+          {timeTravel && <div className={s.rewindLabel} role="status">시간 기록을 되감는 중</div>}
+          <div className={s.panelBody} {...(timeTravel ? { inert: '', 'aria-hidden': true } : {})}>{panel}</div>
         </aside>
       </main>
     </div>

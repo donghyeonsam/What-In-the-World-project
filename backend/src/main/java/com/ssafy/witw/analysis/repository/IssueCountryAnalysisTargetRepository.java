@@ -22,8 +22,10 @@ public class IssueCountryAnalysisTargetRepository {
                        COUNT(*) AS issue_article_count
                 FROM article a
                 CROSS JOIN bounds b
-                WHERE a.deleted_at IS NULL
+                WHERE (a.deleted_at IS NULL OR a.deleted_at > b.period_end)
                   AND a.issue_id IS NOT NULL
+                  AND a.issue_assigned_at <= b.period_end
+                  AND a.created_at <= b.period_end
                   AND a.published_at >= b.period_start
                   AND a.published_at < b.period_end
                 GROUP BY a.issue_id
@@ -36,7 +38,10 @@ public class IssueCountryAnalysisTargetRepository {
             FROM top_issues t
             JOIN article a ON a.issue_id = t.issue_id
             CROSS JOIN bounds b
-            WHERE a.deleted_at IS NULL
+            JOIN issue i ON i.id = t.issue_id AND i.created_at <= b.period_end
+            WHERE (a.deleted_at IS NULL OR a.deleted_at > b.period_end)
+              AND a.issue_assigned_at <= b.period_end
+              AND a.created_at <= b.period_end
               AND a.published_at >= b.period_start
               AND a.published_at < b.period_end
             GROUP BY t.issue_id, t.issue_article_count, a.publisher_country_code

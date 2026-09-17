@@ -8,13 +8,31 @@ const article = (id, tone) => ({ articleId: id, articleTitle: `검증 기사 ${i
 const articles = [article('1', 'POSITIVE'), article('2', 'NEUTRAL'), article('3', 'NEGATIVE')];
 const themes = [{ themeId: 1, themeName: '반도체', fieldName: '산업', articleCount24: 50 }, { themeId: 2, themeName: '기후', fieldName: '환경', articleCount24: 20 }];
 const tones = [{ country: { countryCode: 'KR', countryName: '한국', lat: 36.5, lng: 127.9 }, toneAvg: 75, toneMin: 40, toneMax: 90, toneSd: 12.5, articleCount: 40 }, { country: { countryCode: 'US', countryName: '미국', lat: 38.9, lng: -95.7 }, toneAvg: 20, toneMin: 5, toneMax: 60, toneSd: 20, articleCount: 35 }];
+// Test-only sessions and account. Never forwards account requests to a real server.
+const sessions = new Set();
+const fixtureUser = { id: 999, email: 'preview@example.com', authProvider: 'LOCAL', role: 'USER' };
+const port = Number(process.env.PORT || 5175);
 http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
   if (url.pathname.startsWith('/api/v1')) {
     let data;
     let status = 200;
     const route = url.pathname.slice('/api/v1'.length);
-    if (route === '/global/issues') data = { totalArticleCount: 12345, recent24ArticleCount: 100, globalIssues: [{ issueId: 1, issueName: '반도체 공급망 변화', themeName: '반도체', fieldName: '산업', articleCount: 80, firstSeenAt: '2026-09-08T09:00:00' }] };
+    const token = (req.headers.cookie || '').match(/(?:^|;\s*)fixture-session=([^;]+)/)?.[1];
+    if (route === '/auth/login' && req.method === 'POST') {
+      let input = ''; for await (const chunk of req) input += chunk;
+      const credentials = JSON.parse(input || '{}');
+      if (credentials.email === fixtureUser.email && credentials.password === 'preview1234') {
+        const value = crypto.randomUUID(); sessions.add(value);
+        res.setHeader('Set-Cookie', `fixture-session=${value}; Path=/; HttpOnly; SameSite=Lax`);
+      } else status = 401;
+    }
+    else if (route === '/users/me') { if (sessions.has(token)) data = fixtureUser; else status = 401; }
+    else if (route === '/auth/logout' && req.method === 'POST') { sessions.delete(token); res.setHeader('Set-Cookie', 'fixture-session=; Path=/; Max-Age=0'); }
+    else if (route === '/articles/filters') data = { countries: [{ countryCode: 'KR', countryName: '대한민국' }, { countryCode: 'US', countryName: '미국' }], fields: themes.map((t, i) => ({ fieldId: i + 1, fieldName: t.fieldName, themes: [t] })) };
+    else if (route === '/articles') data = { items: articles.map((a) => ({ ...a, countryCode: url.searchParams.get('countryCode') || 'KR', countryName: '대한민국', themeId: Number(url.searchParams.get('themeId') || 1), themeName: '반도체' })), page: 1, size: 12, totalElements: 3, totalPages: 1 };
+    else if (route.startsWith('/articles/')) data = { ...articles[0], summary: '브라우저 검증용 기사 요약입니다.', url: 'https://example.com' };
+    else if (route === '/global/issues') data = { totalArticleCount: 12345, recent24ArticleCount: 100, globalIssues: [{ issueId: 1, issueName: '반도체 공급망 변화', themeName: '반도체', fieldName: '산업', articleCount: 80, firstSeenAt: '2026-09-08T09:00:00' }] };
     else if (route === '/themes/by-field') data = themes.map((item, index) => ({ fieldId: index + 1, fieldName: item.fieldName, themes: [item] }));
     else if (/^\/countries\/\w+\/themes\/popular$/.test(route)) data = { countryCode: 'KR', countryName: '한국', popularThemes: themes.map((item) => ({ ...item, themeTimeStamp: { interval: 60, timestamp: Array.from({ length: 24 }, (_, i) => ({ time: `2026-09-08T${String(i).padStart(2, '0')}:00:00`, articleCount: i % 5 })) } })) };
     else if (route === '/countries/KR') data = { countryCode: 'KR', countryName: '한국', todayArticleCount: 42, globalRank: 2, popularThemes: themes, sourceMentions: [{ countryCode: 'US', countryName: '미국', mentionRatio: .75 }], targetMentions: [{ countryCode: 'GB', countryName: '영국', mentionRatio: .6 }], representArticles: articles };
@@ -35,4 +53,4 @@ http.createServer(async (req, res) => {
     res.setHeader('Content-Type', ({ '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.jpg': 'image/jpeg' })[path.extname(filename)] || 'application/octet-stream');
     res.end(data);
   } catch { res.writeHead(404); res.end(); }
-}).listen(5175, '127.0.0.1', () => console.log('Contract-fixture browser server: http://127.0.0.1:5175'));
+}).listen(port, '127.0.0.1', () => console.log(`Contract-fixture browser server: http://127.0.0.1:${port}`));

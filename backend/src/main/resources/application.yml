@@ -40,3 +40,11 @@ server:
       cookie:
         http-only: true
         same-site: lax
+
+ssafy:
+  oauth:
+    client-id: ${SSAFY_CLIENT_ID:}
+    client-secret: ${SSAFY_CLIENT_SECRET:}
+    redirect-uri: ${SSAFY_REDIRECT_URI:}
+    token-uri: https://project.ssafy.com/ssafy/oauth2/token
+    user-info-uri: https://project.ssafy.com/ssafy/resources/userInfo

@@ -4,6 +4,7 @@ import com.ssafy.witw.common.exception.GlobalException;
 import com.ssafy.witw.common.response.ErrorCode;
 import com.ssafy.witw.domain.auth.dto.request.LoginRequest;
 import com.ssafy.witw.domain.auth.dto.response.EmailExistsResponse;
+import com.ssafy.witw.domain.auth.dto.response.SsafyUserInfo;
 import com.ssafy.witw.domain.user.dao.UserRepository;
 import com.ssafy.witw.domain.auth.dto.request.SignupRequest;
 import com.ssafy.witw.domain.user.entity.AuthProvider;
@@ -92,6 +93,34 @@ public class AuthService {
         String passwordHash = passwordEncoder.encode(newPassword);
 
         user.changePassword(passwordHash);
+    }
+
+    @Transactional
+    public Long ssafyLogin(SsafyUserInfo userInfo){
+        String providerId = userInfo.userId().trim();
+        String email = normalizeEmail(userInfo.email());
+
+        User providerUser = userRepository.findByAuthProviderAndProviderId(
+                AuthProvider.SSAFY,
+                providerId
+            ).orElse(null);
+
+        if(providerUser != null){
+            if(providerUser.isWithdrawn()) {
+                providerUser.reactivateSsafy();
+            }
+            return providerUser.getId();
+        }
+
+        if(userRepository.findByEmailIgnoreCase(email).isPresent())
+            throw new GlobalException(ErrorCode.AUTH_PROVIDER_CONFLICT);
+
+        User user = User.createSsafy(email, providerId);
+
+        userRepository.save(user);
+
+        return user.getId();
+
     }
 
 

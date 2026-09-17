@@ -10,19 +10,20 @@ function Failure({ error, retry }) {
   return <div className={s.empty} role="alert"><p>{error.message}</p><button onClick={retry}>다시 시도</button></div>;
 }
 
-const flagImages = Object.fromEntries(countryMetadata.map(({ code, flagImage }) => [code, flagImage]));
+const flags = Object.fromEntries(countryMetadata.map(({ code, flagImage, flagClass }) => [code, { flagImage, flagClass }]));
 
 function CountryFlag({ code }) {
   const countryCode = code?.toUpperCase();
-  const flagImage = flagImages[countryCode];
+  const { flagImage, flagClass } = flags[countryCode] || {};
   return <span className={s.countryFlag} aria-hidden="true">
-    {flagImage ? <img src={flagImage} alt="" /> : flagOf(countryCode)}
+    {flagImage ? <img src={flagImage} alt="" />
+      : flagClass ? <i className={flagClass} /> : flagOf(countryCode)}
   </span>;
 }
 
-function ArticleModal({ id, onClose, source }) {
+function ArticleModal({ id, onClose, source, asOf }) {
   const dialog = useRef(null);
-  const article = useResource(`news-detail:${id}`, (signal) => source.detail(id, { signal }));
+  const article = useResource(`news-detail:${asOf}:${id}`, (signal) => source.detail(id, { signal, asOf }));
   useEffect(() => {
     const opener = document.activeElement;
     const element = dialog.current;
@@ -43,16 +44,16 @@ function ArticleModal({ id, onClose, source }) {
   </dialog>;
 }
 
-export default function NewsPage({ search, navigate, source = newsSource }) {
+export default function NewsPage({ search, navigate, source = newsSource, asOf }) {
   const query = useMemo(() => readNewsQuery(search), [search]);
   const [draft, setDraft] = useState(query);
   const [selected, setSelected] = useState(null);
   const [formError, setFormError] = useState('');
   const results = useRef(null);
-  const filters = useResource('news-filters', (signal) => source.filters({ signal }));
+  const filters = useResource(`news-filters:${asOf}`, (signal) => source.filters({ signal, asOf }));
   const error = queryError(query, filters.data);
-  const list = useResource(filters.data && !error ? `news-list:${JSON.stringify(query)}` : null,
-    (signal) => source.list({ ...query, size: PAGE_SIZE }, { signal }));
+  const list = useResource(filters.data && !error ? `news-list:${asOf}:${JSON.stringify(query)}` : null,
+    (signal) => source.list({ ...query, size: PAGE_SIZE }, { signal, asOf }));
   useEffect(() => { setDraft(query); setFormError(''); setSelected(null); }, [query]);
   const fields = filters.data?.fields || [];
   const themes = (draft.fieldId ? fields.filter((f) => String(f.fieldId) === draft.fieldId) : fields).flatMap((f) => f.themes);
@@ -108,6 +109,6 @@ export default function NewsPage({ search, navigate, source = newsSource }) {
           </>}
       </section>
     </div>
-    {selected && <ArticleModal key={selected} id={selected} source={source} onClose={() => setSelected(null)} />}
+    {selected && <ArticleModal asOf={asOf} key={selected} id={selected} source={source} onClose={() => setSelected(null)} />}
   </main>;
 }

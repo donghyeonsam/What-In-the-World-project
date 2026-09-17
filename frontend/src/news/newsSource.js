@@ -2,9 +2,9 @@ import { request } from '../data/api.js';
 
 // UI는 이 계약만 사용한다: filters(options), list(query, options), detail(id, options).
 export const httpNewsSource = {
-  filters: ({ signal } = {}) => request('/articles/filters', { signal }),
-  list: (query, { signal } = {}) => request('/articles', { signal, params: query }),
-  detail: (id, { signal } = {}) => request(`/articles/${encodeURIComponent(id)}`, { signal }),
+  filters: ({ signal, asOf } = {}) => request('/articles/filters', { signal, params: { asOf } }),
+  list: (query, { signal, asOf } = {}) => request('/articles', { signal, params: { ...query, asOf } }),
+  detail: (id, { signal, asOf } = {}) => request(`/articles/${encodeURIComponent(id)}`, { signal, params: { asOf } }),
 };
 // The archive uses the backend by default. Set VITE_NEWS_SOURCE=mock only for demos.
 export const isMockNews = import.meta.env?.VITE_NEWS_SOURCE === 'mock';
