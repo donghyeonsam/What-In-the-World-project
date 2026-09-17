@@ -38,6 +38,7 @@
 .cardTop .countryBadge { display: inline-flex; align-items: center; gap: 7px; padding: 4px 7px; border-radius: 4px; background: #303e4c; color: #d4dee7; font-weight: 600; }
 .countryFlag { display: inline-grid; flex: none; width: 28px; height: 20px; place-items: center; font-size: 18px; line-height: 1; }
 .countryFlag img { width: 28px; height: 19px; object-fit: cover; border-radius: 3px; box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12); }
+.countryFlag i { width: 28px; height: 19px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12); }
 .card h3 { font-size: 17px; line-height: 1.55; margin: 15px 0 10px; letter-spacing: -.025em; }
 .card > p { font-size: 12px; line-height: 1.8; color: var(--wtw-muted); margin: 0 0 24px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .cardBottom { margin-top: auto; display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--wtw-text-2); }

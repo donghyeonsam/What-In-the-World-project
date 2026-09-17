@@ -10,13 +10,14 @@ function Failure({ error, retry }) {
   return <div className={s.empty} role="alert"><p>{error.message}</p><button onClick={retry}>다시 시도</button></div>;
 }
 
-const flagImages = Object.fromEntries(countryMetadata.map(({ code, flagImage }) => [code, flagImage]));
+const flags = Object.fromEntries(countryMetadata.map(({ code, flagImage, flagClass }) => [code, { flagImage, flagClass }]));
 
 function CountryFlag({ code }) {
   const countryCode = code?.toUpperCase();
-  const flagImage = flagImages[countryCode];
+  const { flagImage, flagClass } = flags[countryCode] || {};
   return <span className={s.countryFlag} aria-hidden="true">
-    {flagImage ? <img src={flagImage} alt="" /> : flagOf(countryCode)}
+    {flagImage ? <img src={flagImage} alt="" />
+      : flagClass ? <i className={flagClass} /> : flagOf(countryCode)}
   </span>;
 }
 

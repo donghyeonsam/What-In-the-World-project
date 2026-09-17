@@ -155,6 +155,11 @@ deploy-bigdata:
     # Topic과 checkpoint 준비가 끝난 뒤 Collector, HDFS writer, Spark stream 시작
     - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" up -d --no-deps --wait --wait-timeout 900 collector silver-writer spark-enriched-stream spark-unclassified-issue-stream
     - docker restart -t 180 news-spark-enriched-stream news-spark-unclassified-issue-stream
+    # 47개국 운영 Collector가 시작되면 동일 소스를 중복 조회하는 관측용 Collector는 중지한다.
+    - |
+      if [ "$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' news-collector | sed -n 's/^COLLECTOR_PROFILE=//p')" = "global47" ] && docker inspect news-collector-observe >/dev/null 2>&1; then
+        docker stop -t 30 news-collector-observe
+      fi
     # -----------------------------------------------------
     # BigData Prometheus / Grafana / Exporter 배포
     # -----------------------------------------------------
@@ -174,6 +179,8 @@ deploy-bigdata:
 
     # 애플리케이션 컨테이너 health 확인
     - test "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' news-collector)" = "healthy"
+    # heartbeat에 기록된 실제 실행 profile이 배포 설정과 같은지 확인한다.
+    - docker exec news-collector python -c 'import json, os; heartbeat=json.load(open("/data/collector/collector.heartbeat", encoding="utf-8")); assert heartbeat.get("collection_profile") == os.environ["COLLECTOR_PROFILE"], heartbeat'
     - test "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' news-silver-writer)" = "healthy"
     - test "$(docker inspect -f '{{.State.Running}}' news-spark-enriched-stream)" = "true"
     - test "$(docker inspect -f '{{.State.Running}}' news-spark-unclassified-issue-stream)" = "true"
