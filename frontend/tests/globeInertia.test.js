@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { advanceGlobeInertia, globeDragVelocity, globeReleaseVelocity } from '../src/lib/globeInertia.js';
 
 test('a quick drag glides after release and settles instead of spinning forever', () => {
-  const speed = globeDragVelocity(25, 0, 16);
+  const speed = globeReleaseVelocity([
+    { x: 0, y: 0, time: 0 }, { x: 25, y: 0, time: 16 },
+  ]);
   assert.ok(speed.yaw > 5 && speed.yaw <= 10);
   let state = { yaw: 0, pitch: 0, yawSpeed: speed.yaw, pitchSpeed: speed.pitch };
   for (let frame = 0; frame < 60; frame += 1) {
@@ -30,15 +32,15 @@ test('release speed uses the recent gesture, not a tiny last pointer event', () 
   assert.deepEqual(globeReleaseVelocity([]), { yaw: 0, pitch: 0 });
 });
 
-test('release carries actual gesture speed into the glide without an artificial boost', () => {
+test('release carries 90% of the gesture speed into the glide without changing drag sensitivity', () => {
   const fast = globeReleaseVelocity([
     { x: 0, y: 0, time: 0 }, { x: 25, y: 0, time: 16 },
   ]);
   const slow = globeReleaseVelocity([
     { x: 0, y: 0, time: 0 }, { x: 2, y: 0, time: 30 },
   ]);
-  assert.ok(Math.abs(fast.yaw - 25 * 0.0045 / 0.016) < 1e-10);
-  assert.equal(slow.yaw, globeDragVelocity(2, 0, 30).yaw);
+  assert.ok(Math.abs(fast.yaw - globeDragVelocity(25, 0, 16).yaw * 0.9) < 1e-10);
+  assert.equal(slow.yaw, globeDragVelocity(2, 0, 30).yaw * 0.9);
 });
 
 test('pausing before release brakes the globe and gentle movements settle quickly', () => {

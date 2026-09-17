@@ -119,6 +119,7 @@ function disposeObj(o) {
  *          pinCities?: Record<string, [number, number][]>,
  *          pinsOf?: (country: object) => {title: string, tr: number}[],
  *          onOpenCountry?: (id: string) => void,
+ *          countryClickHint?: string,
  *          onSelectPin?: (pin: {cid: string, idx: number, title: string}) => void,
  *          showBeacons?: boolean, spinControl?: boolean,
  *          meteorInterval?: number, meteorTopics?: object[],
@@ -137,6 +138,7 @@ export default function GlobeThree({
   pinCities = {},
   pinsOf,
   onOpenCountry,
+  countryClickHint = '클릭하면 국가 분석으로 이동',
   onSelectPin,
   showBeacons = false,
   spinControl = true,
@@ -161,7 +163,7 @@ export default function GlobeThree({
 
   /* 콜백은 ref로 넘긴다 — 씬을 다시 만들지 않기 위해 */
   const cb = useRef({});
-  cb.current = { onOpenCountry, onSelectPin, onMeteorImpact, pinsOf };
+  cb.current = { onOpenCountry, onSelectPin, onMeteorImpact, pinsOf, countryClickHint };
 
   /* ── 씬 생성 (마운트 1회) ── */
   useEffect(() => {
@@ -868,7 +870,7 @@ export default function GlobeThree({
         } else if (u.type === 'pin') {
           tt = `📌 <b>${escapeHtml(u.title)}</b><br>클릭하면 기사로 이동`;
         } else {
-          tt = `${escapeHtml(u.flag)} <b>${escapeHtml(u.name)}</b> · 클릭하면 국가 분석으로 이동`;
+          tt = `${escapeHtml(u.flag)} <b>${escapeHtml(u.name)}</b> · ${escapeHtml(cb.current.countryClickHint)}`;
           if (TONE.active && TONE.topic.t[u.id]) {
             const d = TONE.topic.t[u.id];
             const badge = d.s == null ? '분석 없음' : d.n != null && TONE.minN != null && d.n < TONE.minN ? '표본부족' : (d.s > 0 ? '+' : '') + d.s.toFixed(2);
@@ -1240,7 +1242,7 @@ export default function GlobeThree({
         className={`${s.canvas} ${earthStatus === 'ready' ? s.ready : s.pending}`}
         aria-busy={earthStatus === 'loading'}
         role="application"
-        aria-label="분석 대상 국가가 표시된 3D 지구본. 국가를 클릭하면 해당 국가 기사로 이동합니다."
+        aria-label={`분석 대상 국가가 표시된 3D 지구본. 국가를 ${countryClickHint}.`}
       />
       {earthStatus !== 'ready' && <div className={s.loadingOverlay}>
         {earthStatus === 'error' ? <div role="alert">

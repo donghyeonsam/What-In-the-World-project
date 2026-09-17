@@ -74,6 +74,7 @@ function DashboardApp({ onNews, initialCountry }) {
         : [...old, next]);
   }, []);
   const goCountry = useCallback((id) => go({ type: 'country', countryCode: id.toUpperCase(), title: countryMetadata.find((c) => c.id === id)?.name || id }), [go]);
+  const selectIssueCountry = useCallback((id) => setSpot((old) => old === id ? null : id), []);
   const openPalette = useCallback(() => setPaletteOpen(true), []);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   usePaletteHotkey(openPalette, closePalette);
@@ -91,7 +92,9 @@ function DashboardApp({ onNews, initialCountry }) {
 
   const catalog = useMemo(() => (fields.data || []).flatMap((field) => field.themes.map((item) => ({ ...item, fieldId: field.fieldId, fieldName: field.fieldName }))), [fields.data]);
   const rows = (issue.data?.countryTones || []).filter((row) => !view.countryCode || row.country.countryCode.toUpperCase() === view.countryCode);
-  const selectedTone = view.type === 'issue' ? rows.find((row) => row.country.countryCode.toLowerCase() === spot) : null;
+  const selectedCountry = view.type === 'issue' ? countryMetadata.find((item) => item.id === spot) : null;
+  const selectedTone = selectedCountry
+    ? issue.data?.countryTones?.find((row) => row.country.countryCode.toLowerCase() === spot) : null;
   const analysisToneColor = selectedTone?.articleCount >= 30 && selectedTone.toneAvg != null
     ? toneRGB(scoreOf(selectedTone.toneAvg)).join(', ') : null;
   const analysis = useResource(selectedTone ? `analysis:${view.issueId}:${spot}` : null,
@@ -148,7 +151,7 @@ function DashboardApp({ onNews, initialCountry }) {
     <SubHeading title={data.issuePreview.issueTitle} desc={data.issuePreview.themeTitle} />
     <KpiCards items={[{ label: '전 세계 관련 기사 · 전체 기간', value: fmt(data.issueInfo.articleCount), unit: '건' }, { label: '보도 국가 · 전체 기간', value: fmt(data.issueInfo.countryCount), unit: '개국' }]} />
     <SectionTitle title={view.countryCode ? `${countryName}의 논조` : '국가별 논조'} note="최근 24시간 발행 기사 기준" />
-    <ApiToneScatter rows={rows} spot={spot} onSelectCountry={(id) => setSpot((old) => old === id ? null : id)} />
+    <ApiToneScatter rows={rows} spot={spot} onSelectCountry={selectIssueCountry} />
     <SectionTitle title={view.countryCode ? `${countryName} 대표 기사` : '대표 기사 · 전 세계'} action={{ label: '더 보기 →', onClick: openArticles }} />
     <ArticleFeed articles={data.representArticles.slice(0, 3).map(articleCard)} />
   </>}</ResourceState>;
@@ -169,10 +172,11 @@ function DashboardApp({ onNews, initialCountry }) {
   return <><DashboardLayout panelRef={panelRef}
     header={<HeaderMinimal route={view.countryCode ? 'country' : 'global'} onRoute={(route) => route === 'news' ? onNews() : route === 'global' ? go(HOME) : goCountry(view.countryCode?.toLowerCase() || 'kr')} onSearch={openPalette} />}
     stage={<GlobeSlot><GlobeThree countries={countryMetadata} iso3={iso3} tone={mapTone} minSample={null} focus={spot || view.countryCode?.toLowerCase()}
-      calloutCountry={selectedTone ? spot : null}
-      callout={selectedTone ? <IssueCountryAnalysis countryName={selectedTone.country.countryName}
-        toneColor={analysisToneColor} resource={analysis} /> : null}
-      mentionRelations={relations} spinControl onOpenCountry={goCountry} /></GlobeSlot>}
+      calloutCountry={selectedCountry?.id || null}
+      callout={selectedCountry ? <IssueCountryAnalysis countryName={selectedCountry.name}
+        noCoverage={!selectedTone} toneColor={analysisToneColor} resource={analysis} /> : null}
+      countryClickHint={view.type === 'issue' ? '클릭하면 이 이슈의 보도 관점 보기' : undefined}
+      mentionRelations={relations} spinControl onOpenCountry={view.type === 'issue' ? selectIssueCountry : goCountry} /></GlobeSlot>}
     panel={<div className={s.panelContent}>{history.length > 1 && <div className={s.panelNav}>
       <BackLink onClick={() => setHistory((old) => old.slice(0, -1))}>← 이전 화면</BackLink>
     </div>}{body}</div>} />
