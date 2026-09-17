@@ -176,6 +176,7 @@ function DashboardApp({ onNews, initialCountry }) {
       callout={selectedCountry ? <IssueCountryAnalysis countryName={selectedCountry.name}
         noCoverage={!selectedTone} toneColor={analysisToneColor} resource={analysis} /> : null}
       countryClickHint={view.type === 'issue' ? '클릭하면 이 이슈의 보도 관점 보기' : undefined}
+      onGlobeMove={view.type === 'issue' && spot ? () => setSpot(null) : undefined}
       mentionRelations={relations} spinControl onOpenCountry={view.type === 'issue' ? selectIssueCountry : goCountry} /></GlobeSlot>}
     panel={<div className={s.panelContent}>{history.length > 1 && <div className={s.panelNav}>
       <BackLink onClick={() => setHistory((old) => old.slice(0, -1))}>← 이전 화면</BackLink>
