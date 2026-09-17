@@ -16,6 +16,7 @@ import com.ssafy.witw.domain.issue.dto.GlobalIssueRankResponse;
 import com.ssafy.witw.domain.issue.dto.IssueInfo;
 import com.ssafy.witw.domain.issue.dto.IssueOverviewResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,8 +28,10 @@ import java.util.List;
 @Transactional(readOnly = true)
 public class IssueService {
 
-    private static final int GLOBAL_ISSUE_RANK_LIMIT = 5;
     private static final int MAX_ARTICLE_LIMIT = 10;
+
+    @Value("${analysis.top-issue-limit:5}")
+    private int globalIssueRankLimit = 5;
 
     private final IssueRepository issueRepository;
     private final ArticleRepository articleRepository;
@@ -80,7 +83,7 @@ public class IssueService {
     public GlobalIssueRankResponse getGlobalIssueRank(LocalDateTime asOf) {
         long totalArticleCount = articleRepository.countVisibleAt(asOf);
         long recent24ArticleCount = articleRepository.countArticlesLast24Hours(null, null, asOf);
-        List<GlobalIssue> globalIssues = issueRepository.findGlobalIssueRankLast24Hours(GLOBAL_ISSUE_RANK_LIMIT, asOf)
+        List<GlobalIssue> globalIssues = issueRepository.findGlobalIssueRankLast24Hours(globalIssueRankLimit, asOf)
                 .stream()
                 .map(this::toGlobalIssue)
                 .toList();
