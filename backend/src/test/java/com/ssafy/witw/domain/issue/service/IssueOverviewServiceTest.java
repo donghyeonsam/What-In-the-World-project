@@ -2,16 +2,16 @@ package com.ssafy.witw.domain.issue.service;
 
 import com.ssafy.witw.common.exception.GlobalException;
 import com.ssafy.witw.common.response.ErrorCode;
-import com.ssafy.witw.domain.article.dao.ArticleRepository;
 import com.ssafy.witw.domain.article.dao.ArticleRepository.RepresentArticleProjection;
+import com.ssafy.witw.domain.article.dao.ArticleRepository;
 import com.ssafy.witw.domain.article.dto.ArticleTone;
 import com.ssafy.witw.domain.article.dto.RepresentArticle;
 import com.ssafy.witw.domain.country.dto.CountryPoint;
 import com.ssafy.witw.domain.country.dto.CountryTone;
 import com.ssafy.witw.domain.issue.dao.IssueRepository;
 import com.ssafy.witw.domain.issue.dto.IssueOverviewResponse;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -26,6 +26,8 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -40,7 +42,7 @@ class IssueOverviewServiceTest {
         // given
         when(issueRepository.existsById(1L)).thenReturn(true);
         var preview = 프리뷰(8L);
-        when(issueRepository.getIssuePreviewByIssueId(1L)).thenReturn(preview);
+        when(issueRepository.getIssuePreviewByIssueId(eq(1L), any(LocalDateTime.class))).thenReturn(preview);
         var country = mock(IssueRepository.CountryToneRow.class);
         when(country.getCountryCode()).thenReturn("KR");
         when(country.getCountryName()).thenReturn("대한민국");
@@ -51,7 +53,7 @@ class IssueOverviewServiceTest {
         when(country.getToneMax()).thenReturn(80.0);
         when(country.getToneSd()).thenReturn(12.5);
         when(country.getArticleCount()).thenReturn(4L);
-        when(issueRepository.findCountryTonesLast24Hours(1L)).thenReturn(List.of(country));
+        when(issueRepository.findCountryTonesLast24Hours(eq(1L), any(LocalDateTime.class))).thenReturn(List.of(country));
 
         var article = mock(RepresentArticleProjection.class);
         LocalDateTime publishedAt = LocalDateTime.of(2026, 9, 7, 12, 0);
@@ -61,7 +63,7 @@ class IssueOverviewServiceTest {
         when(article.getUrl()).thenReturn("https://example.com/article-1");
         when(article.getArticleToneScore()).thenReturn(new BigDecimal(score));
         when(article.getPublishedAt()).thenReturn(publishedAt);
-        when(articleRepository.getRepresentArticlesByIssueId(1L, 2)).thenReturn(List.of(article));
+        when(articleRepository.getRepresentArticlesByIssueId(eq(1L), eq(2), any(LocalDateTime.class))).thenReturn(List.of(article));
 
         // when
         var response = issueService.getIssueOverview(1L, 2);
@@ -77,7 +79,7 @@ class IssueOverviewServiceTest {
                 .as("대표 기사 모든 필드를 보존하고 점수 경계에 맞는 ArticleTone으로 변환함")
                 .containsExactly(new RepresentArticle("article-1", "대표 기사 제목", expectedTone, "언론사",
                         "https://example.com/article-1", publishedAt));
-        verify(articleRepository).getRepresentArticlesByIssueId(1L, 2);
+        verify(articleRepository).getRepresentArticlesByIssueId(eq(1L), eq(2), any(LocalDateTime.class));
     }
 
     @Test
@@ -85,9 +87,9 @@ class IssueOverviewServiceTest {
         // given
         when(issueRepository.existsById(1L)).thenReturn(true);
         var preview = 프리뷰(0L);
-        when(issueRepository.getIssuePreviewByIssueId(1L)).thenReturn(preview);
-        when(issueRepository.findCountryTonesLast24Hours(1L)).thenReturn(List.of());
-        when(articleRepository.getRepresentArticlesByIssueId(1L, 3)).thenReturn(List.of());
+        when(issueRepository.getIssuePreviewByIssueId(eq(1L), any(LocalDateTime.class))).thenReturn(preview);
+        when(issueRepository.findCountryTonesLast24Hours(eq(1L), any(LocalDateTime.class))).thenReturn(List.of());
+        when(articleRepository.getRepresentArticlesByIssueId(eq(1L), eq(3), any(LocalDateTime.class))).thenReturn(List.of());
 
         // when
         var response = issueService.getIssueOverview(1L, 3);
@@ -102,13 +104,13 @@ class IssueOverviewServiceTest {
     void 국가_코드가_있으면_해당_국가의_대표_기사만_조회한다() {
         var preview = 프리뷰(1L);
         when(issueRepository.existsById(1L)).thenReturn(true);
-        when(issueRepository.getIssuePreviewByIssueId(1L)).thenReturn(preview);
-        when(issueRepository.findCountryTonesLast24Hours(1L)).thenReturn(List.of());
-        when(articleRepository.getRepresentArticlesByIssueIdAndCountryCode(1L, "KR", 3)).thenReturn(List.of());
+        when(issueRepository.getIssuePreviewByIssueId(eq(1L), any(LocalDateTime.class))).thenReturn(preview);
+        when(issueRepository.findCountryTonesLast24Hours(eq(1L), any(LocalDateTime.class))).thenReturn(List.of());
+        when(articleRepository.getRepresentArticlesByIssueIdAndCountryCode(eq(1L), eq("KR"), eq(3), any(LocalDateTime.class))).thenReturn(List.of());
 
         issueService.getIssueOverview(1L, 3, "KR");
 
-        verify(articleRepository).getRepresentArticlesByIssueIdAndCountryCode(1L, "KR", 3);
+        verify(articleRepository).getRepresentArticlesByIssueIdAndCountryCode(eq(1L), eq("KR"), eq(3), any(LocalDateTime.class));
     }
 
     @Test

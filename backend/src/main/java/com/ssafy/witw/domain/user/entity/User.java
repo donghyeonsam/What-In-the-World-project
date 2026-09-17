@@ -66,6 +66,25 @@ public class User {
         this.withdrawnAt = null;
     }
 
+    public static User createSsafy(String email, String providerId){
+        User user = new User();
+
+        user.email = email;
+        user.passwordHash = null;
+        user.authProvider = AuthProvider.SSAFY;
+        user.providerId = providerId;
+        user.role = UserRole.USER;
+
+        return user;
+    }
+
+    public void reactivateSsafy(){
+        this.passwordHash = null;
+        this.authProvider = AuthProvider.SSAFY;
+        this.role = UserRole.USER;
+        this.withdrawnAt = null;
+    }
+
     public void changePassword(String passwordHash){
         this.passwordHash = passwordHash;
     }

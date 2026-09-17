@@ -1,19 +1,21 @@
 package com.ssafy.witw.domain.country.service;
 
+import com.ssafy.witw.common.time.QueryTime;
 import com.ssafy.witw.domain.article.dao.ArticleRepository;
 import com.ssafy.witw.domain.article.dto.RepresentArticle;
-import com.ssafy.witw.domain.country.dao.CountryRepository;
 import com.ssafy.witw.domain.country.dao.CountryRepository.MentionRatioRow;
-import com.ssafy.witw.domain.country.dto.CountryMainResponse;
+import com.ssafy.witw.domain.country.dao.CountryRepository;
 import com.ssafy.witw.domain.country.dto.CountryMainResponse.MentionRatio;
+import com.ssafy.witw.domain.country.dto.CountryMainResponse;
 import com.ssafy.witw.domain.country.entity.Country;
-import com.ssafy.witw.domain.theme.dao.ThemeRepository;
 import com.ssafy.witw.domain.theme.dao.ThemeRepository.PopularThemeRow;
+import com.ssafy.witw.domain.theme.dao.ThemeRepository;
 import com.ssafy.witw.domain.theme.dto.PopularTheme;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -32,28 +34,32 @@ public class CountryService {
 
     // 진입점에서 국가를 한 번만 검증하고, 이후 조회는 리포지토리에서 바로 가져온다
     public CountryMainResponse getCountryMain(String countryCode) {
+        return getCountryMain(countryCode, QueryTime.now());
+    }
+
+    public CountryMainResponse getCountryMain(String countryCode, LocalDateTime asOf) {
         Country country = countryFinder.getCountry(countryCode);
 
         return new CountryMainResponse(
                 country.getCountryCode(),
                 country.getNameKo(),
-                articleRepository.countArticlesLast24Hours(countryCode, null),
-                getGlobalRank(countryCode),
-                getPopularThemes(countryCode, POPULAR_THEME_LIMIT),
-                toMentionRatios(countryRepository.findOutgoingMentionRatios(countryCode, MENTION_LIMIT)),
-                toMentionRatios(countryRepository.findIncomingMentionRatios(countryCode, MENTION_LIMIT)),
-                getRepresentArticles(countryCode, REPRESENT_ARTICLE_LIMIT)
+                articleRepository.countArticlesLast24Hours(countryCode, null, asOf),
+                getGlobalRank(countryCode, asOf),
+                getPopularThemes(countryCode, POPULAR_THEME_LIMIT, asOf),
+                toMentionRatios(countryRepository.findOutgoingMentionRatios(countryCode, MENTION_LIMIT, asOf)),
+                toMentionRatios(countryRepository.findIncomingMentionRatios(countryCode, MENTION_LIMIT, asOf)),
+                getRepresentArticles(countryCode, REPRESENT_ARTICLE_LIMIT, asOf)
         );
     }
 
     // country LEFT JOIN이라 기사 0건인 국가도 공동 순위를 받고,
     // getCountry()로 존재를 이미 확인했으므로 항상 순위가 나온다.
-    private int getGlobalRank(String countryCode) {
-        return articleRepository.getCountryRankByArticleCounts(countryCode);
+    private int getGlobalRank(String countryCode, LocalDateTime asOf) {
+        return articleRepository.getCountryRankByArticleCounts(countryCode, asOf);
     }
 
-    private List<PopularTheme> getPopularThemes(String countryCode, int limit) {
-        return themeRepository.findPopularThemes(countryCode, limit)
+    private List<PopularTheme> getPopularThemes(String countryCode, int limit, LocalDateTime asOf) {
+        return themeRepository.findPopularThemes(countryCode, limit, asOf)
                 .stream()
                 .map(this::toPopularTheme)
                 .toList();
@@ -68,8 +74,8 @@ public class CountryService {
         );
     }
 
-    private List<RepresentArticle> getRepresentArticles(String countryCode, int limit) {
-        return articleRepository.findRepresentArticlesByCountry(countryCode, limit)
+    private List<RepresentArticle> getRepresentArticles(String countryCode, int limit, LocalDateTime asOf) {
+        return articleRepository.findRepresentArticlesByCountry(countryCode, limit, asOf)
                 .stream()
                 .map(RepresentArticle::from)
                 .toList();

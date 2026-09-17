@@ -1,7 +1,7 @@
 package com.ssafy.witw.domain.theme.controller;
 
-import com.ssafy.witw.domain.theme.dto.FieldThemesResponse;
 import com.ssafy.witw.domain.theme.dto.FieldThemesResponse.ThemeCount;
+import com.ssafy.witw.domain.theme.dto.FieldThemesResponse;
 import com.ssafy.witw.domain.theme.service.ThemeService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,8 +12,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -36,7 +38,7 @@ class FieldThemesControllerTest {
     @DisplayName("[분야별 테마 조회] 200과 공통 성공 응답 및 분야-테마 구조를 반환한다")
     void 성공하면_공통_성공_응답에_분야별_테마를_담아_반환한다() throws Exception {
         // given
-        when(themeService.getThemesByField()).thenReturn(List.of(
+        when(themeService.getThemesByField(any(LocalDateTime.class))).thenReturn(List.of(
                 new FieldThemesResponse(1L, "Field 1", List.of(
                         new ThemeCount(10L, "Theme 10", 3),
                         new ThemeCount(11L, "Theme 11", 0))),
@@ -66,7 +68,7 @@ class FieldThemesControllerTest {
     @DisplayName("[분야별 테마 조회] 반환할 분야가 없으면 200과 빈 배열을 반환한다")
     void 반환할_분야가_없으면_빈_배열을_반환한다() throws Exception {
         // given
-        when(themeService.getThemesByField()).thenReturn(List.of());
+        when(themeService.getThemesByField(any(LocalDateTime.class))).thenReturn(List.of());
 
         // when
         var result = mvc.perform(get("/api/v1/themes/by-field"));

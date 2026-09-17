@@ -7,8 +7,10 @@ import com.ssafy.witw.common.response.SuccessCode;
 import com.ssafy.witw.domain.auth.dto.request.*;
 import com.ssafy.witw.domain.auth.dto.response.EmailExistsResponse;
 import com.ssafy.witw.domain.auth.dto.response.EmailSendResponse;
+import com.ssafy.witw.domain.auth.dto.response.SsafyUserInfo;
 import com.ssafy.witw.domain.auth.service.AuthService;
 import com.ssafy.witw.domain.auth.service.EmailVerificationService;
+import com.ssafy.witw.domain.auth.service.SsafyOAuthClient;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -33,6 +35,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 public class AuthController {
     private final AuthService authService;
     private final EmailVerificationService emailVerificationService;
+    private final SsafyOAuthClient ssafyOAuthClient;
 
     @PostMapping("/signup")
     @Operation(summary = "이메일 회원가입")
@@ -148,5 +151,26 @@ public class AuthController {
 
         return BaseResponse.success(SuccessCode.PASSWORD_RESET_SUCCESS);
     }
+
+    @PostMapping("/ssafy")
+    @Operation(summary = "SSAFY 로그인 및 회원가입")
+    public ResponseEntity<BaseResponse<Void>> ssafyLogin(
+            @Valid @RequestBody SsafyLoginRequest request, HttpServletRequest httpRequest
+    ){
+        SsafyUserInfo userInfo = ssafyOAuthClient.authenticate(request.code());
+
+        Long userId = authService.ssafyLogin(userInfo);
+
+        HttpSession previousSession = httpRequest.getSession(false);
+
+        if(previousSession != null)
+            previousSession.invalidate();
+
+        HttpSession session = httpRequest.getSession(true);
+        session.setAttribute("userId", userId);
+
+        return BaseResponse.success(SuccessCode.SSAFY_LOGIN_SUCCESS);
+    }
+
 
 }

@@ -2,27 +2,29 @@ package com.ssafy.witw.domain.theme.service;
 
 import com.ssafy.witw.common.exception.GlobalException;
 import com.ssafy.witw.common.response.ErrorCode;
-import com.ssafy.witw.domain.article.dao.ArticleRepository;
+import com.ssafy.witw.common.time.QueryTime;
 import com.ssafy.witw.domain.article.dao.ArticleRepository.RepresentArticleProjection;
+import com.ssafy.witw.domain.article.dao.ArticleRepository;
 import com.ssafy.witw.domain.article.dto.ArticleTone;
 import com.ssafy.witw.domain.article.dto.RepresentArticle;
-import com.ssafy.witw.domain.country.service.CountryFinder;
 import com.ssafy.witw.domain.country.entity.Country;
+import com.ssafy.witw.domain.country.service.CountryFinder;
 import com.ssafy.witw.domain.issue.dao.IssueRepository;
-import com.ssafy.witw.domain.theme.dao.ThemeRepository;
 import com.ssafy.witw.domain.theme.dao.ThemeRepository.FieldThemeRow;
-import com.ssafy.witw.domain.theme.dto.FieldThemesResponse;
 import com.ssafy.witw.domain.theme.dao.ThemeRepository.PopularThemeTrendRow;
-import com.ssafy.witw.domain.theme.dto.PopularThemeTrend;
+import com.ssafy.witw.domain.theme.dao.ThemeRepository;
+import com.ssafy.witw.domain.theme.dto.FieldThemesResponse;
+import com.ssafy.witw.domain.theme.dto.PopularThemeResponse;
 import com.ssafy.witw.domain.theme.dto.PopularThemeTrend.ThemeTimeStamp;
 import com.ssafy.witw.domain.theme.dto.PopularThemeTrend.TimeStamp;
-import com.ssafy.witw.domain.theme.dto.PopularThemeResponse;
+import com.ssafy.witw.domain.theme.dto.PopularThemeTrend;
 import com.ssafy.witw.domain.theme.dto.ThemeOverviewResponse;
 import com.ssafy.witw.domain.theme.entity.Theme;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 
@@ -43,7 +45,11 @@ public class ThemeService {
     private final ArticleRepository articleRepository;
 
     public List<FieldThemesResponse> getThemesByField() {
-        return themeRepository.findThemesByField().stream()
+        return getThemesByField(QueryTime.now());
+    }
+
+    public List<FieldThemesResponse> getThemesByField(LocalDateTime asOf) {
+        return themeRepository.findThemesByField(asOf).stream()
                 .collect(groupingBy(FieldThemeRow::getFieldId, LinkedHashMap::new, toList()))
                 .values().stream()
                 .map(rows -> new FieldThemesResponse(
@@ -58,10 +64,14 @@ public class ThemeService {
     }
 
     public ThemeOverviewResponse getThemeOverview(Long themeId, int issueLimit, int articleLimit) {
-        return getThemeOverview(themeId, issueLimit, articleLimit, null);
+        return getThemeOverview(themeId, issueLimit, articleLimit, null, QueryTime.now());
     }
 
     public ThemeOverviewResponse getThemeOverview(Long themeId, int issueLimit, int articleLimit, String countryCode) {
+        return getThemeOverview(themeId, issueLimit, articleLimit, countryCode, QueryTime.now());
+    }
+
+    public ThemeOverviewResponse getThemeOverview(Long themeId, int issueLimit, int articleLimit, String countryCode, LocalDateTime asOf) {
         validateLimit(issueLimit);
         validateLimit(articleLimit);
 
@@ -69,15 +79,15 @@ public class ThemeService {
                 .orElseThrow(() -> new GlobalException(ErrorCode.THEME_NOT_FOUND));
 
         List<ThemeOverviewResponse.PrimaryIssue> primaryIssues = issueRepository
-                .getPrimaryIssuesByThemeId(themeId, issueLimit)
+                .getPrimaryIssuesByThemeId(themeId, issueLimit, asOf)
                 .stream()
                 .map(issue -> new ThemeOverviewResponse.PrimaryIssue(
                         issue.getIssueId(), issue.getIssueTitle()))
                 .toList();
 
         List<RepresentArticleProjection> articleRows = countryCode == null
-                ? articleRepository.getRepresentArticlesByThemeId(themeId, articleLimit)
-                : articleRepository.getRepresentArticlesByThemeIdAndCountryCode(themeId, countryCode, articleLimit);
+                ? articleRepository.getRepresentArticlesByThemeId(themeId, articleLimit, asOf)
+                : articleRepository.getRepresentArticlesByThemeIdAndCountryCode(themeId, countryCode, articleLimit, asOf);
         List<RepresentArticle> representArticles = articleRows
                 .stream()
                 .map(this::toRepresentArticle)
@@ -110,13 +120,17 @@ public class ThemeService {
     }
 
     public PopularThemeResponse getPopularThemes(String countryCode, int limit) {
+        return getPopularThemes(countryCode, limit, QueryTime.now());
+    }
+
+    public PopularThemeResponse getPopularThemes(String countryCode, int limit, LocalDateTime asOf) {
 
         // TODO: Controller @Valid로 처리 예정
         validateLimit(limit);
 
         Country country = countryFinder.getCountry(countryCode);
 
-        List<PopularThemeTrend> popularThemes = themeRepository.findPopularThemesWithHourlyTrend(countryCode, limit)
+        List<PopularThemeTrend> popularThemes = themeRepository.findPopularThemesWithHourlyTrend(countryCode, limit, asOf)
                 .stream()
                 .collect(groupingBy(PopularThemeTrendRow::getThemeId, LinkedHashMap::new, toList()))
                 .values()

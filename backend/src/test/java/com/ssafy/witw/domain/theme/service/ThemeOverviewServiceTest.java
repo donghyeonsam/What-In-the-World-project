@@ -1,15 +1,15 @@
 package com.ssafy.witw.domain.theme.service;
 
-import com.ssafy.witw.domain.article.dao.ArticleRepository;
 import com.ssafy.witw.domain.article.dao.ArticleRepository.RepresentArticleProjection;
+import com.ssafy.witw.domain.article.dao.ArticleRepository;
 import com.ssafy.witw.domain.article.dto.ArticleTone;
 import com.ssafy.witw.domain.country.service.CountryFinder;
 import com.ssafy.witw.domain.issue.dao.IssueRepository;
 import com.ssafy.witw.domain.theme.dao.ThemeRepository;
 import com.ssafy.witw.domain.theme.dto.ThemeOverviewResponse;
 import com.ssafy.witw.domain.theme.entity.Theme;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -20,8 +20,10 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class ThemeOverviewServiceTest {
@@ -59,8 +61,8 @@ class ThemeOverviewServiceTest {
         when(article.getPublishedAt()).thenReturn(LocalDateTime.of(2026, 1, 1, 12, 0));
 
         when(themeRepository.findById(THEME_ID)).thenReturn(Optional.of(theme));
-        when(issueRepository.getPrimaryIssuesByThemeId(THEME_ID, 3)).thenReturn(List.of(issue));
-        when(articleRepository.getRepresentArticlesByThemeId(THEME_ID, 10)).thenReturn(List.of(article));
+        when(issueRepository.getPrimaryIssuesByThemeId(eq(THEME_ID), eq(3), any(LocalDateTime.class))).thenReturn(List.of(issue));
+        when(articleRepository.getRepresentArticlesByThemeId(eq(THEME_ID), eq(10), any(LocalDateTime.class))).thenReturn(List.of(article));
 
         // when
         ThemeOverviewResponse response = service().getThemeOverview(THEME_ID, 3, 10);
@@ -89,13 +91,13 @@ class ThemeOverviewServiceTest {
         theme.setId(THEME_ID);
         theme.setName("기후 변화");
         when(themeRepository.findById(THEME_ID)).thenReturn(Optional.of(theme));
-        when(issueRepository.getPrimaryIssuesByThemeId(THEME_ID, 3)).thenReturn(List.of());
-        when(articleRepository.getRepresentArticlesByThemeIdAndCountryCode(THEME_ID, "KR", 10))
+        when(issueRepository.getPrimaryIssuesByThemeId(eq(THEME_ID), eq(3), any(LocalDateTime.class))).thenReturn(List.of());
+        when(articleRepository.getRepresentArticlesByThemeIdAndCountryCode(eq(THEME_ID), eq("KR"), eq(10), any(LocalDateTime.class)))
                 .thenReturn(List.of());
 
         service().getThemeOverview(THEME_ID, 3, 10, "KR");
 
-        verify(articleRepository).getRepresentArticlesByThemeIdAndCountryCode(THEME_ID, "KR", 10);
+        verify(articleRepository).getRepresentArticlesByThemeIdAndCountryCode(eq(THEME_ID), eq("KR"), eq(10), any(LocalDateTime.class));
     }
 
     private ThemeService service() {

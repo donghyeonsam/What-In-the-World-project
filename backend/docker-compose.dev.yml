@@ -74,6 +74,11 @@ services:
       VALKEY_HOST_PORT: "6379"
       VALKEY_PASSWORD: ""
       CORS_ALLOWED_ORIGIN: https://dev.witw.kro.kr
+      MAIL_USERNAME: ${MAIL_USERNAME:?MAIL_USERNAME is required}
+      MAIL_APP_PASSWORD: ${MAIL_APP_PASSWORD:?MAIL_APP_PASSWORD is required}
+      SSAFY_CLIENT_ID: ${SSAFY_CLIENT_ID:?SSAFY_CLIENT_ID is required}
+      SSAFY_CLIENT_SECRET: ${SSAFY_CLIENT_SECRET:?SSAFY_CLIENT_SECRET is required}
+      SSAFY_REDIRECT_URI: ${SSAFY_REDIRECT_URI:?SSAFY_REDIRECT_URI is required}
     ports:
       - "127.0.0.1:8081:8080"
     depends_on:

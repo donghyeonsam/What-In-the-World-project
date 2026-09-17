@@ -4,7 +4,9 @@ import com.ssafy.witw.common.exception.GlobalException;
 import com.ssafy.witw.common.response.BaseResponse;
 import com.ssafy.witw.common.response.ErrorCode;
 import com.ssafy.witw.common.response.SuccessCode;
+import com.ssafy.witw.domain.user.dto.request.PasswordChangeRequest;
 import com.ssafy.witw.domain.user.dto.request.WithdrawRequest;
+import com.ssafy.witw.domain.user.dto.response.UserResponse;
 import com.ssafy.witw.domain.user.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -13,6 +15,7 @@ import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -43,6 +46,43 @@ public class UserController {
         session.invalidate();
 
         return BaseResponse.success(SuccessCode.WITHDRAW_SUCCESS);
+    }
+
+    @GetMapping("/me")
+    @Operation(summary = "로그인 사용자 정보 조회")
+    public ResponseEntity<BaseResponse<UserResponse>> getCurrentUser(
+            HttpServletRequest httpRequest
+    ){
+        HttpSession session = httpRequest.getSession(false);
+
+        if(session == null) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+        Object attribute = session.getAttribute("userId");
+
+        if(!(attribute instanceof Long userId)) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+        UserResponse response = userService.getCurrentUser(userId);
+
+        return BaseResponse.success(SuccessCode.REQUEST_SUCCESS, response);
+    }
+
+    @PatchMapping("/password")
+    @Operation(summary = "로그인 사용자 비밀번호 변경")
+    public ResponseEntity<BaseResponse<Void>> changePassword(
+            @Valid @RequestBody PasswordChangeRequest request, HttpServletRequest httpRequest
+    ){
+        HttpSession session = httpRequest.getSession(false);
+
+        if(session == null) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+        Object attribute = session.getAttribute("userId");
+        if(!(attribute instanceof Long userId)) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+        userService.changePassword(userId, request);
+
+        session.invalidate();
+
+        return BaseResponse.success(SuccessCode.PASSWORD_CHANGE_SUCCESS);
     }
 
 }

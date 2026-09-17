@@ -60,5 +60,30 @@ test('screens render real DTO fields, empty states, and missing-data notices', a
     assert.match(render(Attention, { country: '한국', direction: 'outgoing', rows: [] }), /언급 데이터가 없습니다/);
     const { default: App } = await vite.ssrLoadModule('/src/App.jsx');
     assert.match(render(App, {}), /데이터를 불러오고 있습니다/);
+    assert.match(render(App, {}), /타임머신/);
+    assert.equal((render(App, {}).match(/role="application"/g) || []).length, 1);
+    const { StageClock, TimeTravelEffects } = await vite.ssrLoadModule('/src/timeMachine/TimeMachine.jsx');
+    assert.match(render(StageClock, { asOf: '2026-09-16T16:30:42Z' }), /2026년 9월 17일 1시 30분/);
+    assert.doesNotMatch(render(StageClock, { asOf: '2026-09-16T16:30:42Z' }), /그날의 세계|현재의 세계|한국 시간/);
+    const travel = render(TimeTravelEffects, {
+      trip: { target: '2026-09-10T01:50:00Z' }, progress: .5, reduced: false, onArrive: () => {},
+    });
+    assert.match(travel, /세계의 시간을 되감는 중/);
+    assert.doesNotMatch(travel, /ONE PLANET|A DIFFERENT MOMENT/);
+    assert.doesNotMatch(travel, /<dialog|role="application"/);
+    const { TimeMachinePicker } = await vite.ssrLoadModule('/src/timeMachine/TimeMachine.jsx');
+    const picker = render(TimeMachinePicker, { asOf: '2026-09-10T01:50:00Z' });
+    assert.match(picker, /min="2026-09-06"/);
+    assert.match(picker, /value="2026-09-10"/);
+    assert.match(picker, /다른 날짜를 선택하세요/);
+    assert.match(picker, /disabled=""/);
+    assert.match(picker, /data-time-machine-door="left"/);
+    assert.doesNotMatch(picker, /지금, 현재의 세계를 보고 있어요|시간을 돌려|↶/);
+    const { default: Header } = await vite.ssrLoadModule('/src/components/header/HeaderMinimal.jsx');
+    const archivedHeader = render(Header, { asOf: '2026-09-10T01:50:00Z', onTimeMachine: () => {} });
+    assert.match(archivedHeader, /aria-expanded="false"/);
+    assert.match(render(Header, { timeMachineOpen: true, onTimeMachine: () => {} }), /aria-expanded="true"/);
+    assert.match(archivedHeader, /현재로/);
+    assert.match(archivedHeader, /href="\/\?asOf=2026-09-10T01%3A50%3A00Z"/);
   } finally { await vite.close(); }
 });
