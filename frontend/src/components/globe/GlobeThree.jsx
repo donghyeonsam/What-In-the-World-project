@@ -6,6 +6,7 @@ import { countryCameraZ } from '../../lib/globeFocus.js';
 import { advanceGlobeInertia, globeReleaseVelocity } from '../../lib/globeInertia.js';
 import { earthTextureUrls, loadEarthTexture } from '../../lib/earthTextures.js';
 import { createMentionGroup, updateMentionFlow } from '../../lib/mentionLinks.js';
+import { layoutGlobeCallout } from '../../lib/globeCallout.js';
 import s from './GlobeThree.module.css';
 
 const GEO_URL =
@@ -142,11 +143,19 @@ export default function GlobeThree({
   meteorInterval = 0,
   meteorTopics = [],
   onMeteorImpact,
+  calloutCountry = null,
+  callout = null,
   children,
 }) {
   const wrapRef = useRef(null);
   const apiRef = useRef(null);
   const tipRef = useRef(null);
+  const calloutRef = useRef(null);
+  const calloutLineRef = useRef(null);
+  const calloutAnchorRef = useRef(null);
+  const calloutSizeRef = useRef({ width: 0, height: 0 });
+  const calloutCountryRef = useRef(calloutCountry);
+  calloutCountryRef.current = calloutCountry;
   const [autoSpin, setAutoSpin] = useState(() => !prefersReducedMotion());
   const [earthStatus, setEarthStatus] = useState('loading');
 
@@ -936,6 +945,47 @@ export default function GlobeThree({
     let t = 0;
     let raf = 0;
     let lastFrameAt = performance.now();
+    const calloutAnchors = new Map(countries.map((country) => [country.id, ll2v(country.lat, country.lon, 1.025)]));
+    const anchorWorld = new THREE.Vector3();
+    const anchorNormal = new THREE.Vector3();
+    const anchorToCamera = new THREE.Vector3();
+    const projectedAnchor = new THREE.Vector3();
+    const positionCallout = () => {
+      const card = calloutRef.current;
+      const line = calloutLineRef.current;
+      const dot = calloutAnchorRef.current;
+      if (!card || !line || !dot) return;
+      const country = countries.find((item) => item.id === calloutCountryRef.current);
+      if (!country) return;
+
+      globe.updateMatrixWorld(true);
+      cam.updateMatrixWorld();
+      anchorWorld.copy(calloutAnchors.get(country.id)).applyMatrix4(globe.matrixWorld);
+      anchorNormal.copy(anchorWorld).sub(globe.position).normalize();
+      anchorToCamera.copy(cam.position).sub(anchorWorld);
+      projectedAnchor.copy(anchorWorld).project(cam);
+      const visible = anchorNormal.dot(anchorToCamera) > 0.04
+        && projectedAnchor.z < 1 && Math.abs(projectedAnchor.x) < 1 && Math.abs(projectedAnchor.y) < 1;
+      card.style.visibility = visible ? 'visible' : 'hidden';
+      line.style.visibility = visible ? 'visible' : 'hidden';
+      dot.style.visibility = visible ? 'visible' : 'hidden';
+      if (!visible) return;
+
+      const x = (projectedAnchor.x + 1) * wrap.clientWidth / 2;
+      const y = (1 - projectedAnchor.y) * wrap.clientHeight / 2;
+      const { width, height } = calloutSizeRef.current;
+      if (!width || !height) return;
+      const placement = layoutGlobeCallout({
+        x, y, width, height, stageWidth: wrap.clientWidth, stageHeight: wrap.clientHeight,
+        preferRight: country.lon >= 0, latitude: country.lat,
+      });
+      card.style.transform = `translate3d(${placement.cardX}px, ${placement.cardY}px, 0)`;
+      line.setAttribute('x1', x);
+      line.setAttribute('y1', y);
+      line.setAttribute('x2', placement.lineX);
+      line.setAttribute('y2', placement.lineY);
+      dot.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    };
     const loop = () => {
       raf = requestAnimationFrame(loop);
       const now = performance.now();
@@ -983,6 +1033,7 @@ export default function GlobeThree({
       fxTick(t);
       updateMentionFlow(mentionGroup, performance.now() / 1000, reduced);
       renderer.render(scene, cam);
+      positionCallout();
       if (!firstFrameRendered) {
         firstFrameRendered = true;
         setEarthStatus('ready');
@@ -1115,6 +1166,16 @@ export default function GlobeThree({
     apiRef.current?.setHighlight(highlight);
   }, [highlight]);
 
+  useEffect(() => {
+    const card = calloutRef.current;
+    if (!card) return undefined;
+    const measure = () => { calloutSizeRef.current = { width: card.offsetWidth, height: card.offsetHeight }; };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(card);
+    return () => { observer.disconnect(); calloutSizeRef.current = { width: 0, height: 0 }; };
+  }, [calloutCountry, earthStatus]);
+
   /* 별똥별 — meteorInterval(ms)이 0보다 크면 순서대로 떨어뜨린다 */
   useEffect(() => {
     if (!meteorInterval || !meteorTopics.length) return undefined;
@@ -1141,6 +1202,11 @@ export default function GlobeThree({
         </div> : <p role="status">지구를 불러오는 중…</p>}
       </div>}
       <div className={s.tip} ref={tipRef} />
+      {earthStatus === 'ready' && calloutCountry && callout && <>
+        <svg className={s.analysisLink} aria-hidden="true"><line ref={calloutLineRef} /></svg>
+        <span className={s.analysisAnchor} ref={calloutAnchorRef} aria-hidden="true" />
+        <div className={s.analysisCallout} ref={calloutRef}>{callout}</div>
+      </>}
       {children}
       {earthStatus === 'ready' && mentionRelations.length > 0 && <div className={s.relationsLegend} style={spinControl ? { bottom: 88 } : undefined} role="status">
         <span style={{ color: mentionRelations[0].incoming ? '#ffb454' : '#6fe7ff' }}>

@@ -665,13 +665,13 @@
 .toneWord { grid-area: deviation; font-size: 12px; }
 .toneAxis { font-size: 11px; }
 .countryAnalysis {
-  margin: 2px 0 12px;
-  padding: 18px 20px;
-  border: 1px solid var(--wtw-line-strong);
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px solid #52657a;
   border-left: 3px solid var(--wtw-amber);
   border-radius: 10px;
-  background: var(--wtw-panel);
-  color: var(--wtw-text);
+  background: rgba(15, 23, 38, .97);
+  color: #f2f6fc;
 }
 .countryAnalysisMeta {
   display: flex;
@@ -688,17 +688,17 @@
   padding: 3px 7px;
   border: 1px solid var(--wtw-line-strong);
   border-radius: 999px;
-  color: var(--wtw-muted);
+  color: #b5c5d7;
   font-size: 10px;
   font-weight: 500;
 }
-.countryAnalysisMeta small { color: var(--wtw-muted); font-size: 11px; font-weight: 400; }
+.countryAnalysisMeta small { color: #b5c5d7; font-size: 11px; font-weight: 400; }
 .countryAnalysis h4 { margin: 12px 0 8px; font-size: 17px; line-height: 1.45; }
-.countryAnalysisSummary { margin: 0; color: var(--wtw-text-2); font-size: 14px; line-height: 1.75; }
-.countryAnalysis ul { margin: 14px 0 0; padding: 12px 0 0 17px; border-top: 1px solid var(--wtw-line); }
-.countryAnalysis li { margin: 0 0 7px; color: var(--wtw-muted); font-size: 12px; line-height: 1.65; }
-.countryAnalysisFoot { margin: 12px 0 0; color: var(--wtw-faint); font-size: 11px; }
-.countryAnalysis [role="status"], .countryAnalysis [role="alert"] { margin: 0; color: var(--wtw-muted); font-size: 13px; }
+.countryAnalysisSummary { margin: 0; color: #d2deea; font-size: 13px; line-height: 1.65; }
+.countryAnalysis ul { margin: 12px 0 0; padding: 10px 0 0 17px; border-top: 1px solid #334257; }
+.countryAnalysis li { margin: 0 0 5px; color: #b5c5d7; font-size: 11px; line-height: 1.55; }
+.countryAnalysisFoot { margin: 10px 0 0; color: #96a9bd; font-size: 10px; }
+.countryAnalysis [role="status"], .countryAnalysis [role="alert"] { margin: 0; color: #b5c5d7; font-size: 13px; }
 .countryAnalysis [role="alert"] button { margin-top: 8px; color: var(--wtw-accent); font-size: 12px; }
 .method { font-size: 12px; margin-top: 12px; }
 .method summary { cursor: pointer; width: fit-content; color: var(--wtw-text-2); }

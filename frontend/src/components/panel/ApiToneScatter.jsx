@@ -1,13 +1,11 @@
-import { Fragment } from 'react';
 import { P, sg, toneVar } from '../../lib/tone.js';
 import { flagOf, scoreOf, fmt } from '../../data/responseAdapters.js';
-import IssueCountryAnalysis from './IssueCountryAnalysis.jsx';
 import s from './panel.module.css';
 
 const sdOf = (value) => value == null ? null : Number(value) / 50;
 const deviationLabel = (sd) => sd < 0.2 ? '낮음' : sd < 0.4 ? '보통' : '높음';
 
-export default function ApiToneScatter({ rows = [], spot, onSelectCountry, analysis }) {
+export default function ApiToneScatter({ rows = [], spot, onSelectCountry }) {
   if (!rows.length) return <p role="status">최근 24시간 논조 데이터가 없습니다.</p>;
   return <div className={s.toneBlock}>
     <div className={s.toneAxis}><span>부정 −1.0</span><span>중립 0</span><span>긍정 +1.0</span></div>
@@ -20,7 +18,7 @@ export default function ApiToneScatter({ rows = [], spot, onSelectCountry, analy
       const rangeEnd = P(scoreOf(row.toneMax));
       const sd = sdOf(row.toneSd);
       const canShowDeviation = row.articleCount == null ? sd != null : row.articleCount >= 2 && sd != null;
-      return <Fragment key={id}><button type="button" className={`${s.toneRow} ${spot === id ? s.toneRowSpot : ''}`}
+      return <button key={id} type="button" className={`${s.toneRow} ${spot === id ? s.toneRowSpot : ''}`}
         onClick={() => onSelectCountry(id)} aria-pressed={spot === id}>
         <span className={s.flag}>{flagOf(id)}</span><span className={s.toneName}>{row.country.countryName}</span>
         <span className={s.toneN}>{row.articleCount == null ? '표본 수 미제공' : `${fmt(row.articleCount)}건`}</span>
@@ -34,9 +32,7 @@ export default function ApiToneScatter({ rows = [], spot, onSelectCountry, analy
         <span className={s.toneWord} title={canShowDeviation ? `논조 표준편차 ${sd.toFixed(2)}` : '기사 1건으로는 논조 편차를 산출할 수 없습니다.'}>
           {!canShowDeviation ? '편차 산출 불가' : `σ ${sd.toFixed(2)} · ${enough ? deviationLabel(sd) : '참고용'}`}
         </span>
-      </button>
-        {spot === id && analysis && <IssueCountryAnalysis countryName={row.country.countryName} resource={analysis} />}
-      </Fragment>;
+      </button>;
     })}</div>
     <details className={s.method}>
       <summary>논조 해석 기준</summary>
