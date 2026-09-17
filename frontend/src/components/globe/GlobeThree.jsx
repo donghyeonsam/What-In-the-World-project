@@ -6,7 +6,7 @@ import { countryCameraZ } from '../../lib/globeFocus.js';
 import { advanceGlobeInertia, globeReleaseVelocity } from '../../lib/globeInertia.js';
 import { earthTextureUrls, loadEarthTexture } from '../../lib/earthTextures.js';
 import { createMentionGroup, updateMentionFlow } from '../../lib/mentionLinks.js';
-import { layoutGlobeCallout } from '../../lib/globeCallout.js';
+import { layoutGlobeCallout, resolveGlobeCalloutSide } from '../../lib/globeCallout.js';
 import s from './GlobeThree.module.css';
 
 const GEO_URL =
@@ -950,7 +950,8 @@ export default function GlobeThree({
     const anchorNormal = new THREE.Vector3();
     const anchorToCamera = new THREE.Vector3();
     const projectedAnchor = new THREE.Vector3();
-    const positionCallout = () => {
+    const calloutMotion = { countryId: null, side: null, x: null, y: null, change: null };
+    const positionCallout = (now, elapsedMs) => {
       const card = calloutRef.current;
       const line = calloutLineRef.current;
       const dot = calloutAnchorRef.current;
@@ -966,24 +967,70 @@ export default function GlobeThree({
       projectedAnchor.copy(anchorWorld).project(cam);
       const visible = anchorNormal.dot(anchorToCamera) > 0.04
         && projectedAnchor.z < 1 && Math.abs(projectedAnchor.x) < 1 && Math.abs(projectedAnchor.y) < 1;
-      card.style.visibility = visible ? 'visible' : 'hidden';
-      line.style.visibility = visible ? 'visible' : 'hidden';
-      dot.style.visibility = visible ? 'visible' : 'hidden';
-      if (!visible) return;
+      if (!visible) {
+        card.style.visibility = 'hidden';
+        line.style.visibility = 'hidden';
+        dot.style.visibility = 'hidden';
+        calloutMotion.x = null;
+        calloutMotion.y = null;
+        return;
+      }
 
       const x = (projectedAnchor.x + 1) * wrap.clientWidth / 2;
       const y = (1 - projectedAnchor.y) * wrap.clientHeight / 2;
       const { width, height } = calloutSizeRef.current;
       if (!width || !height) return;
+      card.style.visibility = 'visible';
+      line.style.visibility = 'visible';
+      dot.style.visibility = 'visible';
+
+      if (calloutMotion.countryId !== country.id) {
+        calloutMotion.countryId = country.id;
+        calloutMotion.side = null;
+        calloutMotion.x = null;
+        calloutMotion.y = null;
+        calloutMotion.change = null;
+      }
+      const desiredSide = resolveGlobeCalloutSide({
+        x, width, stageWidth: wrap.clientWidth,
+        preferRight: country.lon >= 0, currentSide: calloutMotion.side,
+      });
+      if (!calloutMotion.side || reduced) calloutMotion.side = desiredSide;
+      else if (desiredSide !== calloutMotion.side && !calloutMotion.change) {
+        calloutMotion.change = { to: desiredSide, startedAt: now, relocated: false };
+      }
+      let opacity = 1;
+      if (calloutMotion.change) {
+        const age = now - calloutMotion.change.startedAt;
+        if (age < 120) opacity = 1 - age / 120;
+        else {
+          if (!calloutMotion.change.relocated) {
+            calloutMotion.side = calloutMotion.change.to;
+            calloutMotion.x = null;
+            calloutMotion.y = null;
+            calloutMotion.change.relocated = true;
+          }
+          if (age < 280) opacity = (age - 120) / 160;
+          else calloutMotion.change = null;
+        }
+      }
       const placement = layoutGlobeCallout({
         x, y, width, height, stageWidth: wrap.clientWidth, stageHeight: wrap.clientHeight,
         preferRight: country.lon >= 0, latitude: country.lat,
+        side: calloutMotion.side, verticalBelow: country.lat < 45,
       });
-      card.style.transform = `translate3d(${placement.cardX}px, ${placement.cardY}px, 0)`;
+      const follow = reduced || elapsedMs > 250 ? 1 : 1 - Math.exp(-elapsedMs / 90);
+      calloutMotion.x = calloutMotion.x === null ? placement.cardX
+        : calloutMotion.x + (placement.cardX - calloutMotion.x) * follow;
+      calloutMotion.y = calloutMotion.y === null ? placement.cardY
+        : calloutMotion.y + (placement.cardY - calloutMotion.y) * follow;
+      card.style.transform = `translate3d(${calloutMotion.x}px, ${calloutMotion.y}px, 0)`;
+      card.style.opacity = opacity;
+      line.style.opacity = opacity;
       line.setAttribute('x1', x);
       line.setAttribute('y1', y);
-      line.setAttribute('x2', placement.lineX);
-      line.setAttribute('y2', placement.lineY);
+      line.setAttribute('x2', placement.lineX + calloutMotion.x - placement.cardX);
+      line.setAttribute('y2', placement.lineY + calloutMotion.y - placement.cardY);
       dot.style.transform = `translate3d(${x}px, ${y}px, 0)`;
     };
     const loop = () => {
@@ -1033,7 +1080,7 @@ export default function GlobeThree({
       fxTick(t);
       updateMentionFlow(mentionGroup, performance.now() / 1000, reduced);
       renderer.render(scene, cam);
-      positionCallout();
+      positionCallout(now, elapsedMs);
       if (!firstFrameRendered) {
         firstFrameRendered = true;
         setEarthStatus('ready');
