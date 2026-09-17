@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { accountApi } from './accountApi.js';
+import { beginSsafyLogin } from './ssafyOAuth.js';
 import s from './Personalization.module.css';
 
 export function AuthForm({ onLogin, notice }) {
@@ -36,6 +37,10 @@ export function AuthForm({ onLogin, notice }) {
   };
   return <>
     <p className={s.description}>로그인하고 관심 있는 테마의 뉴스를 구독하세요.</p>
+    <button type="button" className={s.ssafyLogin} disabled={busy} onClick={() => run(() => beginSsafyLogin())}>
+      <span aria-hidden="true">S</span><b>SSAFY 계정으로 계속하기</b>
+    </button>
+    <div className={s.divider}><span>또는 이메일로 계속</span></div>
     <div className={s.tabs}>{[['login', '로그인'], ['signup', '회원가입']].map(([value, label]) => <button type="button" disabled={busy} key={value} aria-pressed={mode === value} onClick={() => { setMode(value); setError(''); setMessage(''); setPassword(''); setConfirm(''); }}>{label}</button>)}</div>
     <form className={s.form} onSubmit={submit}>
       <fieldset disabled={busy}>
