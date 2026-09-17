@@ -670,8 +670,13 @@
   border: 1px solid #52657a;
   border-left: 3px solid var(--wtw-amber);
   border-radius: 10px;
-  background: rgba(15, 23, 38, .97);
+  background: rgba(15, 23, 38, .93);
   color: #f2f6fc;
+}
+.countryAnalysisTinted {
+  border-left-color: rgba(var(--analysis-tone-rgb), .9);
+  background: radial-gradient(circle at 12% 0%, rgba(var(--analysis-tone-rgb), .16), transparent 72%),
+    rgba(15, 23, 38, .93);
 }
 .countryAnalysisMeta {
   display: flex;

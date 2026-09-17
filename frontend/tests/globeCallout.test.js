@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { layoutGlobeCallout } from '../src/lib/globeCallout.js';
+import { layoutGlobeCallout, resolveGlobeCalloutSide } from '../src/lib/globeCallout.js';
 
 test('the preferred side follows the country and the leader ends at the card edge', () => {
   const placement = layoutGlobeCallout({
@@ -29,4 +29,12 @@ test('a narrow stage keeps the card inside its edges', () => {
   assert.ok(placement.cardX >= 16 && placement.cardX + 300 <= 374);
   assert.ok(placement.cardY >= 16 && placement.cardY + 160 <= 404);
   assert.ok(placement.lineX >= placement.cardX && placement.lineX <= placement.cardX + 300);
+});
+
+test('side switching waits for room and does not bounce back at the same boundary', () => {
+  const base = { width: 320, stageWidth: 1150, preferRight: true };
+  assert.equal(resolveGlobeCalloutSide({ ...base, x: 700, currentSide: 'right' }), 'right');
+  assert.equal(resolveGlobeCalloutSide({ ...base, x: 785, currentSide: 'right' }), 'left');
+  assert.equal(resolveGlobeCalloutSide({ ...base, x: 700, currentSide: 'left' }), 'left');
+  assert.equal(resolveGlobeCalloutSide({ ...base, x: 350, currentSide: 'left' }), 'right');
 });

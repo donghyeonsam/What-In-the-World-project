@@ -2,7 +2,8 @@ import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { api } from './data/api.js';
 import { useResource } from './data/useResource.js';
 import { loadIssueCountryAnalysis } from './data/issueCountryAnalysis.js';
-import { articleCard, themeCard, mentionRows, globeTones, fmt, flagOf } from './data/responseAdapters.js';
+import { articleCard, themeCard, mentionRows, globeTones, fmt, flagOf, scoreOf } from './data/responseAdapters.js';
+import { toneRGB } from './lib/tone.js';
 import { countryMetadata, iso3 } from './data/countries.js';
 import { mentionLinks } from './lib/mentionLinks.js';
 import HeaderMinimal from './components/header/HeaderMinimal.jsx';
@@ -91,6 +92,8 @@ function DashboardApp({ onNews, initialCountry }) {
   const catalog = useMemo(() => (fields.data || []).flatMap((field) => field.themes.map((item) => ({ ...item, fieldId: field.fieldId, fieldName: field.fieldName }))), [fields.data]);
   const rows = (issue.data?.countryTones || []).filter((row) => !view.countryCode || row.country.countryCode.toUpperCase() === view.countryCode);
   const selectedTone = view.type === 'issue' ? rows.find((row) => row.country.countryCode.toLowerCase() === spot) : null;
+  const analysisToneColor = selectedTone?.articleCount >= 30 && selectedTone.toneAvg != null
+    ? toneRGB(scoreOf(selectedTone.toneAvg)).join(', ') : null;
   const analysis = useResource(selectedTone ? `analysis:${view.issueId}:${spot}` : null,
     () => loadIssueCountryAnalysis({
       issueId: view.issueId,
@@ -167,7 +170,8 @@ function DashboardApp({ onNews, initialCountry }) {
     header={<HeaderMinimal route={view.countryCode ? 'country' : 'global'} onRoute={(route) => route === 'news' ? onNews() : route === 'global' ? go(HOME) : goCountry(view.countryCode?.toLowerCase() || 'kr')} onSearch={openPalette} />}
     stage={<GlobeSlot><GlobeThree countries={countryMetadata} iso3={iso3} tone={mapTone} minSample={null} focus={spot || view.countryCode?.toLowerCase()}
       calloutCountry={selectedTone ? spot : null}
-      callout={selectedTone ? <IssueCountryAnalysis countryName={selectedTone.country.countryName} resource={analysis} /> : null}
+      callout={selectedTone ? <IssueCountryAnalysis countryName={selectedTone.country.countryName}
+        toneColor={analysisToneColor} resource={analysis} /> : null}
       mentionRelations={relations} spinControl onOpenCountry={goCountry} /></GlobeSlot>}
     panel={<div className={s.panelContent}>{history.length > 1 && <div className={s.panelNav}>
       <BackLink onClick={() => setHistory((old) => old.slice(0, -1))}>← 이전 화면</BackLink>
