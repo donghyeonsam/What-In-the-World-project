@@ -1,6 +1,0 @@
-node_modules/
-dist/
-.npm-cache/
-.env.local
-*.log
-test-artifacts/
