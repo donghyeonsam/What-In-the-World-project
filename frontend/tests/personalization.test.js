@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseInterests, loadPersonalNews, accountStorageKey } from '../src/personalization/model.js';
 import { accountApi } from '../src/personalization/accountApi.js';
-import { readSsafyCallback } from '../src/personalization/ssafyOAuth.js';
+import { createSsafyAuthorizeUrl, readSsafyCallback } from '../src/personalization/ssafyOAuth.js';
 
 const interests = { countries: [], themes: [{ id: 1, name: '경제' }], issues: [{ id: 2, name: '금리' }] };
 test('interests reject malformed values and isolate storage by account', () => {
@@ -77,4 +77,12 @@ test('SSAFY callback validates state once and restores the pre-login URL', () =>
   });
   assert.equal(values.size, 0);
   assert.throws(() => readSsafyCallback('?code=replayed&state=safe-state', storage), /확인할 수 없습니다/);
+});
+
+test('SSAFY authorization uses the registered callback URI', () => {
+  const storage = { setItem: () => {} };
+  const url = new URL(createSsafyAuthorizeUrl({
+    pathname: '/', search: '', hash: '',
+  }, storage, () => 'safe-state'));
+  assert.equal(url.searchParams.get('redirect_uri'), 'https://dev.witw.kro.kr/auth/ssafy/callback');
 });
