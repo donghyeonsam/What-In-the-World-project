@@ -89,3 +89,15 @@
 @media (max-width: 699px) {
   .analysisCallout { width: min(300px, calc(100% - 32px)); }
 }
+
+.issueCard { position: absolute; left: 0; top: 0; z-index: 5; visibility: hidden; display: flex; align-items: center; gap: 10px; padding: 11px 13px; border: 1px solid #8aa4c165; border-radius: 10px; background: rgba(10, 20, 34, .92); color: #e6efff; text-align: left; cursor: pointer; box-shadow: 0 5px 22px #0004; }
+.issueCard strong { display: block; font-size: 12px; }
+.issueCard small { display: block; font-size: 10px; color: #a5b7cc; margin-top: 5px; }
+.issueFlag { font-size: 27px; }
+.issueCard i { width: 7px; height: 7px; border-radius: 50%; }
+.issueCard:hover, .issueCardSelected { border-color: #8ce2ff; background: #102c40ed; }
+.issueCard:focus-visible { outline: 2px solid #8ce2ff; outline-offset: 3px; }
+.issueLegend { position: absolute; z-index: 4; left: 20px; bottom: 22px; padding: 12px 15px; max-width: calc(100% - 150px); border: 1px solid #8aa4c140; border-radius: 10px; color: #d4e2f5; background: #091422dd; font-size: 11px; pointer-events: none; }
+.issueLegend small { display: block; color: #95a9c3; font-size: 10px; margin-top: 6px; }
+.issueLegend span { display: block; margin-top: 8px; font-size: 10px; }
+@media (max-width: 600px) { .issueCard { padding: 7px 9px; gap: 6px; } .issueFlag { font-size: 20px; } .issueLegend { left: 10px; bottom: 12px; padding: 9px; } .issueLegend small { display: none; } }
