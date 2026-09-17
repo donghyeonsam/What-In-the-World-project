@@ -14,7 +14,7 @@ export default function IssueCountryAnalysis({ countryName, resource }) {
             </div>
             <h4>{data.headline}</h4>
             <p className={s.countryAnalysisSummary}>{data.summary}</p>
-            {data.details?.length > 0 && <ul>{data.details.map((detail, index) => <li key={index}>{detail}</li>)}</ul>}
+            {data.details?.length > 0 && <ul>{data.details.slice(0, 1).map((detail, index) => <li key={index}>{detail}</li>)}</ul>}
             <p className={s.countryAnalysisFoot}>{data.preview
               ? '예시 문구입니다. 실제 기사 분석 결과는 아직 연결되지 않았습니다.'
               : data.analyzedAt ? `마지막 분석 ${new Date(data.analyzedAt).toLocaleString('ko-KR')}` : '분석 시각 정보가 없습니다.'}</p>
