@@ -712,6 +712,24 @@ class CollectorQualityTests(unittest.TestCase):
             finally:
                 db.close()
 
+    def test_zero_source_daily_limit_is_unlimited(self):
+        with tempfile.TemporaryDirectory() as directory:
+            db = collector.DB(Path(directory) / "collection_24h_v2.db")
+            try:
+                discovered_at = "2026-09-17T00:00:00+00:00"
+                for index in range(2):
+                    allowed, reason = db.reserve_delivery(
+                        make_article(f"https://example.com/news/unlimited-{index}"),
+                        f"Unique title {index}",
+                        (f"Unique body {index} " * 60),
+                        discovered_at,
+                        0,
+                    )
+                    self.assertTrue(allowed)
+                    self.assertEqual(reason, "")
+            finally:
+                db.close()
+
     def test_rolling_quality_gate_detects_repeated_error_page(self):
         fetched = {
             "success": True,

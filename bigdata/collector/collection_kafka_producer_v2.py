@@ -1353,7 +1353,8 @@ class DB:
                 """,
                 (article.source_id, published_day),
             ).fetchone()[0]
-            if accepted >= daily_limit:
+            # All collector limits use zero to mean unlimited.
+            if daily_limit and accepted >= daily_limit:
                 return False, f"SOURCE_DAILY_CAP_{daily_limit}"
 
             country_accepted, source_accepted = self.conn.execute(
