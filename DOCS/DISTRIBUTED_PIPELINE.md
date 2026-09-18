@@ -607,16 +607,19 @@ Spark 마이크로 배치가 50건보다 작더라도 메시지가 사라지지 
 HDBSCAN을 실행한다. 72시간이 지난 pending 기사는 trigger 집계와 상태 저장에서
 제외한다.
 
-MVP 고정값은 최소 군집 크기 5, `min_samples` 3, 평균 membership probability
-0.60 이상이다. 한 번에 Driver로 가져오는 기사 수는 테마별 2,000건으로 제한하고,
-초과분은 상태에 남겨 다음 실행에서 처리한다.
+MVP 고정값은 최소 군집 크기 4, `min_samples` 3이다. 테마 전체가 하나의 사건으로
+강제 수렴하지 않도록 HDBSCAN의 단일 군집 허용 옵션은 끈다. HDBSCAN 군집 안에서도
+개별 membership probability가 0.70 미만인 기사와 군집 centroid cosine similarity가
+0.85 미만인 기사를 반복 제거한다. 제거 후 4건 미만인 군집은 생성하지 않는다.
+한 번에 Driver로 가져오는 기사 수는 테마별 2,000건으로 제한하고, 초과분은 상태에
+남겨 다음 실행에서 처리한다.
 
 ---
 
 # Cluster 형성 실패
 
-형성에 실패한 noise 기사와 membership 기준을 통과하지 못한 군집의 기사는
-발행 후 72시간까지 pending 상태에 남긴다. 후속 기사가 들어오면 같은 테마의
+형성에 실패한 noise 기사와 개별 membership·centroid 응집도 기준을 통과하지 못한
+기사는 발행 후 72시간까지 pending 상태에 남긴다. 후속 기사가 들어오면 같은 테마의
 pending 기사와 다시 HDBSCAN을 실행한다. 새 기사가 들어오지 않은 테마를 매
 마이크로 배치마다 반복 계산하지 않도록, 이번 배치에 새 기사가 들어온 테마만
 재군집화한다. 실제 이슈 군집에 포함되어
@@ -629,7 +632,7 @@ pending 기사와 다시 HDBSCAN을 실행한다. 새 기사가 들어오지 않
 
 신규 Issue의 이름과 설명을 생성하기 위해 Cluster 전체 기사를 LLM에 전달하지 않는다.
 
-Cluster centroid와 가장 가까운 대표 기사 8건을 선택한다. (8건 미만일시 전체)
+Cluster centroid와 가장 가까운 대표 기사 4건을 선택한다. (4건 미만일시 전체)
 
 이렇게 하면 LLM 입력량을 줄이면서도 Cluster를 가장 잘 대표하는 기사들을 전달할 수 있다.
 
@@ -660,7 +663,8 @@ Cluster centroid와 가장 가까운 대표 기사 8건을 선택한다. (8건 �
 ```
 
 `article_id`는 LLM의 메타데이터 생성에 필요하지 않으므로 외부 요청에 포함하지 않는다.
-Issue에 연결할 전체 `article_ids`는 Cluster 결과로부터 별도로 `ISSUE_CREATE` 이벤트에 넣는다.
+Issue에 연결할 전체 `article_ids`와 최종 centroid 기준 기사별 cosine similarity는
+Cluster 결과로부터 별도로 `ISSUE_CREATE` 이벤트에 넣는다.
 
 ### LLM 출력
 
@@ -704,12 +708,18 @@ LLM을 통해 신규 Issue의 이름이 생성되면 카프카의 `news.event.v1
       "31cd921...",
       "aac8210..."
     ],
+    "article_similarities": {
+      "87fa2c9...": 0.94,
+      "31cd921...": 0.91,
+      "aac8210...": 0.89
+    },
     "first_seen_at": "2026-09-03T03:35:24Z"
   }
 }
 ```
 
-DB Writer는 해당 이벤트를 소비하여 신규 Issue를 생성하고 Cluster에 포함된 기사와 신규 Issue의 관계를 저장한다.
+DB Writer는 해당 이벤트를 소비하여 신규 Issue를 생성하고 Cluster에 포함된 기사와
+신규 Issue의 관계 및 centroid similarity를 저장한다.
 
 ## 8. Database 저장
 
@@ -799,6 +809,11 @@ MVP에서는 하나의 기사가 하나의 Issue에만 속하므로 `article.iss
       "a-102",
       "a-103"
     ],
+    "article_similarities": {
+      "a-101": 0.94,
+      "a-102": 0.91,
+      "a-103": 0.89
+    },
     "first_seen_at": "2026-09-03T03:35:24Z"
   }
 }
@@ -841,6 +856,11 @@ RETURNING id;
 UPDATE article
 SET
     issue_id = 205,
+    issue_similarity = CASE id
+        WHEN 'a-101' THEN 0.94
+        WHEN 'a-102' THEN 0.91
+        WHEN 'a-103' THEN 0.89
+    END,
     issue_assigned_at = NOW()
 WHERE id IN (
     'a-101',

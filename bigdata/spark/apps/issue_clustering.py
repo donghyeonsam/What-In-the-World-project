@@ -154,6 +154,7 @@ def cluster_articles(
     min_samples: int | None = None,
     representative_count: int = 8,
     min_membership_confidence: float = 0.0,
+    min_centroid_similarity: float = -1.0,
 ) -> tuple[ClusterCandidate, ...]:
     """Run HDBSCAN and return deterministic non-noise cluster candidates."""
 
@@ -163,6 +164,8 @@ def cluster_articles(
         raise ValueError("representative_count must be positive")
     if not 0.0 <= min_membership_confidence <= 1.0:
         raise ValueError("min_membership_confidence must be between 0 and 1")
+    if not -1.0 <= min_centroid_similarity <= 1.0:
+        raise ValueError("min_centroid_similarity must be between -1 and 1")
     if len(articles) < min_cluster_size:
         return ()
     theme_ids = {article.theme_id for article in articles}
@@ -180,29 +183,63 @@ def cluster_articles(
         min_samples=min_samples,
         metric="euclidean",
         cluster_selection_method="leaf",
-        # A theme batch can legitimately contain one newly emerging issue.
-        allow_single_cluster=True,
+        # 테마 전체가 하나의 사건으로 강제 수렴하는 것을 막는다. 단일 밀도 군집만
+        # 발견된 배치는 더 많은 기사가 들어올 때까지 pending 상태로 유지한다.
+        allow_single_cluster=False,
     )
     labels = model.fit_predict([article.embedding for article in articles])
     probabilities = getattr(model, "probabilities_", [1.0] * len(articles))
 
     clusters: list[ClusterCandidate] = []
     for label in sorted(set(int(value) for value in labels if int(value) >= 0)):
-        members = tuple(
-            article
-            for article, article_label in zip(articles, labels)
+        # 군집 평균이 아니라 기사별 membership probability를 적용한다. 낮은
+        # 신뢰도의 경계 기사가 평균에 묻혀 이슈에 포함되는 것을 방지한다.
+        member_indices = [
+            index
+            for index, (article_label, probability) in enumerate(
+                zip(labels, probabilities)
+            )
             if int(article_label) == label
-        )
-        member_probabilities = [
-            float(probability)
-            for probability, article_label in zip(probabilities, labels)
-            if int(article_label) == label
+            and float(probability) >= min_membership_confidence
         ]
-        membership_confidence = sum(member_probabilities) / len(member_probabilities)
-        if membership_confidence < min_membership_confidence:
+        if len(member_indices) < min_cluster_size:
             continue
 
-        centroid = _normalized_centroid([article.embedding for article in members])
+        # HDBSCAN을 통과했어도 동일 테마라는 이유만으로 가까운 기사를 제거한다.
+        # 제거 후 centroid가 이동할 수 있으므로 더 이상 탈락자가 없을 때까지
+        # 재계산한다.
+        while True:
+            centroid = _normalized_centroid(
+                [articles[index].embedding for index in member_indices]
+            )
+            cohesive_indices = [
+                index
+                for index in member_indices
+                if (
+                    (
+                        similarity := cosine_similarity(
+                            articles[index].embedding, centroid
+                        )
+                    )
+                    is not None
+                    and similarity >= min_centroid_similarity
+                )
+            ]
+            if len(cohesive_indices) < min_cluster_size:
+                member_indices = []
+                break
+            if cohesive_indices == member_indices:
+                break
+            member_indices = cohesive_indices
+
+        if not member_indices:
+            continue
+
+        members = tuple(articles[index] for index in member_indices)
+        member_probabilities = [
+            float(probabilities[index]) for index in member_indices
+        ]
+        membership_confidence = sum(member_probabilities) / len(member_probabilities)
 
         def representative_key(article: UnclassifiedArticle) -> tuple[float, str]:
             similarity = cosine_similarity(article.embedding, centroid)
@@ -305,6 +342,15 @@ def build_issue_events(
             article.published_at.replace("Z", "+00:00")
         ),
     ).published_at
+    article_similarities: dict[str, float] = {}
+    for article in sorted(cluster.articles, key=lambda item: item.article_id):
+        similarity = cosine_similarity(article.embedding, cluster.centroid)
+        if similarity is None:
+            raise InvalidUnclassifiedArticle(
+                f"article {article.article_id} cannot be compared with cluster centroid"
+            )
+        article_similarities[article.article_id] = similarity
+
     event = {
         "event_type": ISSUE_CREATE,
         "occurred_at": occurred_at,
@@ -313,6 +359,7 @@ def build_issue_events(
             "name": generated.name,
             "embedding": list(cluster.centroid),
             "article_ids": sorted(article.article_id for article in cluster.articles),
+            "article_similarities": article_similarities,
             "first_seen_at": first_seen_at,
         },
     }

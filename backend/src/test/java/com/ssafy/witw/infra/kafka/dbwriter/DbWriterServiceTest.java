@@ -214,6 +214,10 @@ class DbWriterServiceTest {
                     "name": "New issue",
                     "embedding": [0.031, -0.114],
                     "article_ids": ["a-101", "a-102"],
+                    "article_similarities": {
+                      "a-101": 0.94,
+                      "a-102": 0.91
+                    },
                     "first_seen_at": "2026-09-03T03:35:24Z"
                   }
                 }
@@ -233,7 +237,43 @@ class DbWriterServiceTest {
         );
         assertThat(firstArticle.getIssue()).isSameAs(issue);
         assertThat(secondArticle.getIssue()).isSameAs(issue);
+        assertThat(firstArticle.getIssueSimilarity()).isEqualByComparingTo("0.94");
+        assertThat(secondArticle.getIssueSimilarity()).isEqualByComparingTo("0.91");
         verify(articleRepository).saveAll(List.of(firstArticle, secondArticle));
+    }
+
+    @Test
+    void issueCreateAcceptsLegacyEventWithoutArticleSimilarities() throws Exception {
+        Theme theme = theme(12L);
+        Issue issue = new Issue();
+        issue.setId(205L);
+        Article article = article("a-101");
+        when(themeRepository.findById(12L)).thenReturn(Optional.of(theme));
+        when(jdbcTemplate.queryForObject(any(String.class), eq(Long.class), any(Object[].class)))
+                .thenReturn(205L);
+        when(issueRepository.findById(205L)).thenReturn(Optional.of(issue));
+        when(articleRepository.findAllById(List.of("a-101")))
+                .thenReturn(List.of(article));
+
+        DbWriterEvent event = objectMapper.readValue("""
+                {
+                  "event_type": "ISSUE_CREATE",
+                  "occurred_at": "2026-09-03T06:50:00Z",
+                  "payload": {
+                    "theme_id": 12,
+                    "name": "Legacy issue",
+                    "embedding": [0.031, -0.114],
+                    "article_ids": ["a-101"],
+                    "first_seen_at": "2026-09-03T03:35:24Z"
+                  }
+                }
+                """, DbWriterEvent.class);
+
+        dbWriterService.handle(event);
+
+        assertThat(article.getIssue()).isSameAs(issue);
+        assertThat(article.getIssueSimilarity()).isNull();
+        verify(articleRepository).saveAll(List.of(article));
     }
 
     private static Country country(String code) {
