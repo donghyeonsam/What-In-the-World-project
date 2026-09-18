@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import os
 
-from gms_issue_generator import GmsConfig, generate_issue
+from gms_issue_generator import (
+    GmsConfig,
+    GmsIssueGenerationError,
+    generate_issue,
+)
 from issue_clustering import (
     InvalidUnclassifiedArticle,
     UnclassifiedArticle,
@@ -275,7 +279,19 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
                     min_membership_confidence=ISSUE_CLUSTER_MIN_MEMBERSHIP,
                 )
                 for cluster in clusters:
-                    generated = generate_issue(GMS_CONFIG, theme_name, cluster)
+                    try:
+                        generated = generate_issue(GMS_CONFIG, theme_name, cluster)
+                    except GmsIssueGenerationError as exc:
+                        print(
+                            f"Skipped issue generation: "
+                            f"batch_id={batch_id} "
+                            f"theme_id={theme_id} "
+                            f"article_count={len(cluster.articles)} "
+                            f"reason={exc}",
+                            flush=True,
+                        )
+                        continue
+
                     generated_candidates.append((cluster, generated))
                     assigned_article_ids.update(
                         article.article_id for article in cluster.articles
