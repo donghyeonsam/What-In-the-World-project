@@ -58,15 +58,16 @@ export function createMentionGroup(links) {
   for (const link of links) {
     const color = link.incoming ? 0xffb454 : 0x6fe7ff;
     const curve = mentionCurve(link.from, link.to);
-    const radius = 0.0025 + Math.sqrt(link.ratio) * 0.004;
+    const radius = 0.0032 + Math.sqrt(link.ratio) * 0.0045;
     // 곡선은 from → to 순서. 두 색 모두 UV의 양의 방향으로 흐르면 언급 방향과 일치한다.
     // 프레임마다 지오메트리를 재생성하지 않고 그룹 공용 시간 uniform 하나만 갱신한다.
     const material = new THREE.ShaderMaterial({
       uniforms: {
         flowTime: time, color: { value: new THREE.Color(color) },
-        opacity: { value: 0.65 + Math.sqrt(link.ratio) * 0.3 },
+        opacity: { value: 0.78 + Math.sqrt(link.ratio) * 0.2 },
       },
       transparent: true,
+      depthWrite: false,
       vertexShader: `varying float vProgress;
         void main() {
           vProgress = uv.x;
@@ -77,7 +78,7 @@ export function createMentionGroup(links) {
         uniform float opacity;
         varying float vProgress;
         void main() {
-          if (fract(vProgress * 12.0 - flowTime * 0.65) > 0.65) discard;
+          if (fract(vProgress * 12.0 - flowTime * 0.65) > 0.72) discard;
           gl_FragColor = vec4(color, opacity);
           #include <encodings_fragment>
         }`,

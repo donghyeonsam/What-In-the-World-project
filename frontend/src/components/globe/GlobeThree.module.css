@@ -96,12 +96,12 @@
 .issueCard strong { display: block; font-size: 12px; }
 .issueCard .issueSummary { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.4; color: #d1ddeb; }
 .issueCard small { display: block; font-size: 10px; color: #a5b7cc; margin-top: 5px; }
-.issueFlag { width: 34px; height: 26px; flex: 0 0 34px; display: grid; place-items: center; overflow: hidden; border-radius: 50%; font-size: 27px; box-shadow: 0 0 0 1px #cdefff40; }
-.issueFlag img, .issueFlag i { display: block; width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
+.issueFlag { width: 44px; height: 34px; flex: 0 0 44px; display: grid; place-items: center; overflow: hidden; border: 1px solid rgba(255, 255, 255, .72); border-radius: 7px; font-size: 27px; line-height: 1; box-shadow: 0 4px 12px #0005; }
+.issueFlag img, .issueFlag i { display: block; width: 100%; height: 100%; border-radius: inherit; object-fit: cover; background-position: center; background-repeat: no-repeat; background-size: cover; }
 .issueCard i { width: 7px; height: 7px; flex-shrink: 0; border-radius: 50%; }
 .issueCard:hover, .issueCardSelected { border-color: #8ce2ff; background: #102c40ed; }
 .issueCard:focus-visible { outline: 2px solid #8ce2ff; outline-offset: 3px; }
 .issueLegend { position: absolute; z-index: 4; left: 20px; bottom: 22px; padding: 12px 15px; max-width: calc(100% - 150px); border: 1px solid #8aa4c140; border-radius: 10px; color: #d4e2f5; background: #091422dd; font-size: 11px; pointer-events: none; }
 .issueLegend small { display: block; color: #95a9c3; font-size: 10px; margin-top: 6px; }
 .issueLegend span { display: block; margin-top: 8px; font-size: 10px; }
-@media (max-width: 600px) { .issueCard { padding: 7px 9px; gap: 6px; } .issueFlag { width: 28px; height: 22px; flex-basis: 28px; font-size: 20px; } .issueLegend { left: 10px; bottom: 12px; padding: 9px; } .issueLegend small { display: none; } }
+@media (max-width: 600px) { .issueCard { padding: 7px 9px; gap: 6px; } .issueFlag { width: 38px; height: 29px; flex-basis: 38px; font-size: 20px; } .issueLegend { left: 10px; bottom: 12px; padding: 9px; } .issueLegend small { display: none; } }

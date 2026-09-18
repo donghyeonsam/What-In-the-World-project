@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useResource } from '../data/useResource.js';
 import { dateLabel, flagOf, safeUrl } from '../data/responseAdapters.js';
-import { countryMetadata } from '../data/countries.js';
+import { countryMetadata, flagImageOf } from '../data/countries.js';
 import { newsSource, isMockNews } from './newsSource.js';
 import { PAGE_SIZE, newsSearch, queryError, readNewsQuery } from './newsQuery.js';
 import s from './NewsPage.module.css';
@@ -14,7 +14,8 @@ const flags = Object.fromEntries(countryMetadata.map(({ code, flagImage, flagCla
 
 function CountryFlag({ code }) {
   const countryCode = code?.toUpperCase();
-  const { flagImage, flagClass } = flags[countryCode] || {};
+  const { flagClass } = flags[countryCode] || {};
+  const flagImage = flagImageOf(countryCode);
   return <span className={s.countryFlag} aria-hidden="true">
     {flagImage ? <img src={flagImage} alt="" />
       : flagClass ? <i className={flagClass} /> : flagOf(countryCode)}

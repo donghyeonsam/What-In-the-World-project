@@ -6,7 +6,7 @@ import { issueCountryPerspectives } from './data/issuePerspective.js';
 import IssuePerspectives from './components/panel/IssuePerspectives.jsx';
 import { articleCard, themeCard, mentionRows, globeTones, fmt, flagOf, scoreOf } from './data/responseAdapters.js';
 import { toneRGB } from './lib/tone.js';
-import { countryMetadata, iso3 } from './data/countries.js';
+import { countryMetadata, flagImageOf, iso3 } from './data/countries.js';
 import { mentionLinks } from './lib/mentionLinks.js';
 import HeaderMinimal from './components/header/HeaderMinimal.jsx';
 import GlobeThree from './components/globe/GlobeThree.jsx';
@@ -202,7 +202,7 @@ function DashboardApp({ onNews, initialCountry, asOf, timeProps, trip, onArrive 
   </div>}</ResourceState>;
   else if (view.type === 'country') body = <ResourceState resource={country}>{(data) => <>
     <CountryIdentity flag={flagOf(data.countryCode)}
-      flagImage={countryMetadata.find((item) => item.code === data.countryCode.toUpperCase())?.flagImage}
+      flagImage={flagImageOf(data.countryCode)}
       flagClass={countryMetadata.find((item) => item.code === data.countryCode.toUpperCase())?.flagClass}
       name={data.countryName} />
     <KpiCards items={[{ label: '최근 24시간 수집 기사', value: fmt(data.todayArticleCount), unit: '건' }, { label: '기사량 세계 순위', value: fmt(data.globalRank), unit: '위' }]} />
@@ -257,9 +257,9 @@ function DashboardApp({ onNews, initialCountry, asOf, timeProps, trip, onArrive 
       calloutCountry={!globalIssue ? selectedCountry?.id || null : null}
       callout={selectedCountry ? <IssueCountryAnalysis countryName={selectedCountry.name}
         noCoverage={!selectedTone} toneColor={analysisToneColor} resource={analysis} /> : null}
-      countryClickHint={view.type === 'issue' ? '클릭하면 이 이슈의 보도 관점 보기' : undefined}
+      countryClickHint="클릭하면 국가 분석 보기"
       onGlobeMove={view.type === 'issue' && spot ? () => setSpot(null) : undefined}
-      mentionRelations={relations} spinControl={!trip} onOpenCountry={view.type === 'issue' ? selectIssueCountry : goCountry} />
+      mentionRelations={relations} spinControl={!trip} onOpenCountry={goCountry} />
       <StageClock asOf={asOf} travelDate={journey.date} />
       {trip && <TimeTravelEffects trip={trip} {...journey} onArrive={onArrive} />}
       </GlobeSlot>}

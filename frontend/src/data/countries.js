@@ -1,9 +1,20 @@
 import { flagOf } from './responseAdapters.js';
 
+const US_TERRITORY_CODES = new Set(['AS', 'GU', 'MP', 'PR', 'UM', 'VI']);
+
+export const displayCountryCode = (code = '') => {
+  const normalized = String(code).trim().toUpperCase();
+  return US_TERRITORY_CODES.has(normalized) ? 'US' : normalized;
+};
+
+export const flagImageOf = (code = '') => {
+  const normalized = displayCountryCode(code);
+  return /^[A-Z]{2}$/.test(normalized) ? `/flags/${normalized.toLowerCase()}.svg` : null;
+};
+
 // Geographic metadata only. Analytics are never filled with sample values.
 // Keep this list aligned with the collector's global47 profile
 // (registry_50country.csv, excluding China, Egypt, and Norway).
-const localFlagCodes = new Set(['US', 'KR', 'JP', 'DE', 'GB']);
 
 export const countryMetadata = [
   ['US', '미국', 38.0, -97.0, 'USA'],
@@ -56,7 +67,7 @@ export const countryMetadata = [
 ].map(([code, name, lat, lon, iso]) => ({
   id: code.toLowerCase(), code, name, lat, lon, iso,
   flag: flagOf(code),
-  flagImage: localFlagCodes.has(code) ? `/flags/${code.toLowerCase()}.svg` : null,
+  flagImage: flagImageOf(code),
   flagClass: `fi fi-${code.toLowerCase()}`,
 }));
 export const iso3 = Object.fromEntries(countryMetadata.map((country) => [country.id, [country.iso]]));
