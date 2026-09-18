@@ -5,6 +5,7 @@ import com.ssafy.witw.common.response.ErrorCode;
 import com.ssafy.witw.domain.notification.dao.NotificationRepository;
 import com.ssafy.witw.domain.notification.dto.response.NotificationListResponse;
 import com.ssafy.witw.domain.notification.dto.response.NotificationResponse;
+import com.ssafy.witw.domain.notification.dto.response.NotificationUnreadCountResponse;
 import com.ssafy.witw.domain.notification.entity.Notification;
 import com.ssafy.witw.domain.user.dao.UserRepository;
 import com.ssafy.witw.domain.user.entity.User;
@@ -107,5 +108,16 @@ public class NotificationService {
 
         if (updated == 0) throw new GlobalException(ErrorCode.ENTITY_NOT_FOUND);
 
+    }
+
+    public NotificationUnreadCountResponse getUnreadCount(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new GlobalException(ErrorCode.UNAUTHORIZED));
+
+        if (user.isWithdrawn()) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+        long unreadCount = notificationRepository.countByUserIdAndReadAtIsNullAndDeletedAtIsNull(userId);
+
+        return new NotificationUnreadCountResponse(unreadCount);
     }
 }
