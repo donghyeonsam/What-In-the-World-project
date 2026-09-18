@@ -106,7 +106,7 @@ public class IssueCountryAnalysisScheduler {
                         createdAt
                 );
 
-        log.info(
+        log.debug(
                 "국가별 이슈 분석 대상 선정 완료: "
                         + "periodStart={}, createdAt={}, targetCount={}",
                 periodStart,
