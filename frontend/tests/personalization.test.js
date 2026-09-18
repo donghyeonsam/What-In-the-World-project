@@ -89,6 +89,33 @@ test('password recovery uses dedicated endpoints and the verified session for re
   } finally { globalThis.fetch = original; }
 });
 
+test('interest themes use the account endpoints: list with session, add by body, remove by path', async () => {
+  const original = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, ...options });
+    return new Response(JSON.stringify(options.method === 'GET'
+      ? { status: 200, message: '성공', data: [{ themeId: 3, themeName: '반도체' }] }
+      : { status: options.method === 'POST' ? 201 : 200, message: '성공' }));
+  };
+  try {
+    assert.deepEqual(await accountApi.interestThemes(), [{ themeId: 3, themeName: '반도체' }]);
+    await accountApi.addInterestTheme(3);
+    await accountApi.removeInterestTheme(3);
+    assert.ok(calls.every((call) => call.credentials === 'include'));
+    assert.deepEqual(calls.map(({ url, method, body }) => ({ url, method, body: body === undefined ? undefined : JSON.parse(body) })), [
+      { url: '/api/v1/users/me/interests/themes', method: 'GET', body: undefined },
+      { url: '/api/v1/users/me/interests/themes', method: 'POST', body: { themeId: 3 } },
+      { url: '/api/v1/users/me/interests/themes/3', method: 'DELETE', body: undefined },
+    ]);
+    // 중복 등록(409)과 세션 만료(401)는 상태 코드로 구분할 수 있어야 한다.
+    globalThis.fetch = async () => new Response(JSON.stringify({ status: 409, code: 'IN01', message: '이미 등록한 관심 테마입니다.' }), { status: 409 });
+    await assert.rejects(accountApi.addInterestTheme(3), { status: 409 });
+    globalThis.fetch = async () => new Response(JSON.stringify({ status: 401, message: '인증 정보가 유효하지 않습니다.' }), { status: 401 });
+    await assert.rejects(accountApi.interestThemes(), { status: 401 });
+  } finally { globalThis.fetch = original; }
+});
+
 test('SSAFY callback validates state once and restores the pre-login URL', () => {
   const values = new Map([
     ['witw_ssafy_oauth_state', 'safe-state'],

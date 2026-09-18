@@ -16,7 +16,9 @@ export function PersonalizationProvider({ children }) {
   const [session, setSession] = useState(null);
   const [checking, setChecking] = useState(true);
   const [sessionError, setSessionError] = useState('');
-  const [storageError, setStorageError] = useState('');
+  const [interestError, setInterestError] = useState('');
+  // 서버 요청이 진행 중인 테마 id. 같은 테마를 연달아 누르는 것을 막는다.
+  const [pending, setPending] = useState([]);
   const [notice, setNotice] = useState('');
   const [panel, setPanel] = useState(null);
   const revision = useRef(0);
@@ -28,12 +30,19 @@ export function PersonalizationProvider({ children }) {
     try {
       const current = await accountApi.me(signal);
       if (!current?.id || !current.email) throw new Error('사용자 정보를 확인하지 못했습니다. 다시 로그인해 주세요.');
+      // 관심 테마는 서버가 원본이다. 목록 조회가 실패해도 로그인 자체는 유지한다.
+      let themes = null;
+      let themeError = '';
+      try { themes = (await accountApi.interestThemes(signal)).map((row) => ({ id: row.themeId, name: row.themeName })); }
+      catch (error) { if (error.status === 401) throw error; themeError = `관심 테마를 불러오지 못했습니다. ${error.message}`; }
       if (version !== revision.current) return null;
+      setInterestError(themeError);
       setSession((old) => {
-        if (old?.user.id === current.id) return { ...old, user: current };
-        let saved = emptyInterests();
-        try { saved = parseInterests(localStorage.getItem(accountStorageKey(current.id))); } catch { /* Storage is optional. */ }
-        return { user: current, interests: saved };
+        const same = old?.user.id === current.id;
+        // 관심 이슈는 아직 서버 API 가 없어 브라우저 저장소에 남긴다.
+        let issues = same ? old.interests.issues : [];
+        if (!same) try { issues = parseInterests(localStorage.getItem(accountStorageKey(current.id))).issues; } catch { /* Storage is optional. */ }
+        return { user: current, interests: { countries: [], themes: themes ?? (same ? old.interests.themes : []), issues } };
       });
       return current;
     } catch (error) {
@@ -73,21 +82,44 @@ export function PersonalizationProvider({ children }) {
   }, []);
   useEffect(() => {
     if (!session) return;
-    try { localStorage.setItem(accountStorageKey(session.user.id), JSON.stringify(session.interests)); setStorageError(''); }
-    catch { setStorageError('관심사를 저장하지 못했습니다. 새로고침하면 설정이 사라질 수 있습니다.'); }
+    try { localStorage.setItem(accountStorageKey(session.user.id), JSON.stringify({ issues: session.interests.issues })); }
+    catch { /* Storage is optional. */ }
   }, [session]);
   function expire(message = '로그인이 만료되었습니다. 다시 로그인해 주세요.') {
     revision.current++; setSession(null); setChecking(false); setNotice(message); setPanel('profile');
   }
-  const toggle = (kind, item) => {
-    if (!user) { setPanel('profile'); return; }
+  const toggle = async (kind, item) => {
+    if (!user) { setPanel('profile'); return ''; }
+    if (kind !== 'themes') {
+      setSession((old) => {
+        if (!old) return old;
+        const list = old.interests[kind];
+        const exists = list.some((entry) => entry.id === item.id);
+        if (!exists && list.length >= 10) return old;
+        return { ...old, interests: { ...old.interests, [kind]: exists ? list.filter((entry) => entry.id !== item.id) : [...list, item] } };
+      });
+      return '';
+    }
+    if (pending.includes(item.id)) return '';
+    const exists = interests.themes.some((entry) => entry.id === item.id);
+    setPending((old) => [...old, item.id]); setInterestError('');
+    // 실패 메시지는 마이페이지(interestError)와 버튼을 누른 화면 양쪽에 전달한다.
+    let failure = '';
+    try {
+      if (exists) await accountApi.removeInterestTheme(item.id);
+      else await accountApi.addInterestTheme(item.id);
+    } catch (error) {
+      if (error.status === 409) { /* 이미 등록된 테마면 화면만 서버 상태에 맞춘다. */ }
+      else if (error.status === 401) { expire(); failure = '로그인이 만료되었습니다. 다시 로그인해 주세요.'; }
+      else failure = error.message;
+    } finally { setPending((old) => old.filter((id) => id !== item.id)); }
+    if (failure) { setInterestError(failure); return failure; }
     setSession((old) => {
       if (!old) return old;
-      const list = old.interests[kind];
-      const exists = list.some((entry) => entry.id === item.id);
-      if (!exists && list.length >= (kind === 'countries' ? 5 : 10)) return old;
-      return { ...old, interests: { ...old.interests, [kind]: exists ? list.filter((entry) => entry.id !== item.id) : [...list, item] } };
+      const list = old.interests.themes.filter((entry) => entry.id !== item.id);
+      return { ...old, interests: { ...old.interests, themes: exists ? list : [...list, item] } };
     });
+    return '';
   };
   const openPanel = (next) => { setNotice(''); setPanel(next); if (user) refreshSession(); };
   const logout = async () => { await accountApi.logout(); revision.current++; setSession(null); setPanel(null); };
@@ -96,12 +128,12 @@ export function PersonalizationProvider({ children }) {
     revision.current++; setSession(null); setChecking(false);
     setNotice('회원 탈퇴가 완료되었습니다.'); setPanel('profile');
   };
-  const context = { user, interests, toggle, panel, setPanel: openPanel, checking, logout };
+  const context = { user, interests, toggle, pending, panel, setPanel: openPanel, checking, logout };
   return <Context.Provider value={context}>{children}{panel && <Modal title={checking ? '계정 확인' : !user ? '로그인 / 회원가입' : panel === 'inbox' ? '뉴스 구독함' : '마이페이지'} close={() => setPanel(null)} inbox={!!user && panel === 'inbox'}>
     {checking ? <p role="status">로그인 상태를 확인하고 있습니다…</p> : !user ? <>
       {sessionError && <p className={s.error} role="alert">{sessionError} <button type="button" onClick={() => refreshSession()}>다시 확인</button></p>}
       <AuthForm notice={notice} onLogin={async () => { const current = await refreshSession(); if (!current) { setSessionError('로그인 세션을 확인하지 못했습니다. 연결 상태를 확인해 주세요.'); return; } setPanel('profile'); setNotice(''); }} />
-    </> : panel === 'inbox' ? <Inbox key={user.id} interests={interests} onProfile={() => setPanel('profile')} /> : <Profile key={user.id} user={user} interests={interests} toggle={toggle} storageError={storageError} onInbox={() => setPanel('inbox')} onExpired={expire} onLogout={logout} onWithdraw={completeWithdrawal} />}
+    </> : panel === 'inbox' ? <Inbox key={user.id} interests={interests} onProfile={() => setPanel('profile')} /> : <Profile key={user.id} user={user} interests={interests} toggle={toggle} pending={pending} interestError={interestError} onInbox={() => setPanel('inbox')} onExpired={expire} onLogout={logout} onWithdraw={completeWithdrawal} />}
   </Modal>}</Context.Provider>;
 }
 
@@ -125,16 +157,23 @@ function Modal({ title, close, inbox, children }) {
 }
 
 export function InterestButton({ kind, id, name }) {
+  // 훅은 조기 반환보다 먼저 호출해야 한다.
   const context = usePersonalization();
+  const [error, setError] = useState('');
   if (!context || !id) return null;
   const selected = context.interests[kind].some((item) => item.id === id);
-  return <button type="button" className={s.follow} aria-pressed={selected} disabled={context.checking || (!selected && context.interests[kind].length >= 10)} onClick={() => context.toggle(kind, { id, name })}>{selected ? '✓ 관심 등록됨 · 해제' : `＋ 관심 ${kind === 'themes' ? '테마' : '이슈'} 등록`}</button>;
+  const capped = kind !== 'themes' && !selected && context.interests[kind].length >= 10;
+  const busy = kind === 'themes' && context.pending.includes(id);
+  return <>
+    <button type="button" className={s.follow} aria-pressed={selected} disabled={context.checking || capped || busy} onClick={async () => setError(await context.toggle(kind, { id, name }))}>{busy ? '처리 중…' : selected ? '✓ 관심 등록됨 · 해제' : `＋ 관심 ${kind === 'themes' ? '테마' : '이슈'} 등록`}</button>
+    {error && <p role="alert" className={s.error}>{error} <button type="button" onClick={() => setError('')}>닫기</button></p>}
+  </>;
 }
 
-function Chips({ items, remove }) {
-  return <div className={s.chips}>{items.map((item) => <span className={s.chip} key={item.id}>{item.name}<button type="button" onClick={() => remove(item)} aria-label={`${item.name} 관심 해제`}><CloseIcon /></button></span>)}</div>;
+function Chips({ items, remove, pending = [] }) {
+  return <div className={s.chips}>{items.map((item) => <span className={s.chip} key={item.id}>{item.name}<button type="button" disabled={pending.includes(item.id)} onClick={() => remove(item)} aria-label={`${item.name} 관심 해제`}><CloseIcon /></button></span>)}</div>;
 }
-function Profile({ user, interests, toggle, storageError, onInbox, onExpired, onLogout, onWithdraw }) {
+function Profile({ user, interests, toggle, pending, interestError, onInbox, onExpired, onLogout, onWithdraw }) {
   const [tab, setTab] = useState('interests');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -144,13 +183,13 @@ function Profile({ user, interests, toggle, storageError, onInbox, onExpired, on
     <div className={s.tabs}><button type="button" aria-pressed={tab === 'interests'} onClick={() => setTab('interests')}>관심사 설정</button><button type="button" aria-pressed={tab === 'password'} onClick={() => setTab('password')}>비밀번호 변경</button><button type="button" className={s.dangerTab} aria-pressed={tab === 'withdraw'} onClick={() => setTab('withdraw')}>회원탈퇴</button></div>
     {error && <p role="alert" className={s.error}>{error}</p>}
     {tab === 'withdraw' ? user.authProvider === 'LOCAL' ? <WithdrawForm onExpired={onExpired} onWithdraw={onWithdraw} /> : <div className={s.dangerNotice}><strong>SSAFY 계정은 여기서 탈퇴할 수 없습니다.</strong><p>현재 서버는 이메일 계정의 비밀번호 확인 방식만 지원합니다.</p></div> : tab === 'password' ? user.authProvider === 'LOCAL' ? <PasswordForm onExpired={onExpired} onChanged={() => onExpired('비밀번호를 변경했습니다. 새 비밀번호로 로그인해 주세요.')} /> : <p className={s.description}>외부 계정의 비밀번호는 해당 로그인 서비스에서 변경해 주세요.</p> : <>
-      <p className={s.description}>관심 있는 테마 키워드를 선택하면 뉴스 구독함에 관련 기사가 모입니다.</p>
-      {storageError && <p role="alert" className={s.error}>{storageError}</p>}
+      <p className={s.description}>관심 있는 테마 키워드를 선택하면 뉴스 구독함에 관련 기사가 모입니다. 선택은 계정에 저장됩니다.</p>
+      {interestError && <p role="alert" className={s.error}>{interestError}</p>}
       {filters.loading && <p role="status">선택 목록을 불러오는 중…</p>}
       {filters.error && <p role="alert" className={s.error}>{filters.error.message} <button type="button" onClick={filters.retry}>다시 시도</button></p>}
-      <section className={s.section}><label className={s.label} htmlFor="interest-theme">테마 키워드 <small>{interests.themes.length}/10</small></label><p className={s.hint}>뉴스를 구독할 테마를 선택하세요. 여러 개를 추가할 수 있습니다.</p>
-        <select id="interest-theme" value="" disabled={filters.loading || !filters.data || interests.themes.length >= 10} onChange={(e) => { const item = filters.data.fields.flatMap((f) => f.themes).find((t) => String(t.themeId) === e.target.value); if (item) toggle('themes', { id: item.themeId, name: item.themeName }); }}><option value="" disabled>테마 키워드 선택</option>{(filters.data?.fields || []).map((field) => <optgroup key={field.fieldId} label={field.fieldName}>{field.themes.filter((t) => !interests.themes.some((v) => v.id === t.themeId)).map((t) => <option key={t.themeId} value={t.themeId}>{t.themeName}</option>)}</optgroup>)}</select>
-        <Chips items={interests.themes} remove={(item) => toggle('themes', item)} />
+      <section className={s.section}><label className={s.label} htmlFor="interest-theme">테마 키워드 <small>{interests.themes.length}개</small></label><p className={s.hint}>뉴스를 구독할 테마를 선택하세요. 여러 개를 추가할 수 있습니다.</p>
+        <select id="interest-theme" value="" disabled={filters.loading || !filters.data || pending.length > 0} onChange={(e) => { const item = filters.data.fields.flatMap((f) => f.themes).find((t) => String(t.themeId) === e.target.value); if (item) toggle('themes', { id: item.themeId, name: item.themeName }); }}><option value="" disabled>테마 키워드 선택</option>{(filters.data?.fields || []).map((field) => <optgroup key={field.fieldId} label={field.fieldName}>{field.themes.filter((t) => !interests.themes.some((v) => v.id === t.themeId)).map((t) => <option key={t.themeId} value={t.themeId}>{t.themeName}</option>)}</optgroup>)}</select>
+        <Chips items={interests.themes} remove={(item) => toggle('themes', item)} pending={pending} />
       </section>
       {interests.issues.length > 0 && <section className={s.section}><h3>관심 이슈</h3><p className={s.hint}>이슈 상세에서 등록한 항목입니다.</p><Chips items={interests.issues} remove={(item) => toggle('issues', item)} /></section>}
       <button type="button" className={`${s.primary} ${s.inboxLink}`} onClick={onInbox}>뉴스 구독함 보기 →</button>
