@@ -41,9 +41,10 @@ POSTGRESQL_PASSWORD = os.getenv("POSTGRESQL_PASSWORD", "")
 
 # MVP에서 모든 환경이 동일한 이슈 형성 기준을 사용하도록 코드 상수로 고정한다.
 ISSUE_CLUSTER_TRIGGER_COUNT = 50
-ISSUE_CLUSTER_MIN_SIZE = 10
+ISSUE_CLUSTER_MIN_SIZE = 4
 ISSUE_CLUSTER_MIN_SAMPLES = 3
-ISSUE_CLUSTER_MIN_MEMBERSHIP = 0.60
+ISSUE_CLUSTER_MIN_MEMBER_CONFIDENCE = 0.70
+ISSUE_CLUSTER_MIN_CENTROID_SIMILARITY = 0.85
 ISSUE_CLUSTER_WINDOW_HOURS = 72
 ISSUE_CLUSTER_REPRESENTATIVE_COUNT = 4
 ISSUE_CLUSTER_MAX_ARTICLES_PER_THEME = int(
@@ -269,14 +270,15 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
                 ]
 
                 # 이슈 군집에 실제로 포함된 기사만 소비한다. HDBSCAN noise와
-                # membership 기준을 통과하지 못한 군집의 기사는 72시간 동안
-                # pending에 남겨 후속 기사와 다시 군집화할 기회를 준다.
+                # 개별 membership/centroid 응집도 기준을 통과하지 못한 기사는
+                # 72시간 동안 pending에 남겨 후속 기사와 다시 군집화할 기회를 준다.
                 clusters = cluster_articles(
                     selected,
                     min_cluster_size=ISSUE_CLUSTER_MIN_SIZE,
                     min_samples=ISSUE_CLUSTER_MIN_SAMPLES,
                     representative_count=ISSUE_CLUSTER_REPRESENTATIVE_COUNT,
-                    min_membership_confidence=ISSUE_CLUSTER_MIN_MEMBERSHIP,
+                    min_membership_confidence=ISSUE_CLUSTER_MIN_MEMBER_CONFIDENCE,
+                    min_centroid_similarity=ISSUE_CLUSTER_MIN_CENTROID_SIMILARITY,
                 )
                 for cluster in clusters:
                     try:
@@ -366,8 +368,14 @@ def _validate_config() -> None:
         raise ValueError("GMS_TIMEOUT_SECONDS must be positive")
     if GMS_CONFIG.max_attempts < 1:
         raise ValueError("GMS_MAX_ATTEMPTS must be positive")
-    if not 0.0 <= ISSUE_CLUSTER_MIN_MEMBERSHIP <= 1.0:
-        raise ValueError("ISSUE_CLUSTER_MIN_MEMBERSHIP must be between 0 and 1")
+    if not 0.0 <= ISSUE_CLUSTER_MIN_MEMBER_CONFIDENCE <= 1.0:
+        raise ValueError(
+            "ISSUE_CLUSTER_MIN_MEMBER_CONFIDENCE must be between 0 and 1"
+        )
+    if not -1.0 <= ISSUE_CLUSTER_MIN_CENTROID_SIMILARITY <= 1.0:
+        raise ValueError(
+            "ISSUE_CLUSTER_MIN_CENTROID_SIMILARITY must be between -1 and 1"
+        )
 
 
 def main() -> None:

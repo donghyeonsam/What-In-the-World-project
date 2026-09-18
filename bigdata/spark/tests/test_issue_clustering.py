@@ -81,7 +81,11 @@ class IssueEventTest(unittest.TestCase):
         self.cluster = ClusterCandidate(
             theme_id=12,
             articles=(
-                article("a-2", published_at="2026-09-03T05:00:00+09:00"),
+                article(
+                    "a-2",
+                    embedding=(0.8, 0.6),
+                    published_at="2026-09-03T05:00:00+09:00",
+                ),
                 article("a-1", published_at="2026-09-02T21:00:00Z"),
             ),
             centroid=(1.0, 0.0),
@@ -101,6 +105,10 @@ class IssueEventTest(unittest.TestCase):
 
         self.assertEqual(event["event_type"], ISSUE_CREATE)
         self.assertEqual(event["payload"]["article_ids"], ["a-1", "a-2"])
+        self.assertEqual(
+            event["payload"]["article_similarities"],
+            {"a-1": 1.0, "a-2": 0.8},
+        )
         self.assertEqual(
             event["payload"]["first_seen_at"], "2026-09-03T05:00:00+09:00"
         )
@@ -163,6 +171,107 @@ class IssueEventTest(unittest.TestCase):
 
 
 class HdbscanTransformationTest(unittest.TestCase):
+    def test_disables_forced_single_cluster(self):
+        class FakeHdbscan:
+            kwargs = None
+
+            def __init__(self, **kwargs):
+                FakeHdbscan.kwargs = kwargs
+
+            def fit_predict(self, embeddings):
+                self.probabilities_ = [1.0] * len(embeddings)
+                return [0] * len(embeddings)
+
+        sklearn_module = types.ModuleType("sklearn")
+        cluster_module = types.ModuleType("sklearn.cluster")
+        cluster_module.HDBSCAN = FakeHdbscan
+        sklearn_module.cluster = cluster_module
+
+        with patch.dict(
+            sys.modules,
+            {"sklearn": sklearn_module, "sklearn.cluster": cluster_module},
+        ):
+            cluster_articles(
+                (article("a-1"), article("a-2")),
+                min_cluster_size=2,
+                min_samples=1,
+            )
+
+        self.assertFalse(FakeHdbscan.kwargs["allow_single_cluster"])
+
+    def test_filters_each_member_by_membership_probability(self):
+        class FakeHdbscan:
+            def __init__(self, **kwargs):
+                pass
+
+            def fit_predict(self, embeddings):
+                self.probabilities_ = [1.0, 0.9, 0.2]
+                return [0, 0, 0]
+
+        sklearn_module = types.ModuleType("sklearn")
+        cluster_module = types.ModuleType("sklearn.cluster")
+        cluster_module.HDBSCAN = FakeHdbscan
+        sklearn_module.cluster = cluster_module
+
+        articles = (
+            article("a-1", (1.0, 0.0)),
+            article("a-2", (0.99, 0.01)),
+            article("low-confidence", (0.98, 0.02)),
+        )
+        with patch.dict(
+            sys.modules,
+            {"sklearn": sklearn_module, "sklearn.cluster": cluster_module},
+        ):
+            clusters = cluster_articles(
+                articles,
+                min_cluster_size=2,
+                min_samples=1,
+                min_membership_confidence=0.7,
+            )
+
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(
+            [item.article_id for item in clusters[0].articles],
+            ["a-1", "a-2"],
+        )
+        self.assertAlmostEqual(clusters[0].membership_confidence, 0.95)
+
+    def test_filters_members_outside_centroid_similarity_boundary(self):
+        class FakeHdbscan:
+            def __init__(self, **kwargs):
+                pass
+
+            def fit_predict(self, embeddings):
+                self.probabilities_ = [1.0, 1.0, 1.0]
+                return [0, 0, 0]
+
+        sklearn_module = types.ModuleType("sklearn")
+        cluster_module = types.ModuleType("sklearn.cluster")
+        cluster_module.HDBSCAN = FakeHdbscan
+        sklearn_module.cluster = cluster_module
+
+        articles = (
+            article("a-1", (1.0, 0.0)),
+            article("a-2", (0.99, 0.01)),
+            article("off-topic", (0.0, 1.0)),
+        )
+        with patch.dict(
+            sys.modules,
+            {"sklearn": sklearn_module, "sklearn.cluster": cluster_module},
+        ):
+            clusters = cluster_articles(
+                articles,
+                min_cluster_size=2,
+                min_samples=1,
+                min_centroid_similarity=0.8,
+            )
+
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(
+            [item.article_id for item in clusters[0].articles],
+            ["a-1", "a-2"],
+        )
+
     def test_selects_eight_representatives_by_default(self):
         class FakeHdbscan:
             def __init__(self, **kwargs):

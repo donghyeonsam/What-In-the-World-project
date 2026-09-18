@@ -17,8 +17,10 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
 import java.time.*;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Service
@@ -181,6 +183,9 @@ public class DbWriterService {
     ) {
         require(payload, "payload");
         List<String> articleIds = distinctArticleIds(payload.articleIds());
+        Map<String, BigDecimal> articleSimilarities = issueSimilarities(
+                payload.articleSimilarities(), articleIds
+        );
         Theme theme = findTheme(require(payload.themeId(), "payload.theme_id"));
         String name = requireText(payload.name(), "payload.name");
         if (name.length() > 50) {
@@ -216,10 +221,49 @@ public class DbWriterService {
         LocalDateTime assignedAt = toKstLocalDateTime(occurredAt);
         for (Article article : articles) {
             article.setIssue(issue);
-            article.setIssueSimilarity(null);
+            article.setIssueSimilarity(articleSimilarities.get(article.getId()));
             article.setIssueAssignedAt(assignedAt);
         }
         articleRepository.saveAll(articles);
+    }
+
+    private Map<String, BigDecimal> issueSimilarities(
+            Map<String, BigDecimal> values,
+            List<String> articleIds
+    ) {
+        // 배포 전에 발행된 ISSUE_CREATE 이벤트도 재처리할 수 있도록 필드가 없는
+        // 구계약은 허용한다. 새 계약에서 필드가 있다면 일부 기사만 누락되는 것을
+        // 막기 위해 article_ids와 정확히 같은 키 집합을 요구한다.
+        if (values == null) {
+            return Map.of();
+        }
+
+        Map<String, BigDecimal> normalized = new LinkedHashMap<>();
+        for (Map.Entry<String, BigDecimal> entry : values.entrySet()) {
+            String articleId = requireText(
+                    entry.getKey(), "payload.article_similarities key"
+            );
+            BigDecimal similarity = requireRange(
+                    entry.getValue(),
+                    "payload.article_similarities[" + articleId + "]",
+                    BigDecimal.ONE.negate(),
+                    BigDecimal.ONE
+            );
+            if (normalized.put(articleId, similarity) != null) {
+                throw new IllegalArgumentException(
+                        "payload.article_similarities contains duplicate article_id: "
+                                + articleId
+                );
+            }
+        }
+
+        Set<String> expectedIds = new LinkedHashSet<>(articleIds);
+        if (!normalized.keySet().equals(expectedIds)) {
+            throw new IllegalArgumentException(
+                    "payload.article_similarities keys must match payload.article_ids"
+            );
+        }
+        return Map.copyOf(normalized);
     }
 
     private List<String> distinctArticleIds(List<String> articleIds) {
