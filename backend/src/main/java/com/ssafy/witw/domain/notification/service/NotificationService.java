@@ -76,4 +76,18 @@ public class NotificationService {
             throw new GlobalException(ErrorCode.ENTITY_NOT_FOUND);
         }
     }
+
+    @Transactional
+    public void markAllAsRead(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new GlobalException(ErrorCode.UNAUTHORIZED));
+
+        if (user.isWithdrawn()) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+
+        notificationRepository.markAllAsRead(
+                userId,
+                LocalDateTime.now(ZoneId.of("Asia/Seoul"))
+        );
+    }
 }
