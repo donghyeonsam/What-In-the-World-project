@@ -27,11 +27,27 @@ springdoc:
 analysis:
   # 글로벌 이슈 목록과 국가별 분석 대상에 동일하게 적용됩니다. 7 또는 10으로 변경할 수 있습니다.
   top-issue-limit: 5
-  min-country-articles: 10
+  min-country-articles: 1
   scheduler:
     enabled: true
     # 매시 정각: 0 0 * * * * / 3시간마다 정각: 0 0 */3 * * * (Asia/Seoul)
+    # 0 */5 * * * * 이건 5분마다 수행. 테스트할 때 하면 좋을듯
     cron: "0 0 * * * *"
+
+  worker:
+    core-pool-size: 1
+    max-pool-size: 1
+    queue-capacity: 100
+
+  gms:
+    base-url: ${GMS_BASE_URL:https://gms.ssafy.io/gmsapi/api.openai.com/v1}
+    api-key: ${GMS_API_KEY:}
+    model: ${GMS_MODEL:gpt-4o-mini}
+    timeout-seconds: 30
+    max-attempts: 3
+    max-tokens: 1200
+
+
 server:
   forward-headers-strategy: framework
   servlet:

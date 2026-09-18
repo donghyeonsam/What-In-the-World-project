@@ -33,21 +33,36 @@ public class IssueCountryAnalysisTargetRepository {
                 LIMIT ?
             )
             SELECT t.issue_id,
+                   i.name AS issue_name,
                    a.publisher_country_code AS country_code,
+                   c.name_ko AS country_name,
                    COUNT(*) AS article_count
             FROM top_issues t
-            JOIN article a ON a.issue_id = t.issue_id
+            JOIN article a
+              ON a.issue_id = t.issue_id
             CROSS JOIN bounds b
-            JOIN issue i ON i.id = t.issue_id AND i.created_at <= b.period_end
+            JOIN issue i
+              ON i.id = t.issue_id
+             AND i.created_at <= b.period_end
+            JOIN country c
+              ON c.country_code = a.publisher_country_code
             WHERE (a.deleted_at IS NULL OR a.deleted_at > b.period_end)
               AND a.issue_assigned_at <= b.period_end
               AND a.created_at <= b.period_end
               AND a.published_at >= b.period_start
               AND a.published_at < b.period_end
-            GROUP BY t.issue_id, t.issue_article_count, a.publisher_country_code
+            GROUP BY
+                t.issue_id,
+                t.issue_article_count,
+                i.name,
+                a.publisher_country_code,
+                c.name_ko
             HAVING COUNT(*) >= ?
-            ORDER BY t.issue_article_count DESC, t.issue_id ASC,
-                     article_count DESC, a.publisher_country_code ASC
+            ORDER BY
+                t.issue_article_count DESC,
+                t.issue_id ASC,
+                article_count DESC,
+                a.publisher_country_code ASC
             """;
 
     private final JdbcTemplate jdbcTemplate;
@@ -62,7 +77,9 @@ public class IssueCountryAnalysisTargetRepository {
                 FIND_TARGETS,
                 (resultSet, rowNum) -> new Target(
                         resultSet.getLong("issue_id"),
+                        resultSet.getString("issue_name"),
                         resultSet.getString("country_code"),
+                        resultSet.getString("country_name"),
                         resultSet.getLong("article_count")
                 ),
                 Timestamp.valueOf(periodStart),
@@ -72,6 +89,15 @@ public class IssueCountryAnalysisTargetRepository {
         );
     }
 
-    public record Target(long issueId, String countryCode, long articleCount) {
+    /**
+     * 하나의 국가별 이슈 분석 작업에 필요한 기본 정보.
+     */
+    public record Target(
+            long issueId,
+            String issueName,
+            String countryCode,
+            String countryName,
+            long articleCount
+    ) {
     }
 }

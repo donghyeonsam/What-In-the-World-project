@@ -7,6 +7,13 @@ spring:
     host: localhost
     port: 3025
 
+  kafka:
+    bootstrap-servers: 127.0.0.1:1
+    listener:
+      auto-startup: false
+    admin:
+      auto-create: false
+
   # 스키마 주인은 Flyway. 운영 프로파일의 ddl-auto: update 를 덮어쓴다.
   jpa:
     hibernate:
@@ -17,3 +24,10 @@ spring:
     locations: classpath:db/migration
 
 # datasource/redis 는 TestContainerSupport 가 주입한다. 여기 적으면 실 DB 로 붙을 수 있다.
+
+analysis:
+  scheduler:
+    enabled: false
+  gms:
+    base-url: http://127.0.0.1:1
+    api-key: ""

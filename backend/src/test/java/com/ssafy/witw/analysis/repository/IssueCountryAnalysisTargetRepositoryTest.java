@@ -1,5 +1,6 @@
 package com.ssafy.witw.analysis.repository;
 
+import com.ssafy.witw.analysis.repository.IssueCountryAnalysisArticleRepository.ArticleForAnalysis;
 import com.ssafy.witw.analysis.repository.IssueCountryAnalysisTargetRepository.Target;
 import com.ssafy.witw.support.RepositoryTest;
 import com.ssafy.witw.support.TestContainerSupport;
@@ -15,7 +16,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @RepositoryTest
-@Import(IssueCountryAnalysisTargetRepository.class)
+@Import({IssueCountryAnalysisTargetRepository.class, IssueCountryAnalysisArticleRepository.class})
 class IssueCountryAnalysisTargetRepositoryTest extends TestContainerSupport {
 
     private static final LocalDateTime PERIOD_END = LocalDateTime.of(2026, 9, 17, 14, 0);
@@ -31,6 +32,9 @@ class IssueCountryAnalysisTargetRepositoryTest extends TestContainerSupport {
     @Autowired
     private IssueCountryAnalysisTargetRepository targetRepository;
 
+    @Autowired
+    private IssueCountryAnalysisArticleRepository articleRepository;
+
     @Test
     void 고정된_24시간_창의_TopN에서_국가별_기사_10건_이상만_선정한다() {
         prepareData();
@@ -38,11 +42,49 @@ class IssueCountryAnalysisTargetRepositoryTest extends TestContainerSupport {
         List<Target> topOne = targetRepository.findTargets(PERIOD_START, PERIOD_END, 1, 10);
         List<Target> topTwo = targetRepository.findTargets(PERIOD_START, PERIOD_END, 2, 10);
 
-        assertThat(topOne).containsExactly(new Target(FIRST_ISSUE_ID, "ZX", 10));
+        assertThat(topOne).containsExactly(new Target(FIRST_ISSUE_ID, "분석 이슈 1", "ZX", "분석국가1", 10));
         assertThat(topTwo).containsExactly(
-                new Target(FIRST_ISSUE_ID, "ZX", 10),
-                new Target(SECOND_ISSUE_ID, "ZX", 11)
+                new Target(FIRST_ISSUE_ID, "분석 이슈 1", "ZX", "분석국가1", 10),
+                new Target(SECOND_ISSUE_ID, "분석 이슈 2", "ZX", "분석국가1", 11)
         );
+    }
+
+    @Test
+    void 분석_기사_조회는_대상_선정과_동일한_기준_시각을_사용한다() {
+        prepareData();
+        jdbcTemplate.update("UPDATE article SET translated_title = ?, summary = ? WHERE id = ?",
+                "번역 제목", "기사 요약", "first-zx-0");
+        insertArticle("late-created", FIRST_ISSUE_ID, "ZX", PERIOD_START.plusHours(1), false);
+        jdbcTemplate.update("UPDATE article SET created_at = ? WHERE id = ?",
+                Timestamp.valueOf(PERIOD_END.plusSeconds(1)), "late-created");
+        insertArticle("late-assigned", FIRST_ISSUE_ID, "ZX", PERIOD_START.plusHours(1), false);
+        jdbcTemplate.update("UPDATE article SET issue_assigned_at = ? WHERE id = ?",
+                Timestamp.valueOf(PERIOD_END.plusSeconds(1)), "late-assigned");
+        insertArticle("deleted-after", FIRST_ISSUE_ID, "ZX", PERIOD_START.plusHours(2), false);
+        jdbcTemplate.update("UPDATE article SET deleted_at = ? WHERE id = ?",
+                Timestamp.valueOf(PERIOD_END.plusSeconds(1)), "deleted-after");
+
+        List<ArticleForAnalysis> articles = articleRepository.findArticles(
+                FIRST_ISSUE_ID, "ZX", PERIOD_START, PERIOD_END);
+
+        assertThat(articles).hasSize(11);
+        assertThat(articles).extracting(ArticleForAnalysis::articleId)
+                .contains("first-zx-0", "deleted-after")
+                .doesNotContain("late-created", "late-assigned", "deleted-first", "before-start", "at-end");
+        assertThat(articles.getFirst().articleId()).isEqualTo("deleted-after");
+        ArticleForAnalysis translated = articles.stream()
+                .filter(article -> article.articleId().equals("first-zx-0"))
+                .findFirst().orElseThrow();
+        assertThat(translated.title()).isEqualTo("번역 제목");
+        assertThat(translated.summary()).isEqualTo("기사 요약");
+        assertThat(articles.stream().filter(article -> article.summary() == null).count()).isEqualTo(10);
+        assertThat(targetRepository.findTargets(PERIOD_START, PERIOD_END, 1, 10))
+                .containsExactly(new Target(FIRST_ISSUE_ID, "분석 이슈 1", "ZX", "분석국가1", 11));
+
+        jdbcTemplate.update("UPDATE issue SET created_at = ? WHERE id = ?",
+                Timestamp.valueOf(PERIOD_END.plusSeconds(1)), FIRST_ISSUE_ID);
+        assertThat(articleRepository.findArticles(FIRST_ISSUE_ID, "ZX", PERIOD_START, PERIOD_END)).isEmpty();
+        assertThat(targetRepository.findTargets(PERIOD_START, PERIOD_END, 1, 10)).isEmpty();
     }
 
     private void prepareData() {
