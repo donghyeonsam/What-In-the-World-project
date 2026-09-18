@@ -22,7 +22,8 @@ class KafkaErrorHandlerConfigTest {
             .withUserConfiguration(KafkaErrorHandlerConfig.class)
             .withPropertyValues(
                     "spring.profiles.active=dev-prod",
-                    "spring.kafka.bootstrap-servers=localhost:9092"
+                    "spring.kafka.bootstrap-servers=localhost:9092",
+                    "spring.kafka.admin.auto-create=false"
             );
 
     @Test
