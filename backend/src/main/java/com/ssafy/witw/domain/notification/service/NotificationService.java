@@ -90,4 +90,22 @@ public class NotificationService {
                 LocalDateTime.now(ZoneId.of("Asia/Seoul"))
         );
     }
+
+    @Transactional
+    public void deleteNotification(Long userId, Long notificationId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new GlobalException(ErrorCode.UNAUTHORIZED));
+
+        if (user.isWithdrawn()) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+
+        int updated = notificationRepository.softDelete(
+                notificationId,
+                userId,
+                LocalDateTime.now(ZoneId.of("Asia/Seoul"))
+        );
+
+        if (updated == 0) throw new GlobalException(ErrorCode.ENTITY_NOT_FOUND);
+
+    }
 }

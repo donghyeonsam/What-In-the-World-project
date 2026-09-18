@@ -12,7 +12,13 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 
 @RestController
 @RequiredArgsConstructor
@@ -78,6 +84,24 @@ public class NotificationController {
 
 
         notificationService.markAllAsRead(userId);
+
+        return BaseResponse.success(SuccessCode.REQUEST_SUCCESS);
+    }
+
+    @DeleteMapping("/{notificationId}")
+    @Operation(summary = "개별 알림 삭제")
+    public ResponseEntity<BaseResponse<Void>> deleteNotification(
+            @PathVariable Long notificationId, HttpServletRequest request
+    ) {
+        HttpSession session = request.getSession(false);
+
+        if (session == null) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+        Object attribute = session.getAttribute("userId");
+
+        if (!(attribute instanceof Long userId)) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+        notificationService.deleteNotification(userId, notificationId);
 
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS);
     }
