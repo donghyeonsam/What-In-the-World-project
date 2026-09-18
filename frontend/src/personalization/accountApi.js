@@ -17,4 +17,10 @@ export const accountApi = {
   withdraw: (password) => request('/users/withdraw', {
     method: 'PATCH', body: { password }, allowEmpty: true,
   }),
+  // 관심 테마는 계정별로 서버(user_interest_theme)에 저장한다.
+  interestThemes: (signal) => request('/users/me/interests/themes', { signal }),
+  addInterestTheme: (themeId) => post('/users/me/interests/themes', { themeId }),
+  removeInterestTheme: (themeId) => request(`/users/me/interests/themes/${encodeURIComponent(themeId)}`, {
+    method: 'DELETE', allowEmpty: true,
+  }),
 };
