@@ -63,4 +63,22 @@ public class NotificationController {
 
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS);
     }
+
+    @PatchMapping("/read-all")
+    @Operation(summary = "알림 전체 읽음 처리")
+    public ResponseEntity<BaseResponse<Void>> markAllAsRead(HttpServletRequest request) {
+        HttpSession session = request.getSession(false);
+
+        if (session == null) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+
+        Object attribute = session.getAttribute("userId");
+
+        if (!(attribute instanceof Long userId)) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+
+        notificationService.markAllAsRead(userId);
+
+        return BaseResponse.success(SuccessCode.REQUEST_SUCCESS);
+    }
 }
