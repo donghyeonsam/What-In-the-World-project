@@ -42,10 +42,10 @@ class IssueCountryAnalysisTargetRepositoryTest extends TestContainerSupport {
         List<Target> topOne = targetRepository.findTargets(PERIOD_START, PERIOD_END, 1, 10);
         List<Target> topTwo = targetRepository.findTargets(PERIOD_START, PERIOD_END, 2, 10);
 
-        assertThat(topOne).containsExactly(new Target(FIRST_ISSUE_ID, "ZX", 10));
+        assertThat(topOne).containsExactly(new Target(FIRST_ISSUE_ID, "분석 이슈 1", "ZX", "분석국가1", 10));
         assertThat(topTwo).containsExactly(
-                new Target(FIRST_ISSUE_ID, "ZX", 10),
-                new Target(SECOND_ISSUE_ID, "ZX", 11)
+                new Target(FIRST_ISSUE_ID, "분석 이슈 1", "ZX", "분석국가1", 10),
+                new Target(SECOND_ISSUE_ID, "분석 이슈 2", "ZX", "분석국가1", 11)
         );
     }
 
@@ -79,7 +79,7 @@ class IssueCountryAnalysisTargetRepositoryTest extends TestContainerSupport {
         assertThat(translated.summary()).isEqualTo("기사 요약");
         assertThat(articles.stream().filter(article -> article.summary() == null).count()).isEqualTo(10);
         assertThat(targetRepository.findTargets(PERIOD_START, PERIOD_END, 1, 10))
-                .containsExactly(new Target(FIRST_ISSUE_ID, "ZX", 11));
+                .containsExactly(new Target(FIRST_ISSUE_ID, "분석 이슈 1", "ZX", "분석국가1", 11));
 
         jdbcTemplate.update("UPDATE issue SET created_at = ? WHERE id = ?",
                 Timestamp.valueOf(PERIOD_END.plusSeconds(1)), FIRST_ISSUE_ID);

@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -60,6 +61,20 @@ class IssueCountryAnalysisContractTest {
         Map<?, ?> body = objectMapper.readValue(prompt.userMessage(), Map.class);
         assertThat(body.get("totalArticleCount")).isEqualTo(articles.size());
         assertThat((List<?>) body.get("representativeArticles")).hasSize(12);
+        List<?> payloadArticles = (List<?>) body.get("representativeArticles");
+        for (int index = 0; index < prompt.representativeArticleIds().size(); index++) {
+            String id = prompt.representativeArticleIds().get(index);
+            ArticleForAnalysis original = articles.stream()
+                    .filter(a -> a.articleId().equals(id)).findFirst().orElseThrow();
+            Map<?, ?> payloadArticle = (Map<?, ?>) payloadArticles.get(index);
+            assertThat(payloadArticle.get("title")).isEqualTo(original.title());
+            assertThat(payloadArticle.containsKey("id")).isFalse();
+            assertThat(payloadArticle.containsKey("articleId")).isFalse();
+            assertThat(prompt.userMessage()).doesNotContain(id);
+        }
+        assertThat(prompt.userMessage()).doesNotContain("representativeArticleIds", "evidenceArticleIds");
+        assertThatThrownBy(() -> prompt.representativeArticleIds().add("extra"))
+                .isInstanceOf(UnsupportedOperationException.class);
     }
 
     @Test
@@ -83,35 +98,77 @@ class IssueCountryAnalysisContractTest {
     }
 
     @Test
-    void 응답은_정해진_JSON_형식과_입력에_포함된_근거_기사만_허용한다() {
-        PreparedPrompt prompt = prepare(List.of(
-                article("id-1", "제목 1", "매체A", 10, PERIOD_START.plusHours(1)),
-                article("id-2", "제목 2", "매체B", 30, PERIOD_START.plusHours(2)),
-                article("id-3", "제목 3", "매체C", 50, PERIOD_START.plusHours(3)),
-                article("id-4", "제목 4", "매체D", 70, PERIOD_START.plusHours(4)),
-                article("id-5", "제목 5", "매체E", 90, PERIOD_START.plusHours(5))));
+    void 응답은_세_필드만_허용하고_근거_기사_ID를_받지_않는다() {
         String valid = """
                 {"title":"보도 관점","summary":"서로 다른 보도 관점이 나타납니다.",
-                 "details":["첫 번째 쟁점","두 번째 쟁점"],
-                 "evidenceArticleIds":["id-1","id-3"]}
+                 "details":["첫 번째 쟁점","두 번째 쟁점"]}
                 """;
 
-        var result = responseValidator.validate(valid, prompt);
-        assertThat(result.evidenceArticleIds()).containsExactly("id-1", "id-3");
+        var result = responseValidator.validate(valid);
         assertThat(result.details()).containsExactly("첫 번째 쟁점", "두 번째 쟁점");
-        assertThatThrownBy(() -> responseValidator.validate(valid.replace("id-3", "unknown"), prompt))
+        assertThatThrownBy(() -> responseValidator.validate(valid.replace("\"title\":", "\"evidenceArticleIds\":[\"id-1\"],\"title\":")))
                 .isInstanceOf(InvalidAnalysisResponseException.class);
-        assertThatThrownBy(() -> responseValidator.validate(valid.replace("id-3", "id-1"), prompt))
+        assertThatThrownBy(() -> responseValidator.validate(valid.replace("\"title\":", "\"extra\":1,\"title\":")))
                 .isInstanceOf(InvalidAnalysisResponseException.class);
-        assertThatThrownBy(() -> responseValidator.validate(valid.replace("\"title\":", "\"extra\":1,\"title\":"), prompt))
-                .isInstanceOf(InvalidAnalysisResponseException.class);
-        assertThatThrownBy(() -> responseValidator.validate("not JSON", prompt))
+        assertThatThrownBy(() -> responseValidator.validate("not JSON"))
                 .isInstanceOf(InvalidAnalysisResponseException.class);
     }
 
     private PreparedPrompt prepare(List<ArticleForAnalysis> articles) {
         return promptService.prepare(56, "구체적인 이슈", "KR", "대한민국", articles.size(),
                 PERIOD_START, PERIOD_END, articles);
+    }
+
+    @Test
+    void invalid_articles_are_filtered_and_period_start_is_inclusive() {
+        List<ArticleForAnalysis> articles = new ArrayList<>(validArticles());
+        articles.add(null);
+        articles.add(new ArticleForAnalysis(null, "null id", "summary", BigDecimal.TEN, null, PERIOD_START, null));
+        articles.add(new ArticleForAnalysis(" ", "blank id", "summary", BigDecimal.TEN, null, PERIOD_START, null));
+        articles.add(new ArticleForAnalysis("null-title", null, "summary", BigDecimal.TEN, null, PERIOD_START, null));
+        articles.add(new ArticleForAnalysis("blank-title", " ", "summary", BigDecimal.TEN, null, PERIOD_START, null));
+        articles.add(new ArticleForAnalysis("blank-summary", "title", " ", BigDecimal.TEN, null, PERIOD_START, null));
+        articles.add(new ArticleForAnalysis("null-tone", "null tone", "summary", null, null, PERIOD_START, null));
+        articles.add(new ArticleForAnalysis("null-time", "null time", "summary", BigDecimal.TEN, null, null, null));
+        articles.add(article("invalid-negative-tone", "invalid negative", null, -1, PERIOD_START));
+        articles.add(article("invalid-high-tone", "invalid high", null, 101, PERIOD_START));
+        PreparedPrompt prompt = prepare(articles);
+        assertThat(prompt.usableArticleCount()).isEqualTo(5);
+        assertThat(prompt.representativeArticleIds()).containsExactlyInAnyOrder("a0", "a1", "a2", "a3", "a4");
+    }
+
+    @Test
+    void input_text_is_bounded_and_all_five_eligible_ids_are_retained() {
+        List<ArticleForAnalysis> articles = new ArrayList<>(validArticles());
+        articles.set(0, new ArticleForAnalysis("a0", "가".repeat(151), "나".repeat(401),
+                BigDecimal.ZERO, null, PERIOD_START, null));
+        PreparedPrompt prompt = prepare(articles);
+        Map<?, ?> body = objectMapper.readValue(prompt.userMessage(), Map.class);
+        List<?> payloadArticles = (List<?>) body.get("representativeArticles");
+        Map<?, ?> longArticle = payloadArticles.stream().map(Map.class::cast)
+                .filter(a -> a.get("title").toString().startsWith("가")).findFirst().orElseThrow();
+        assertThat(longArticle.get("title")).isEqualTo("가".repeat(150));
+        assertThat(longArticle.get("summary")).isEqualTo("나".repeat(400));
+        assertThat(prompt.representativeArticleIds()).hasSize(5).contains("a0");
+        assertThatThrownBy(() -> prepare(validArticles().subList(0, 4)))
+                .isInstanceOf(InsufficientArticlesException.class);
+    }
+
+    private static List<ArticleForAnalysis> validArticles() {
+        return IntStream.range(0, 5).mapToObj(i ->
+                article("a" + i, "Title " + i, "publisher", i * 25, PERIOD_START.plusHours(i))).toList();
+    }
+
+    @Test
+    void selection_balances_tone_using_the_same_ranges_as_the_prompt() {
+        int[] scores = {90, 38, 35, 50, 90};
+        List<ArticleForAnalysis> articles = IntStream.range(0, scores.length)
+                .mapToObj(i -> new ArticleForAnalysis("tone-" + i, "Tone title " + i, "summary",
+                        BigDecimal.valueOf(scores[i]), "same publisher", PERIOD_START,
+                        BigDecimal.valueOf(scores.length - i)))
+                .toList();
+        assertThat(prepare(articles).representativeArticleIds().subList(0, 3))
+                .containsExactly("tone-0", "tone-1", "tone-3");
     }
 
     private static ArticleForAnalysis article(

@@ -14,9 +14,11 @@ import java.util.List;
 @RequiredArgsConstructor
 public class IssueCountryAnalysisTargetService {
 
+    // .yml에서 관리 중. 값을 변경하면 그걸로 TOP N이 반영
     @Value("${analysis.top-issue-limit:5}")
     private int topIssueLimit = 5;
 
+    // .yml에서 관리 중. 하나의 이슈와 국가에 대해 24시간 기준 몇 건의 기사가 있어야 하는지 기준치
     @Value("${analysis.min-country-articles:10}")
     private int minCountryArticleCount = 10;
 
@@ -24,6 +26,7 @@ public class IssueCountryAnalysisTargetService {
 
     @Transactional(readOnly = true)
     public List<Target> findTargets(LocalDateTime periodStart, LocalDateTime periodEnd) {
+        // 최근 24시간의 글로벌 이슈 TOP N의 ID와 거기 포함된 국가들 중 min값 이상의 국가코드를 조회해서 반환
         return targetRepository.findTargets(
                 periodStart,
                 periodEnd,
