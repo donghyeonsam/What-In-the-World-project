@@ -66,6 +66,29 @@ test('account API sends session cookies, correct bodies and accepts success with
   } finally { globalThis.fetch = original; }
 });
 
+test('password recovery uses dedicated endpoints and the verified session for reset', async () => {
+  const original = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, ...options });
+    return new Response(JSON.stringify(url.endsWith('/send')
+      ? { status: 200, data: { timeLimit: 300 } }
+      : { status: 200, message: '성공' }));
+  };
+  try {
+    assert.deepEqual(await accountApi.sendPasswordResetCode('member@example.com'), { timeLimit: 300 });
+    await accountApi.verifyPasswordResetCode('member@example.com', 'ABC1234');
+    await accountApi.resetPassword('new-password');
+    assert.deepEqual(calls.map(({ url, method, credentials, body }) => ({ url, method, credentials, body: JSON.parse(body) })), [
+      { url: '/api/v1/auth/password/email/send', method: 'POST', credentials: 'include', body: { email: 'member@example.com' } },
+      { url: '/api/v1/auth/password/email/verify', method: 'POST', credentials: 'include', body: { email: 'member@example.com', code: 'ABC1234' } },
+      { url: '/api/v1/auth/password/reset', method: 'POST', credentials: 'include', body: { newPassword: 'new-password' } },
+    ]);
+    globalThis.fetch = async () => new Response(JSON.stringify({ status: 400, message: '인증이 만료되었습니다.' }), { status: 400 });
+    await assert.rejects(accountApi.resetPassword('new-password'), { status: 400, message: '인증이 만료되었습니다.' });
+  } finally { globalThis.fetch = original; }
+});
+
 test('SSAFY callback validates state once and restores the pre-login URL', () => {
   const values = new Map([
     ['witw_ssafy_oauth_state', 'safe-state'],
