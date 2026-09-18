@@ -9,6 +9,8 @@ import { createMentionGroup, updateMentionFlow } from '../../lib/mentionLinks.js
 import { layoutGlobeCallout, resolveGlobeCalloutSide } from '../../lib/globeCallout.js';
 import s from './GlobeThree.module.css';
 import { flagOf, fmt, scoreOf } from '../../data/responseAdapters.js';
+import SatelliteRelay from './SatelliteRelay.jsx';
+import { issueCardSlots, placeIssueCards } from '../../lib/issueCardLayout.js';
 
 const GEO_URL =
   'https://raw.githubusercontent.com/vasturiano/globe.gl/master/example/datasets/ne_110m_admin_0_countries.geojson';
@@ -151,11 +153,25 @@ export default function GlobeThree({
   onMeteorImpact,
   issueCards = [],
   selectedIssueCountry = null,
+  onSelectIssueCountry,
+  satelliteDemo = false,
+  globalIssueView = false,
   calloutCountry = null,
   callout = null,
   children,
 }) {
   const issueCardRefs = useRef(new Map());
+  const globalIssueRef = useRef(globalIssueView);
+  globalIssueRef.current = globalIssueView;
+  const satelliteRef = useRef(null);
+  const signalRefs = useRef([]);
+  const satelliteDemoRef = useRef(satelliteDemo);
+  satelliteDemoRef.current = satelliteDemo;
+  const issueCardsRef = useRef([]);
+  issueCardsRef.current = issueCards;
+  const selectedIssueCountryRef = useRef(selectedIssueCountry);
+  selectedIssueCountryRef.current = selectedIssueCountry;
+  const hoveredIssueCardRef = useRef(null);
   const travelRef = useRef(timeTravel);
   travelRef.current = timeTravel;
   const wrapRef = useRef(null);
@@ -792,6 +808,7 @@ export default function GlobeThree({
       return VISIBLE_GLOBE_RADIUS / Math.sin(limitingHalfFov * FOCUS_FILL_RATIO);
     };
     const countryFocusCameraZ = (c) => {
+      if (globalIssueRef.current) return Math.max(IDLE_CAMERA_Z, focusCameraZ());
       if (!c) return focusCameraZ();
       return countryCameraZ({
         rings: countryRings(c), lat: c.lat, lon: c.lon,
@@ -921,6 +938,7 @@ export default function GlobeThree({
       tipRef.current?.classList.remove(s.show);
     };
     const onClick = (e) => {
+      if (e.target !== renderer.domElement) return;
       if (!firstFrameRendered) return;
       if (dragDistance >= 5 || selectionClearedDuringDrag || caughtInertia) {
         dragDistance = 0;
@@ -976,24 +994,98 @@ export default function GlobeThree({
     const anchorToCamera = new THREE.Vector3();
     const projectedAnchor = new THREE.Vector3();
     const calloutMotion = { countryId: null, side: null, x: null, y: null, change: null };
+    const packets = [null, null];
+    let nextTransmission = 0;
+    let transmissionCountry = 0;
+    const projectCountry = (id) => {
+      const anchor = calloutAnchors.get(id);
+      if (!anchor) return null;
+      anchorWorld.copy(anchor).applyMatrix4(globe.matrixWorld);
+      anchorNormal.copy(anchorWorld).sub(globe.position).normalize();
+      anchorToCamera.copy(cam.position).sub(anchorWorld);
+      projectedAnchor.copy(anchorWorld).project(cam);
+      if (anchorNormal.dot(anchorToCamera) <= .12 || projectedAnchor.z >= 1
+        || Math.abs(projectedAnchor.x) > .94 || Math.abs(projectedAnchor.y) > .86) return null;
+      return { x: (projectedAnchor.x + 1) * wrap.clientWidth / 2, y: (1 - projectedAnchor.y) * wrap.clientHeight / 2 };
+    };
+    const updateSatellite = (now) => {
+      const satellite = satelliteRef.current;
+      if (!satellite) return;
+      const active = satelliteDemoRef.current && !reduced && travelRef.current == null && !document.hidden;
+      if (!active) {
+        packets.fill(null);
+        signalRefs.current.forEach((node) => node?.setAttribute('visibility', 'hidden'));
+        nextTransmission = now + 1000;
+        return;
+      }
+      if (now >= nextTransmission) {
+        const slot = packets.findIndex((packet) => !packet);
+        if (slot >= 0) {
+          for (let i = 0; i < countries.length; i++) {
+            const country = countries[transmissionCountry++ % countries.length];
+            if (projectCountry(country.id)) { packets[slot] = { id: country.id, born: now }; break; }
+          }
+        }
+        nextTransmission = now + 2400;
+      }
+      const end = { x: satellite.offsetLeft + satellite.offsetWidth * .39, y: satellite.offsetTop + satellite.offsetWidth * .21 };
+      packets.forEach((packet, index) => {
+        const node = signalRefs.current[index];
+        if (!node) return;
+        const start = packet && projectCountry(packet.id);
+        const progress = packet ? (now - packet.born) / 3000 : 1;
+        if (!start || progress >= 1) {
+          packets[index] = null;
+          node.setAttribute('visibility', 'hidden');
+          return;
+        }
+        const control = { x: start.x + (end.x - start.x) * .35, y: Math.min(start.y, end.y) - 60 };
+        const t = progress, u = 1 - t;
+        const x = u * u * start.x + 2 * u * t * control.x + t * t * end.x;
+        const y = u * u * start.y + 2 * u * t * control.y + t * t * end.y;
+        const [trail, origin, halo, dot] = node.children;
+        trail.setAttribute('d', `M${start.x} ${start.y}Q${control.x} ${control.y} ${end.x} ${end.y}`);
+        origin.setAttribute('cx', start.x); origin.setAttribute('cy', start.y);
+        [halo, dot].forEach((circle) => { circle.setAttribute('cx', x); circle.setAttribute('cy', y); });
+        node.setAttribute('opacity', Math.min(1, progress * 8, (1 - progress) * 8));
+        node.setAttribute('visibility', 'visible');
+      });
+    };
     const positionIssueCards = () => {
-      const occupied = [];
-      for (const [id, card] of issueCardRefs.current) {
+      // Do not move a button out from under the pointer between pointerdown and click.
+      if (hoveredIssueCardRef.current && issueCardRefs.current.has(hoveredIssueCardRef.current)) return;
+      const satellite = satelliteRef.current;
+      const firstCard = issueCardRefs.current.values().next().value;
+      if (!firstCard) return;
+      const slots = issueCardSlots({ width: wrap.clientWidth, height: wrap.clientHeight,
+        cardWidth: firstCard.offsetWidth, cardHeight: firstCard.offsetHeight,
+        satelliteBottom: satellite ? satellite.offsetTop + satellite.offsetHeight : 0 });
+      const projected = [];
+      for (const row of issueCardsRef.current) {
+        const id = row.country.countryCode.toLowerCase();
+        const card = issueCardRefs.current.get(id);
+        if (!card) continue;
         const anchor = calloutAnchors.get(id);
         if (!anchor) { card.style.visibility = 'hidden'; continue; }
         anchorWorld.copy(anchor).applyMatrix4(globe.matrixWorld);
         anchorNormal.copy(anchorWorld).sub(globe.position).normalize();
         anchorToCamera.copy(cam.position).sub(anchorWorld);
+        const back = anchorNormal.dot(anchorToCamera) <= .04;
         projectedAnchor.copy(anchorWorld).project(cam);
-        const width = card.offsetWidth, height = card.offsetHeight;
-        const x = Math.max(8, Math.min(wrap.clientWidth - width - 8, (projectedAnchor.x + 1) * wrap.clientWidth / 2 - width / 2));
-        const y = (1 - projectedAnchor.y) * wrap.clientHeight / 2 - height - 12;
-        const rect = { x, y, width, height };
-        const visible = anchorNormal.dot(anchorToCamera) > 0.04 && projectedAnchor.z < 1
-          && Math.abs(projectedAnchor.x) < 1 && y > 90 && y + height < wrap.clientHeight - 75
-          && !occupied.some((r) => x < r.x + r.width + 6 && x + width + 6 > r.x && y < r.y + r.height + 6 && y + height + 6 > r.y);
-        card.style.visibility = visible ? 'visible' : 'hidden';
-        if (visible) { occupied.push(rect); card.style.transform = `translate3d(${x}px, ${y}px, 0)`; }
+        projected.push({ id, back, x: (projectedAnchor.x + 1) * wrap.clientWidth / 2,
+          y: (1 - projectedAnchor.y) * wrap.clientHeight / 2 });
+      }
+      const placements = placeIssueCards({ rows: projected, slots, selectedId: selectedIssueCountryRef.current,
+        width: wrap.clientWidth, height: wrap.clientHeight, cardWidth: firstCard.offsetWidth, cardHeight: firstCard.offsetHeight,
+        obstacles: satellite ? [{ x: satellite.offsetLeft, y: satellite.offsetTop, width: satellite.offsetWidth, height: satellite.offsetHeight }] : [] });
+      const byId = new Map(placements.map((placement) => [placement.id, placement]));
+      for (const [id, card] of issueCardRefs.current) {
+        const placement = byId.get(id);
+        card.style.visibility = placement ? 'visible' : 'hidden';
+        if (placement) {
+          card.dataset.back = String(placement.back);
+          card.style.transform = `translate3d(${placement.x}px, ${placement.y}px, 0)`;
+        }
       }
     };
     const positionCallout = (now, elapsedMs) => {
@@ -1134,6 +1226,7 @@ export default function GlobeThree({
       renderer.render(scene, cam);
       positionCallout(now, elapsedMs);
       positionIssueCards();
+      updateSatellite(now);
       if (!firstFrameRendered) {
         firstFrameRendered = true;
         setEarthStatus('ready');
@@ -1202,7 +1295,7 @@ export default function GlobeThree({
         vy = 0;
         focusedId = null;
         focusRotation = null;
-        targetZ = IDLE_CAMERA_Z;
+        targetZ = globalIssueRef.current ? Math.max(IDLE_CAMERA_Z, focusCameraZ()) : IDLE_CAMERA_Z;
         userZoomed = false;
         userRotated = false;
         spin = !reduced;
@@ -1268,7 +1361,7 @@ export default function GlobeThree({
       apiRef.current?.releaseFocus();
     } else if (focus) apiRef.current?.focusCountry(focus);
     else apiRef.current?.reset();
-  }, [focus, calloutCountry]);
+  }, [focus, calloutCountry, globalIssueView]);
 
   useEffect(() => {
     apiRef.current?.setMentions(mentionRelations);
@@ -1314,6 +1407,7 @@ export default function GlobeThree({
         </div> : <p role="status">지구를 불러오는 중…</p>}
       </div>}
       <div className={s.tip} ref={tipRef} />
+      {earthStatus === 'ready' && <SatelliteRelay satelliteRef={satelliteRef} signalRefs={signalRefs} />}
       {earthStatus === 'ready' && calloutCountry && callout && <>
         <svg className={s.analysisLink} aria-hidden="true"><line ref={calloutLineRef} /></svg>
         <span className={s.analysisAnchor} ref={calloutAnchorRef} aria-hidden="true" />
@@ -1321,16 +1415,25 @@ export default function GlobeThree({
       </>}
       {earthStatus === 'ready' && issueCards.map((row) => {
         const id = row.country.countryCode.toLowerCase();
+        const country = countries.find((item) => item.id === id);
         const score = scoreOf(row.toneAvg);
         return <button type="button" key={id} ref={(node) => { if (node) issueCardRefs.current.set(id, node); else issueCardRefs.current.delete(id); }}
           className={`${s.issueCard} ${selectedIssueCountry === id ? s.issueCardSelected : ''}`}
-          aria-pressed={selectedIssueCountry === id} onClick={() => onOpenCountry?.(id)}>
-          <span className={s.issueFlag}>{flagOf(id)}</span><span><strong>{row.country.countryName}</strong>
-          <small>{fmt(row.articleCount)}건 · {score == null ? '분석 없음' : toneLabel3(score)}</small></span>
+          aria-pressed={selectedIssueCountry === id}
+          onPointerEnter={() => { hoveredIssueCardRef.current = id; }}
+          onPointerLeave={() => { hoveredIssueCardRef.current = null; }}
+          onPointerDown={(event) => { event.stopPropagation(); hoveredIssueCardRef.current = id; }}
+          onPointerCancel={() => { hoveredIssueCardRef.current = null; }}
+          onClick={(event) => { event.stopPropagation(); (onSelectIssueCountry || onOpenCountry)?.(id); if (event.detail === 0 || event.nativeEvent.pointerType === 'touch') hoveredIssueCardRef.current = null; }}>
+          <span className={s.issueFlag} aria-hidden="true">{country?.flagImage
+            ? <img src={country.flagImage} alt="" />
+            : country?.flagClass ? <i className={country.flagClass} /> : flagOf(id)}</span><span><strong>{row.country.countryName}</strong>
+          <small className={s.issueSummary}>{row.analysis?.title || row.analysis?.summary || '분석 준비 중'}</small>
+          <small>{fmt(row.articleCount)}건 · {score == null ? '논조 분석 없음' : toneLabel3(score)}</small></span>
           <i style={{ background: score == null ? '#9a8fc4' : `rgb(${toneRGB(score).join(',')})` }} />
         </button>;
       })}
-      {issueCards.length > 0 && <div className={s.issueLegend}>보도량 상위 {issueCards.length}개국 · 최근 24시간<small>뒤쪽·겹치는 카드는 숨김 · 오른쪽 목록에서 국가 선택</small><span><b style={{ color: '#d94b57' }}>● 부정</b>　<b style={{ color: '#9ea7b4' }}>● 중립</b>　<b style={{ color: '#1f9d6b' }}>● 긍정</b> · 기사 논조</span></div>}
+      {issueCards.length > 0 && <div className={s.issueLegend}>국가별 언론의 보도 관점<small>보도량 순 최대 8개국 · 선택 국가 우선 · 화면 크기에 따라 조절</small><small>카드 선택 시 해당 국가 방향으로 회전</small><span><b style={{ color: '#d94b57' }}>● 부정</b>　<b style={{ color: '#9ea7b4' }}>● 중립</b>　<b style={{ color: '#1f9d6b' }}>● 긍정</b> · 기사 논조</span></div>}
       {children}
       {earthStatus === 'ready' && mentionRelations.length > 0 && <div className={s.relationsLegend} style={spinControl ? { bottom: 88 } : undefined} role="status">
         <span style={{ color: mentionRelations[0].incoming ? '#ffb454' : '#6fe7ff' }}>

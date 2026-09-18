@@ -21,10 +21,13 @@ export default function DashboardLayout({ header, stage, panel, panelTone = null
         <section className={s.stage} aria-label="글로벌 지도">
           {stage}
         </section>
-        <aside className={`${s.panel} ${toneClass}`} aria-live={timeTravel ? 'off' : 'polite'} aria-busy={timeTravel} ref={panelRef}>
-          {timeTravel && <div className={s.rewindLabel} role="status">시간 기록을 되감는 중</div>}
-          <div className={s.panelBody} {...(timeTravel ? { inert: '', 'aria-hidden': true } : {})}>{panel}</div>
-        </aside>
+        <div className={s.projection} aria-hidden="true"><i /><i /><i /></div>
+        <div className={s.hologram}>
+          <aside className={`${s.panel} ${toneClass}`} aria-live={timeTravel ? 'off' : 'polite'} aria-busy={timeTravel} ref={panelRef}>
+            {timeTravel && <div className={s.rewindLabel} role="status">시간 기록을 되감는 중</div>}
+            <div className={s.panelBody} {...(timeTravel ? { inert: '', 'aria-hidden': true } : {})}>{panel}</div>
+          </aside>
+        </div>
       </main>
     </div>
   );

@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { api } from './data/api.js';
 import { useResource } from './data/useResource.js';
 import { loadIssueCountryAnalysis } from './data/issueCountryAnalysis.js';
-import { rankIssueCountries } from './data/issuePerspective.js';
+import { issueCountryPerspectives } from './data/issuePerspective.js';
 import IssuePerspectives from './components/panel/IssuePerspectives.jsx';
 import { articleCard, themeCard, mentionRows, globeTones, fmt, flagOf, scoreOf } from './data/responseAdapters.js';
 import { toneRGB } from './lib/tone.js';
@@ -136,8 +136,8 @@ function DashboardApp({ onNews, initialCountry, asOf, timeProps, trip, onArrive 
 
   const catalog = useMemo(() => (fields.data || []).flatMap((field) => field.themes.map((item) => ({ ...item, fieldId: field.fieldId, fieldName: field.fieldName }))), [fields.data]);
   const globalIssue = view.type === 'issue' && !view.countryCode;
-  const rankedCountries = useMemo(() => rankIssueCountries(issue.error ? [] : issue.data?.countryTones), [issue.data, issue.error]);
-  const issueCards = useMemo(() => globalIssue ? rankedCountries.filter((row) => countryMetadata.some((c) => c.id === row.country.countryCode.toLowerCase())).slice(0, 6) : [], [globalIssue, rankedCountries]);
+  const rankedCountries = useMemo(() => issueCountryPerspectives(issue.error ? {} : issue.data || {}), [issue.data, issue.error]);
+  const issueCards = useMemo(() => globalIssue ? rankedCountries.filter((row) => countryMetadata.some((c) => c.id === row.country.countryCode.toLowerCase())) : [], [globalIssue, rankedCountries]);
   const rows = (issue.data?.countryTones || []).filter((row) => !view.countryCode || row.country.countryCode.toUpperCase() === view.countryCode);
   const selectedCountry = view.type === 'issue' ? countryMetadata.find((item) => item.id === spot) : null;
   const selectedTone = selectedCountry
@@ -226,6 +226,9 @@ function DashboardApp({ onNews, initialCountry, asOf, timeProps, trip, onArrive 
     header={<HeaderMinimal {...timeProps} route={view.countryCode ? 'country' : 'global'} onRoute={(route) => route === 'news' ? onNews() : route === 'global' ? go(HOME) : goCountry(view.countryCode?.toLowerCase() || 'kr')} onSearch={openPalette} />}
     stage={<GlobeSlot><GlobeThree countries={countryMetadata} iso3={iso3} tone={mapTone} minSample={null} focus={spot || view.countryCode?.toLowerCase() || issueCards[0]?.country.countryCode.toLowerCase()}
       issueCards={issueCards} selectedIssueCountry={spot}
+      onSelectIssueCountry={setSpot}
+      globalIssueView={globalIssue}
+      satelliteDemo={!asOf && !trip}
       timeTravel={trip ? (journey.reduced ? 0 : journey.progress) : null}
       calloutCountry={!globalIssue ? selectedCountry?.id || null : null}
       callout={selectedCountry ? <IssueCountryAnalysis countryName={selectedCountry.name}
