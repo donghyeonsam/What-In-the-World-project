@@ -78,9 +78,10 @@ public class User {
         return user;
     }
 
-    public void reactivateSsafy(){
+    public void reactivateSsafy(String providerId){
         this.passwordHash = null;
         this.authProvider = AuthProvider.SSAFY;
+        this.providerId = providerId;
         this.role = UserRole.USER;
         this.withdrawnAt = null;
     }
