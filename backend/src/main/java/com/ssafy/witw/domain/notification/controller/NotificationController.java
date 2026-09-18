@@ -5,6 +5,7 @@ import com.ssafy.witw.common.response.BaseResponse;
 import com.ssafy.witw.common.response.ErrorCode;
 import com.ssafy.witw.common.response.SuccessCode;
 import com.ssafy.witw.domain.notification.dto.response.NotificationListResponse;
+import com.ssafy.witw.domain.notification.dto.response.NotificationUnreadCountResponse;
 import com.ssafy.witw.domain.notification.service.NotificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -104,5 +105,25 @@ public class NotificationController {
         notificationService.deleteNotification(userId, notificationId);
 
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS);
+    }
+
+    @GetMapping("/unread-count")
+    @Operation(summary = "미읽음 알림 개수 조회")
+    public ResponseEntity<BaseResponse<NotificationUnreadCountResponse>> getUnreadCount(
+            HttpServletRequest request
+    ) {
+        HttpSession session = request.getSession(false);
+
+        if (session == null) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+
+        Object attribute = session.getAttribute("userId");
+
+        if (!(attribute instanceof Long userId)) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+
+        NotificationUnreadCountResponse response = notificationService.getUnreadCount(userId);
+
+        return BaseResponse.success(SuccessCode.REQUEST_SUCCESS, response);
     }
 }

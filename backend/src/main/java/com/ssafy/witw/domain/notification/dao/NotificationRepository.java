@@ -14,10 +14,9 @@ import java.time.LocalDateTime;
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
 
     @EntityGraph(attributePaths = {"theme", "theme.field"})
-    Slice<Notification> findByUserIdAndDeletedAtIsNull(
-            Long userId,
-            Pageable pageable
-    );
+    Slice<Notification> findByUserIdAndDeletedAtIsNull(Long userId, Pageable pageable);
+
+    long countByUserIdAndReadAtIsNullAndDeletedAtIsNull(Long userId);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
@@ -59,4 +58,6 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
             @Param("userId") Long userId,
             @Param("deletedAt") LocalDateTime deletedAt
     );
+
+
 }
