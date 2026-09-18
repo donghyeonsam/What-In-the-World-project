@@ -39,8 +39,10 @@ public class IssueCountryAnalysisScheduler {
         LocalDateTime createdAt = LocalDateTime.now(ANALYSIS_ZONE);
         LocalDateTime periodStart = createdAt.minusHours(24);
 
+        // 이슈ID, 국가코드, 국가의 기사 수를 리스트 형태로 반환(24시간 기준)
         List<Target> targets = targetService.findTargets(periodStart, createdAt);
 
+        // 로그 확인
         log.info("국가별 이슈 분석 대상 선정: periodStart={}, createdAt={}, targetCount={}",
                 periodStart, createdAt, targets.size());
         targets.forEach(target -> log.debug(
