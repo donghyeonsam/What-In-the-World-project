@@ -13,6 +13,8 @@
 .tabs { display: flex; border-bottom: 1px solid var(--wtw-line); margin: 18px 0 22px; gap: 24px; }
 .tabs button { padding: 11px 0; font-size: 13px; color: var(--wtw-muted); border-bottom: 2px solid transparent; }
 .tabs button[aria-pressed=true] { color: var(--wtw-accent); border-color: var(--wtw-accent); }
+.tabs .dangerTab { margin-left: auto; }
+.tabs .dangerTab[aria-pressed=true] { color: var(--wtw-neg); border-color: var(--wtw-neg); }
 .account { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .account > div { min-width: 0; flex: 1; }
 .account strong { display: block; font-size: 14px; overflow-wrap: anywhere; }
@@ -50,6 +52,14 @@
 .error, .message { padding: 10px 0; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
 .error { color: var(--wtw-neg); }
 .message { color: var(--wtw-accent); }
+.dangerZone { margin-top: 4px; }
+.dangerNotice { padding: 14px 16px; margin-bottom: 18px; border: 1px solid color-mix(in srgb, var(--wtw-neg) 45%, transparent); border-radius: 9px; background: color-mix(in srgb, var(--wtw-neg) 8%, transparent); }
+.dangerNotice strong { display: block; color: var(--wtw-neg); font-size: 14px; }
+.dangerNotice p { margin-top: 7px; color: var(--wtw-muted); font-size: 12px; line-height: 1.7; }
+.agreement { display: flex !important; grid-template-columns: none; align-items: flex-start; gap: 9px !important; color: var(--wtw-muted) !important; font-size: 11px !important; line-height: 1.6; }
+.agreement input { width: 15px !important; height: 15px !important; margin-top: 1px; accent-color: var(--wtw-neg); }
+.dangerButton { width: 100%; min-height: 42px; display: inline-flex; align-items: center; justify-content: center; padding: 10px 14px; border: 1px solid var(--wtw-neg); border-radius: 8px; color: var(--wtw-neg); background: color-mix(in srgb, var(--wtw-neg) 8%, transparent); font-size: 13px; font-weight: 600; text-align: center; }
+.dangerButton:hover:not(:disabled) { color: var(--wtw-bg); background: var(--wtw-neg); }
 .empty { padding: 24px 0; color: var(--wtw-muted); line-height: 1.8; }
 .empty h3 { color: var(--wtw-text); font-size: 16px; }
 .empty p { margin: 10px 0 20px; font-size: 13px; }
