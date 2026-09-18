@@ -9,6 +9,8 @@
 }
 
 .dashboard {
+  position: relative;
+  isolation: isolate;
   flex: 1;
   min-width: 0;
   display: flex;
@@ -110,7 +112,7 @@
     grid-template-columns: minmax(0, 52%) minmax(0, 48%);
   }
   .stage { height: auto; flex: initial; border-right: 1px solid #17233d; border-bottom: 0; }
-  .panel { height: 100%; overflow-y: auto; }
+  .panel { overflow-y: auto; }
 }
 
 @media (min-width: 1280px) {
@@ -131,3 +133,55 @@
 .panel.toneNeu {
   background: linear-gradient(180deg, rgba(158, 167, 180, 0.18) 0%, rgba(158, 167, 180, 0.06) 34%, var(--wtw-panel) 620px);
 }
+
+/* The relay projects onto a framed glass surface; only the frame carries motion. */
+.hologram {
+  --wtw-panel: rgba(8, 23, 37, .88);
+  --wtw-bg-2: rgba(24, 53, 69, .45);
+  --wtw-surface: rgba(23, 52, 69, .45);
+  --wtw-accent-soft: rgba(44, 114, 132, .13);
+  --wtw-line: rgba(119, 202, 224, .16);
+  --wtw-line-strong: rgba(130, 223, 244, .32);
+  --wtw-accent: #97e2ec;
+  position: relative; z-index: 3; isolation: isolate; min-width: 0; min-height: 0;
+  display: flex; flex-direction: column; margin: 16px 12px 20px;
+  border: 1px solid #8ce5f64d; border-radius: 4px 18px 4px 18px;
+  background: radial-gradient(ellipse at 0 20%, #24637b30, transparent 65%), #071420;
+  box-shadow: inset 0 0 36px #4ac5e509, 0 0 26px #5ce2ff0a, -5px 0 25px #77e1ff0a;
+}
+.hologram::before {
+  content: ''; position: absolute; z-index: -1; inset: 0; border-radius: inherit; pointer-events: none;
+  background: repeating-linear-gradient(0deg, transparent 0 4px, #8fe8ff04 4px 5px),
+    linear-gradient(90deg, #82e7ff09 1px, transparent 1px), linear-gradient(#82e7ff09 1px, transparent 1px);
+  background-size: auto, 42px 42px, 42px 42px;
+  mask-image: linear-gradient(110deg, #000, #0005 45%, transparent);
+}
+.hologram::after {
+  content: ''; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(#b7f2ff, #b7f2ff) left top / 34px 2px no-repeat,
+    linear-gradient(#b7f2ff, #b7f2ff) left top / 2px 30px no-repeat,
+    linear-gradient(#8bccdf, #8bccdf) right bottom / 34px 2px no-repeat,
+    linear-gradient(#8bccdf, #8bccdf) right bottom / 2px 30px no-repeat;
+  opacity: .75;
+}
+.hologram .panel { flex: 1; min-height: 0; background: transparent; scrollbar-color: #416d7c transparent; }
+.projection { display: none; pointer-events: none; }
+@media (min-width: 1000px) {
+  .dashboard { --stage-width: 52%; background: #030a14; }
+  .stage { border-right: 0; }
+  .hologram { margin: 20px 20px 20px 14px; }
+  .projection {
+    display: block; position: absolute; z-index: 2;
+    left: calc(var(--stage-width) - 78px); top: 24px; bottom: 24px; width: 96px;
+    clip-path: polygon(0 100px, 100% 0, 100% 100%);
+    background: linear-gradient(90deg, #acf2ff33, #79deff08 65%, #86e8ff24);
+    animation: projectorGlow 7s ease-in-out infinite;
+  }
+  .projection i { position: absolute; inset: 0; background: #9ee9ff12; clip-path: polygon(0 100px, 100% 24%, 100% 24.3%); }
+  .projection i:nth-child(2) { clip-path: polygon(0 100px, 100% 56%, 100% 56.3%); }
+  .projection i:nth-child(3) { clip-path: polygon(0 100px, 100% 88%, 100% 88.3%); }
+}
+@media (min-width: 1280px) { .dashboard { --stage-width: max(660px, 56%); } }
+@keyframes projectorGlow { 0%, 100% { opacity: .55; } 50% { opacity: .9; } }
+.timeTravel .projection { animation: none; opacity: .25; }
+@media (prefers-reduced-motion: reduce) { .projection { animation: none; } }

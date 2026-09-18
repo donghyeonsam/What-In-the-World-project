@@ -46,9 +46,18 @@ test('screens render real DTO fields, empty states, and missing-data notices', a
     ] };
     const perspectives = render(Perspectives, { data: perspectiveData, issueId: 1, spot: null });
     assert.match(perspectives, /국가별 언론의 보도 관점/);
-    assert.match(perspectives, /상위 2개국/);
+    assert.match(perspectives, /보도량 순 · 2개국/);
     assert.match(perspectives, /논조 분석 없음/);
-    assert.match(perspectives, /데이터 추가 필요/);
+    assert.match(perspectives, /분석 준비 중/);
+    assert.doesNotMatch(perspectives, /이슈 발생국|연결선/);
+    const analyzed = render(Perspectives, { data: { ...perspectiveData, countryAnalyses: [
+      { countryCode: 'KR', title: '공급망 재편 주목', summary: '협력의 필요성을 보도', details: '기업별 대응을 분석', articleCount: 12, createdAt: '2026-09-18T10:00:00' },
+    ] }, issueId: 1, spot: 'kr' });
+    assert.match(analyzed, /공급망 재편 주목/);
+    assert.match(analyzed, /협력의 필요성을 보도/);
+    assert.match(analyzed, /기업별 대응을 분석/);
+    assert.match(analyzed, /분석에 사용한 기사 12건/);
+    assert.match(analyzed, /2026-09-18 10:00:00 분석/);
     assert.doesNotMatch(perspectives, /세계 여론|강경 지지/);
     assert.match(render(Perspectives, { data: { ...perspectiveData, countryTones: [] }, issueId: 1 }), /관련 기사가 있는 국가가 없습니다/);
     assert.match(render(Perspectives, { data: perspectiveData, issueId: 1, spot: 'kr' }), /한국 대표 기사/);
