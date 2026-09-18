@@ -39,6 +39,19 @@ test('screens render real DTO fields, empty states, and missing-data notices', a
     assert.match(feed, /&lt;script&gt;/); assert.match(feed, /긍정/);
     assert.match(feed, /원문 링크가 제공되지 않았습니다/); assert.doesNotMatch(feed, /<button/);
     assert.match(render(Feed, { articles: [] }), /조건에 맞는 기사가 없습니다/);
+    const { default: Perspectives } = await vite.ssrLoadModule('/src/components/panel/IssuePerspectives.jsx');
+    const perspectiveData = { issuePreview: { issueTitle: '테스트 이슈', themeTitle: '안보' }, countryTones: [
+      { country: { countryCode: 'KR', countryName: '한국' }, articleCount: 40, toneAvg: 75 },
+      { country: { countryCode: 'US', countryName: '미국' }, articleCount: 20, toneAvg: null },
+    ] };
+    const perspectives = render(Perspectives, { data: perspectiveData, issueId: 1, spot: null });
+    assert.match(perspectives, /국가별 언론의 보도 관점/);
+    assert.match(perspectives, /상위 2개국/);
+    assert.match(perspectives, /논조 분석 없음/);
+    assert.match(perspectives, /데이터 추가 필요/);
+    assert.doesNotMatch(perspectives, /세계 여론|강경 지지/);
+    assert.match(render(Perspectives, { data: { ...perspectiveData, countryTones: [] }, issueId: 1 }), /관련 기사가 있는 국가가 없습니다/);
+    assert.match(render(Perspectives, { data: perspectiveData, issueId: 1, spot: 'kr' }), /한국 대표 기사/);
     const { default: Tones } = await vite.ssrLoadModule('/src/components/panel/ApiToneScatter.jsx');
     const tone = render(Tones, { rows: [{ country: { countryCode: 'KR', countryName: '한국' }, toneAvg: 75, toneMin: 40, toneMax: 90, toneSd: 12.5, articleCount: 40 }] });
     assert.match(tone, /한국/); assert.match(tone, /\+0.50/); assert.match(tone, /40건/);

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { toneRGB, NO_SAMPLE, rgbHex } from '../../lib/tone.js';
+import { toneLabel3, toneRGB, NO_SAMPLE, rgbHex } from '../../lib/tone.js';
 import { shortLon, prefersReducedMotion } from '../../lib/format.js';
 import { countryCameraZ } from '../../lib/globeFocus.js';
 import { advanceGlobeInertia, globeReleaseVelocity } from '../../lib/globeInertia.js';
@@ -8,6 +8,7 @@ import { earthTextureUrls, loadEarthTexture } from '../../lib/earthTextures.js';
 import { createMentionGroup, updateMentionFlow } from '../../lib/mentionLinks.js';
 import { layoutGlobeCallout, resolveGlobeCalloutSide } from '../../lib/globeCallout.js';
 import s from './GlobeThree.module.css';
+import { flagOf, fmt, scoreOf } from '../../data/responseAdapters.js';
 
 const GEO_URL =
   'https://raw.githubusercontent.com/vasturiano/globe.gl/master/example/datasets/ne_110m_admin_0_countries.geojson';
@@ -148,10 +149,13 @@ export default function GlobeThree({
   meteorInterval = 0,
   meteorTopics = [],
   onMeteorImpact,
+  issueCards = [],
+  selectedIssueCountry = null,
   calloutCountry = null,
   callout = null,
   children,
 }) {
+  const issueCardRefs = useRef(new Map());
   const travelRef = useRef(timeTravel);
   travelRef.current = timeTravel;
   const wrapRef = useRef(null);
@@ -972,6 +976,26 @@ export default function GlobeThree({
     const anchorToCamera = new THREE.Vector3();
     const projectedAnchor = new THREE.Vector3();
     const calloutMotion = { countryId: null, side: null, x: null, y: null, change: null };
+    const positionIssueCards = () => {
+      const occupied = [];
+      for (const [id, card] of issueCardRefs.current) {
+        const anchor = calloutAnchors.get(id);
+        if (!anchor) { card.style.visibility = 'hidden'; continue; }
+        anchorWorld.copy(anchor).applyMatrix4(globe.matrixWorld);
+        anchorNormal.copy(anchorWorld).sub(globe.position).normalize();
+        anchorToCamera.copy(cam.position).sub(anchorWorld);
+        projectedAnchor.copy(anchorWorld).project(cam);
+        const width = card.offsetWidth, height = card.offsetHeight;
+        const x = Math.max(8, Math.min(wrap.clientWidth - width - 8, (projectedAnchor.x + 1) * wrap.clientWidth / 2 - width / 2));
+        const y = (1 - projectedAnchor.y) * wrap.clientHeight / 2 - height - 12;
+        const rect = { x, y, width, height };
+        const visible = anchorNormal.dot(anchorToCamera) > 0.04 && projectedAnchor.z < 1
+          && Math.abs(projectedAnchor.x) < 1 && y > 90 && y + height < wrap.clientHeight - 75
+          && !occupied.some((r) => x < r.x + r.width + 6 && x + width + 6 > r.x && y < r.y + r.height + 6 && y + height + 6 > r.y);
+        card.style.visibility = visible ? 'visible' : 'hidden';
+        if (visible) { occupied.push(rect); card.style.transform = `translate3d(${x}px, ${y}px, 0)`; }
+      }
+    };
     const positionCallout = (now, elapsedMs) => {
       const card = calloutRef.current;
       const line = calloutLineRef.current;
@@ -1109,6 +1133,7 @@ export default function GlobeThree({
       updateMentionFlow(mentionGroup, performance.now() / 1000, reduced);
       renderer.render(scene, cam);
       positionCallout(now, elapsedMs);
+      positionIssueCards();
       if (!firstFrameRendered) {
         firstFrameRendered = true;
         setEarthStatus('ready');
@@ -1294,6 +1319,18 @@ export default function GlobeThree({
         <span className={s.analysisAnchor} ref={calloutAnchorRef} aria-hidden="true" />
         <div className={s.analysisCallout} ref={calloutRef}>{callout}</div>
       </>}
+      {earthStatus === 'ready' && issueCards.map((row) => {
+        const id = row.country.countryCode.toLowerCase();
+        const score = scoreOf(row.toneAvg);
+        return <button type="button" key={id} ref={(node) => { if (node) issueCardRefs.current.set(id, node); else issueCardRefs.current.delete(id); }}
+          className={`${s.issueCard} ${selectedIssueCountry === id ? s.issueCardSelected : ''}`}
+          aria-pressed={selectedIssueCountry === id} onClick={() => onOpenCountry?.(id)}>
+          <span className={s.issueFlag}>{flagOf(id)}</span><span><strong>{row.country.countryName}</strong>
+          <small>{fmt(row.articleCount)}건 · {score == null ? '분석 없음' : toneLabel3(score)}</small></span>
+          <i style={{ background: score == null ? '#9a8fc4' : `rgb(${toneRGB(score).join(',')})` }} />
+        </button>;
+      })}
+      {issueCards.length > 0 && <div className={s.issueLegend}>보도량 상위 {issueCards.length}개국 · 최근 24시간<small>뒤쪽·겹치는 카드는 숨김 · 오른쪽 목록에서 국가 선택</small><span><b style={{ color: '#d94b57' }}>● 부정</b>　<b style={{ color: '#9ea7b4' }}>● 중립</b>　<b style={{ color: '#1f9d6b' }}>● 긍정</b> · 기사 논조</span></div>}
       {children}
       {earthStatus === 'ready' && mentionRelations.length > 0 && <div className={s.relationsLegend} style={spinControl ? { bottom: 88 } : undefined} role="status">
         <span style={{ color: mentionRelations[0].incoming ? '#ffb454' : '#6fe7ff' }}>
