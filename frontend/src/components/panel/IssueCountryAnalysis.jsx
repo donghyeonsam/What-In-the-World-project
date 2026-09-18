@@ -10,7 +10,7 @@ export default function IssueCountryAnalysis({ countryName, noCoverage = false, 
       : error ? <div role="alert"><p>분석 결과를 불러오지 못했습니다.</p><button type="button" onClick={retry}>다시 시도</button></div>
         : !data ? <p role="status">{noCoverage
           ? `${countryName}의 최근 24시간 관련 기사가 없어 보도 관점을 표시할 수 없습니다.`
-          : '아직 분석 결과가 없습니다.'}</p>
+          : '보도 관점 요약 · 데이터 추가 필요.'}</p>
           : <>
             <div className={s.countryAnalysisMeta}>
               <span>보도 관점 {data.preview && <b>화면 예시</b>}</span>

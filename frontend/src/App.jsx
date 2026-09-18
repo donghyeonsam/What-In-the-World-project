@@ -2,6 +2,8 @@ import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { api } from './data/api.js';
 import { useResource } from './data/useResource.js';
 import { loadIssueCountryAnalysis } from './data/issueCountryAnalysis.js';
+import { rankIssueCountries } from './data/issuePerspective.js';
+import IssuePerspectives from './components/panel/IssuePerspectives.jsx';
 import { articleCard, themeCard, mentionRows, globeTones, fmt, flagOf, scoreOf } from './data/responseAdapters.js';
 import { toneRGB } from './lib/tone.js';
 import { countryMetadata, iso3 } from './data/countries.js';
@@ -133,13 +135,16 @@ function DashboardApp({ onNews, initialCountry, asOf, timeProps, trip, onArrive 
   });
 
   const catalog = useMemo(() => (fields.data || []).flatMap((field) => field.themes.map((item) => ({ ...item, fieldId: field.fieldId, fieldName: field.fieldName }))), [fields.data]);
+  const globalIssue = view.type === 'issue' && !view.countryCode;
+  const rankedCountries = useMemo(() => rankIssueCountries(issue.error ? [] : issue.data?.countryTones), [issue.data, issue.error]);
+  const issueCards = useMemo(() => globalIssue ? rankedCountries.filter((row) => countryMetadata.some((c) => c.id === row.country.countryCode.toLowerCase())).slice(0, 6) : [], [globalIssue, rankedCountries]);
   const rows = (issue.data?.countryTones || []).filter((row) => !view.countryCode || row.country.countryCode.toUpperCase() === view.countryCode);
   const selectedCountry = view.type === 'issue' ? countryMetadata.find((item) => item.id === spot) : null;
   const selectedTone = selectedCountry
     ? issue.data?.countryTones?.find((row) => row.country.countryCode.toLowerCase() === spot) : null;
   const analysisToneColor = selectedTone?.articleCount >= 30 && selectedTone.toneAvg != null
     ? toneRGB(scoreOf(selectedTone.toneAvg)).join(', ') : null;
-  const analysis = useResource(selectedTone ? `analysis:${view.issueId}:${spot}` : null,
+  const analysis = useResource(selectedTone ? `analysis:${asOf}:${view.issueId}:${spot}` : null,
     () => loadIssueCountryAnalysis({
       issueId: view.issueId,
       issueTitle: issue.data.issuePreview.issueTitle,
@@ -193,6 +198,7 @@ function DashboardApp({ onNews, initialCountry, asOf, timeProps, trip, onArrive 
     <SectionTitle title={view.countryCode ? `${countryName} 대표 기사` : '대표 기사'} action={{ label: '더 보기 →', onClick: openArticles }} />
     <ArticleFeed articles={data.representArticles.slice(0, 3).map(articleCard)} />
   </>}</ResourceState>;
+  else if (globalIssue) body = <ResourceState resource={issue}>{(data) => <IssuePerspectives data={data} issueId={view.issueId} asOf={asOf} spot={spot} onSelectCountry={selectIssueCountry} />}</ResourceState>;
   else if (view.type === 'issue') body = <ResourceState resource={issue}>{(data) => <>
     <SubHeading title={data.issuePreview.issueTitle} desc={data.issuePreview.themeTitle} />
     <InterestButton kind="issues" id={view.issueId} name={data.issuePreview.issueTitle} />
@@ -218,9 +224,10 @@ function DashboardApp({ onNews, initialCountry, asOf, timeProps, trip, onArrive 
 
   return <><DashboardLayout panelRef={panelRef} timeTravel={Boolean(trip)}
     header={<HeaderMinimal {...timeProps} route={view.countryCode ? 'country' : 'global'} onRoute={(route) => route === 'news' ? onNews() : route === 'global' ? go(HOME) : goCountry(view.countryCode?.toLowerCase() || 'kr')} onSearch={openPalette} />}
-    stage={<GlobeSlot><GlobeThree countries={countryMetadata} iso3={iso3} tone={mapTone} minSample={null} focus={spot || view.countryCode?.toLowerCase()}
+    stage={<GlobeSlot><GlobeThree countries={countryMetadata} iso3={iso3} tone={mapTone} minSample={null} focus={spot || view.countryCode?.toLowerCase() || issueCards[0]?.country.countryCode.toLowerCase()}
+      issueCards={issueCards} selectedIssueCountry={spot}
       timeTravel={trip ? (journey.reduced ? 0 : journey.progress) : null}
-      calloutCountry={selectedCountry?.id || null}
+      calloutCountry={!globalIssue ? selectedCountry?.id || null : null}
       callout={selectedCountry ? <IssueCountryAnalysis countryName={selectedCountry.name}
         noCoverage={!selectedTone} toneColor={analysisToneColor} resource={analysis} /> : null}
       countryClickHint={view.type === 'issue' ? '클릭하면 이 이슈의 보도 관점 보기' : undefined}
