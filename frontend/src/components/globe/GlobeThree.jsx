@@ -9,6 +9,7 @@ import { createMentionGroup, updateMentionFlow } from '../../lib/mentionLinks.js
 import { layoutGlobeCallout, resolveGlobeCalloutSide } from '../../lib/globeCallout.js';
 import s from './GlobeThree.module.css';
 import { flagOf, fmt, scoreOf } from '../../data/responseAdapters.js';
+import { displayCountryCode } from '../../data/countries.js';
 import SatelliteRelay from './SatelliteRelay.jsx';
 import { issueCardSlots, placeIssueCards } from '../../lib/issueCardLayout.js';
 
@@ -507,6 +508,38 @@ export default function GlobeThree({
       return out; /* [lon,lat] 링 배열 */
     };
 
+    const ringContains = (ring, lon, lat) => {
+      const points = [];
+      for (const [x, y] of ring) {
+        const previous = points.length ? points[points.length - 1][0] : lon;
+        points.push([previous + ((x - previous + 540) % 360) - 180, y]);
+      }
+      let inside = false;
+      for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const [ax, ay] = points[i];
+        const [bx, by] = points[j];
+        if ((ay > lat) !== (by > lat) && lon < ((bx - ax) * (lat - ay)) / (by - ay) + ax) inside = !inside;
+      }
+      return inside;
+    };
+
+    const countryAtSurface = () => {
+      if (!GEO) return null;
+      const center = globe.getWorldPosition(new THREE.Vector3());
+      const surface = ray.ray.intersectSphere(new THREE.Sphere(center, 1), new THREE.Vector3());
+      if (!surface) return null;
+      const local = globe.worldToLocal(surface.clone()).normalize();
+      const lat = THREE.MathUtils.radToDeg(Math.asin(Math.max(-1, Math.min(1, local.y))));
+      const lon = ((THREE.MathUtils.radToDeg(Math.atan2(local.z, -local.x)) - 180 + 540) % 360) - 180;
+      const id = Object.keys(GEO).find((code) => GEO[code].some((geometry) => {
+        const polygons = geometry.type === 'Polygon' ? [geometry.coordinates]
+          : geometry.type === 'MultiPolygon' ? geometry.coordinates : [];
+        return polygons.some(([outer, ...holes]) => ringContains(outer, lon, lat)
+          && !holes.some((hole) => ringContains(hole, lon, lat)));
+      }));
+      return id ? { id } : null;
+    };
+
     const buildCountryLabels = () => {
       if (countryLabels.length) return;
       countries.forEach((c) => {
@@ -597,10 +630,17 @@ export default function GlobeThree({
           buildWorldOutlines(gj.features);
           gj.features.forEach((f) => {
             const iso = f.properties.ISO_A3 !== '-99' ? f.properties.ISO_A3 : f.properties.ADM0_A3;
+            const rawIso2 = f.properties.ISO_A2 !== '-99' ? f.properties.ISO_A2 : f.properties.WB_A2;
+            const iso2 = displayCountryCode(rawIso2).toLowerCase();
+            if (/^[a-z]{2}$/.test(iso2)) {
+              GEO[iso2] = GEO[iso2] || [];
+              GEO[iso2].push(f.geometry);
+            }
             Object.keys(iso3).forEach((id) => {
-              if (iso3[id].includes(iso)) {
+              const isUnitedStatesTerritory = id === 'us' && ['ASM', 'GUM', 'MNP', 'PRI', 'UMI', 'VIR'].includes(iso);
+              if (iso3[id].includes(iso) || isUnitedStatesTerritory) {
                 GEO[id] = GEO[id] || [];
-                GEO[id].push(f.geometry);
+                if (!GEO[id].includes(f.geometry)) GEO[id].push(f.geometry);
               }
             });
           });
@@ -846,8 +886,7 @@ export default function GlobeThree({
     const pickHit = () => {
       const surface = ray.ray.intersectSphere(new THREE.Sphere(globe.getWorldPosition(new THREE.Vector3()), 1), new THREE.Vector3());
       const surfaceDistance = surface ? surface.distanceTo(ray.ray.origin) : Infinity;
-      return ray.intersectObjects(hitTargets()).find((hit) => hit.object.userData.type !== 'mention'
-        || hit.distance <= surfaceDistance + 0.015);
+      return ray.intersectObjects(hitTargets()).find((hit) => hit.distance <= surfaceDistance + 0.015);
     };
 
     const onDown = (e) => {
@@ -973,7 +1012,11 @@ export default function GlobeThree({
         -((e.clientY - bounds.top) / bounds.height) * 2 + 1);
       ray.setFromCamera(mouse, cam);
       const hit = pickHit();
-      if (!hit) return;
+      if (!hit) {
+        const country = countryAtSurface();
+        if (country) cb.current.onOpenCountry?.(country.id);
+        return;
+      }
       const u = hit.object.userData;
       if (u.type === 'mention') return;
       if (u.type === 'pin') {
@@ -1459,7 +1502,7 @@ export default function GlobeThree({
           <i style={{ background: score == null ? '#9a8fc4' : `rgb(${toneRGB(score).join(',')})` }} />
         </button>;
       })}
-      {issueCards.length > 0 && <div className={s.issueLegend}>국가별 언론의 보도 관점<small>보도량 순 최대 8개국 · 선택 국가 우선 · 화면 크기에 따라 조절</small><small>카드 선택 시 해당 국가 방향으로 회전</small><span><b style={{ color: '#d94b57' }}>● 부정</b>　<b style={{ color: '#9ea7b4' }}>● 중립</b>　<b style={{ color: '#1f9d6b' }}>● 긍정</b> · 기사 논조</span></div>}
+      {issueCards.length > 0 && <div className={s.issueLegend}>국가별 언론의 보도 관점<small></small><span><b style={{ color: '#d94b57' }}>● 부정</b>　<b style={{ color: '#9ea7b4' }}>● 중립</b>　<b style={{ color: '#1f9d6b' }}>● 긍정</b></span></div>}
       {children}
       {earthStatus === 'ready' && mentionRelations.length > 0 && <div className={s.relationsLegend} style={spinControl ? { bottom: 88 } : undefined} role="status">
         <span style={{ color: mentionRelations[0].incoming ? '#ffb454' : '#6fe7ff' }}>
