@@ -6,8 +6,10 @@ import com.ssafy.witw.domain.notification.dao.NotificationRepository;
 import com.ssafy.witw.domain.notification.dao.NotificationSettingRepository;
 import com.ssafy.witw.domain.notification.dto.response.NotificationListResponse;
 import com.ssafy.witw.domain.notification.dto.response.NotificationResponse;
+import com.ssafy.witw.domain.notification.dto.response.NotificationSettingResponse;
 import com.ssafy.witw.domain.notification.dto.response.NotificationUnreadCountResponse;
 import com.ssafy.witw.domain.notification.entity.Notification;
+import com.ssafy.witw.domain.notification.entity.NotificationSetting;
 import com.ssafy.witw.domain.user.dao.UserRepository;
 import com.ssafy.witw.domain.user.entity.User;
 import lombok.RequiredArgsConstructor;
@@ -133,5 +135,19 @@ public class NotificationService {
         }
 
         notificationSettingRepository.upsertSetting(userId, enabled);
+    }
+
+    public NotificationSettingResponse getNotificationSetting(Long userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new GlobalException(ErrorCode.UNAUTHORIZED));
+
+        if (user.isWithdrawn()) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+
+        boolean enabled = notificationSettingRepository.findById(userId)
+                .map(NotificationSetting::isEnabled)
+                .orElse(true);
+
+        return new NotificationSettingResponse(enabled);
     }
 }
