@@ -12,10 +12,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequiredArgsConstructor
@@ -46,5 +43,24 @@ public class NotificationController {
         NotificationListResponse response = notificationService.getNotifications(userId, page, size);
 
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS, response);
+    }
+
+    @PatchMapping("/{notificationId}/read")
+    @Operation(summary = "개별 알림 읽음 처리")
+    public ResponseEntity<BaseResponse<Void>> markAsRead(
+            @PathVariable Long notificationId, HttpServletRequest request
+    ) {
+        HttpSession session = request.getSession(false);
+
+        if (session == null) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+
+        Object attribute = session.getAttribute("userId");
+
+        if (!(attribute instanceof Long userId)) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+        notificationService.markAsRead(userId, notificationId);
+
+        return BaseResponse.success(SuccessCode.REQUEST_SUCCESS);
     }
 }

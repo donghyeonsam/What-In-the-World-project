@@ -15,6 +15,9 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -52,5 +55,25 @@ public class NotificationService {
                 size,
                 result.hasNext()
         );
+    }
+
+    @Transactional
+    public void markAsRead(Long userId, Long notificationId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new GlobalException(ErrorCode.UNAUTHORIZED));
+
+        if (user.isWithdrawn()) {
+            throw new GlobalException(ErrorCode.UNAUTHORIZED);
+        }
+
+        int updated = notificationRepository.markAsRead(
+                notificationId,
+                userId,
+                LocalDateTime.now(ZoneId.of("Asia/Seoul"))
+        );
+
+        if (updated == 0) {
+            throw new GlobalException(ErrorCode.ENTITY_NOT_FOUND);
+        }
     }
 }
