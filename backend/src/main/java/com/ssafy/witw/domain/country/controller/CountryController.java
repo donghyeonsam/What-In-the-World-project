@@ -34,7 +34,7 @@ public class CountryController {
     private final ThemeService themeService;
 
     @GetMapping("/{countryCode}")
-    @Operation(summary = "국가 대시보드 조회", description = "최근 24시간 수집 기사 수, 국가 순위, 인기 테마, 국가 간 언급 비율, 대표 기사를 반환합니다. todayArticleCount는 자정 기준이 아닌 최근 24시간 수집 기사 수입니다.")
+    @Operation(summary = "국가 대시보드 조회", description = "최근 24시간 수집 기사 수, 국가 순위, 국가별 핫이슈 TOP 5, 인기 테마, 국가 간 언급 비율을 반환합니다. todayArticleCount는 자정 기준이 아닌 최근 24시간 수집 기사 수입니다.")
     public ResponseEntity<BaseResponse<CountryMainResponse>> getCountryMain(
             @Parameter(description = "영문 두 자리 국가 코드 (대소문자 무관)", example = "KR")
             @PathVariable @Pattern(regexp = "[a-zA-Z]{2}") String countryCode,

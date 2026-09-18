@@ -165,9 +165,10 @@ class DashboardControllerTest {
     void 로그인_없이_소문자_국가_코드로_대시보드를_조회한다() throws Exception {
         // given
         when(countryService.getCountryMain(eq("KR"), any(LocalDateTime.class))).thenReturn(new CountryMainResponse("KR", "대한민국", 12, 2,
+                List.of(new CountryMainResponse.CountryIssue(2, "경제", "반도체", "반도체 공급망", "hierarchical-v1", 87.4)),
                 List.of(new PopularTheme(1, "환경", "기후", 5)),
                 List.of(new CountryMainResponse.MentionRatio("US", "미국", 0.5)),
-                List.of(), List.of(article())));
+                List.of()));
 
         // when / then
         mvc.perform(get("/api/v1/countries/kr"))
@@ -175,9 +176,12 @@ class DashboardControllerTest {
                 .andExpect(jsonPath("$.data.countryCode").value("KR"))
                 .andExpect(jsonPath("$.data.todayArticleCount").value(12))
                 .andExpect(jsonPath("$.data.globalRank").value(2))
+                .andExpect(jsonPath("$.data.countryIssues[0].issueId").value(2))
+                .andExpect(jsonPath("$.data.countryIssues[0].localHeatScore").value(87.4))
                 .andExpect(jsonPath("$.data.popularThemes[0].themeId").value(1))
                 .andExpect(jsonPath("$.data.sourceMentions[0].mentionRatio").value(0.5))
-                .andExpect(jsonPath("$.data.targetMentions").isEmpty());
+                .andExpect(jsonPath("$.data.targetMentions").isEmpty())
+                .andExpect(jsonPath("$.data.representArticles").doesNotExist());
         verify(countryService).getCountryMain(eq("KR"), any(LocalDateTime.class));
     }
 

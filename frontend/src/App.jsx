@@ -16,7 +16,7 @@ import { PanelHeading, SubHeading, SectionTitle, BackLink, CountryIdentity, KpiC
 import IssueCardList from './components/panel/IssueCardList.jsx';
 import { ThemeCardList, ThemeDetailList, ThemeIssueList } from './components/panel/ThemeLists.jsx';
 import AttentionPanel, { AttentionList } from './components/panel/AttentionPanel.jsx';
-import ArticleFeed, { ArticlePreviewList, ResultHead, ArticleFilterBar } from './components/panel/ArticleFeed.jsx';
+import ArticleFeed, { ResultHead, ArticleFilterBar } from './components/panel/ArticleFeed.jsx';
 import ThemeFilterPanel from './components/panel/ThemeFilterPanel.jsx';
 import ApiToneScatter from './components/panel/ApiToneScatter.jsx';
 import IssueCountryAnalysis from './components/panel/IssueCountryAnalysis.jsx';
@@ -46,6 +46,17 @@ function issueRankCard(item) {
     theme: item.themeName,
     count: `${score.toFixed(1)}점`,
     countries: `${fmt(item.countryCount)}개국`,
+  };
+}
+
+function countryIssueRankCard(item) {
+  const score = Number(item.localHeatScore);
+  return {
+    title: item.issueName,
+    field: item.fieldName,
+    theme: item.themeName,
+    count: `${score.toFixed(1)}점`,
+    countries: '국가별 점수',
   };
 }
 
@@ -195,12 +206,12 @@ function DashboardApp({ onNews, initialCountry, asOf, timeProps, trip, onArrive 
       flagClass={countryMetadata.find((item) => item.code === data.countryCode.toUpperCase())?.flagClass}
       name={data.countryName} />
     <KpiCards items={[{ label: '최근 24시간 수집 기사', value: fmt(data.todayArticleCount), unit: '건' }, { label: '기사량 세계 순위', value: fmt(data.globalRank), unit: '위' }]} />
+    <SectionTitle title={`${data.countryName} 핫이슈 TOP 5`} note="국가 내 보도 비중·증가세·매체 다양성 종합 점수 순" help={asOf ? '선택 시점 직전 최신 점수 스냅샷을 기준으로 집계합니다.' : '핫이슈 점수는 5분마다 갱신됩니다.'} />
+    <Empty items={data.countryIssues || []}><IssueCardList issues={(data.countryIssues || []).map(countryIssueRankCard)} onSelect={(index) => openIssue(data.countryIssues[index])} /></Empty>
     <SectionTitle title="인기 테마" action={{ label: '전체 보기 →', onClick: () => go({ type: 'themes', title: `${data.countryName} 인기 테마`, countryCode: view.countryCode }) }} />
     <Empty items={data.popularThemes}><ThemeCardList themes={data.popularThemes.map(themeCard)} onSelect={(index) => openTheme(data.popularThemes[index])} /></Empty>
     <SectionTitle title={`${data.countryName}이 많이 언급한 국가`} action={{ label: '자세히 보기 →', onClick: () => go({ type: 'attention', title: '국가 관심도', countryCode: view.countryCode }) }} />
     <Empty items={data.sourceMentions}><AttentionList rows={mentionRows(data.sourceMentions)} /></Empty>
-    <SectionTitle title="대표 기사" action={{ label: '논조별 보기 →', onClick: openArticles }} />
-    <Empty items={data.representArticles}><ArticlePreviewList articles={data.representArticles.map(articleCard)} /></Empty>
   </>}</ResourceState>;
   else if (view.type === 'theme') body = <ResourceState resource={theme}>{(data) => <>
     <SubHeading title={data.themeName} desc={data.themeDescription} />
