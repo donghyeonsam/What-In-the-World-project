@@ -35,6 +35,13 @@ export function AuthForm({ onLogin, notice }) {
       }
     });
   };
+  if (mode === 'reset') {
+    return <PasswordResetForm initialEmail={email} onBack={() => setMode('login')} onComplete={(resetEmail) => {
+      setEmail(resetEmail); setPassword(''); setConfirm(''); setCode('');
+      setVerified(false); setSent(false); setError(''); setMode('login');
+      setMessage('비밀번호가 재설정되었습니다. 새 비밀번호로 로그인해 주세요.');
+    }} />;
+  }
   return <>
     <p className={s.description}>로그인하고 관심 있는 테마의 뉴스를 구독하세요.</p>
     <button type="button" className={s.ssafyLogin} disabled={busy} onClick={() => run(() => beginSsafyLogin())}>
@@ -53,10 +60,76 @@ export function AuthForm({ onLogin, notice }) {
         {signup && <label>비밀번호 확인<input type="password" required minLength={8} maxLength={72} autoComplete="new-password" value={confirm} onChange={(event) => setConfirm(event.target.value)} /></label>}
         <button className={s.primary} type="submit" disabled={signup && !verified}>{busy ? '처리 중…' : signup ? '회원가입' : '로그인'}</button>
       </fieldset>
+      {!signup && <button type="button" className={s.textButton} disabled={busy} onClick={() => {
+        setPassword(''); setConfirm(''); setError(''); setMessage(''); setMode('reset');
+      }}>비밀번호를 잊으셨나요?</button>}
       {error && <p role="alert" className={s.error}>{error}</p>}
       {message && <p role="status" className={s.message}>{message}</p>}
     </form>
   </>;
+}
+
+function PasswordResetForm({ initialEmail, onBack, onComplete }) {
+  const [step, setStep] = useState('email');
+  const [email, setEmail] = useState(initialEmail);
+  const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+
+  async function run(action) {
+    setBusy(true); setError(''); setMessage('');
+    try { await action(); }
+    catch (err) { setError(err.message); }
+    finally { setBusy(false); }
+  }
+  async function sendCode() {
+    const data = await accountApi.sendPasswordResetCode(email.trim());
+    setCode(''); setStep('code');
+    setMessage(`가입된 이메일 계정이면 인증번호가 전송됩니다.${data?.timeLimit ? ` 유효시간은 ${data.timeLimit}초입니다.` : ''}`);
+  }
+  function restart() {
+    setStep('email'); setCode(''); setPassword(''); setConfirm(''); setError(''); setMessage('');
+  }
+  function submit(event) {
+    event.preventDefault();
+    if (step === 'email') { run(sendCode); return; }
+    if (step === 'code') {
+      run(async () => {
+        await accountApi.verifyPasswordResetCode(email.trim(), code.trim().toUpperCase());
+        setStep('password'); setCode('');
+        setMessage('이메일 인증이 완료되었습니다. 새 비밀번호를 입력해 주세요.');
+      });
+      return;
+    }
+    if (password !== confirm) { setError('새 비밀번호 확인이 일치하지 않습니다.'); return; }
+    run(async () => {
+      await accountApi.resetPassword(password);
+      setPassword(''); setConfirm(''); onComplete(email.trim());
+    });
+  }
+  return <form className={s.form} onSubmit={submit}>
+    <h3>비밀번호 찾기</h3>
+    <p className={s.description}>이메일 인증 후 새 비밀번호를 설정하세요. SSAFY 계정의 비밀번호는 SSAFY 사이트에서 변경할 수 있습니다.</p>
+    <fieldset disabled={busy}>
+      <label>이메일<input type="email" required maxLength={255} autoComplete="email" readOnly={step !== 'email'} value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+      {step === 'code' && <>
+        <label>인증번호<input required minLength={7} maxLength={7} pattern="[A-Za-z0-9]{7}" autoComplete="one-time-code" placeholder="영문·숫자 7자리" value={code} onChange={(event) => setCode(event.target.value)} /></label>
+        <button type="button" className={s.secondary} onClick={() => run(sendCode)}>인증번호 다시 보내기</button>
+      </>}
+      {step === 'password' && <>
+        <label>새 비밀번호<input type="password" required minLength={8} maxLength={72} autoComplete="new-password" placeholder="8~72자" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+        <label>새 비밀번호 확인<input type="password" required minLength={8} maxLength={72} autoComplete="new-password" value={confirm} onChange={(event) => setConfirm(event.target.value)} /></label>
+      </>}
+      <button type="submit" className={s.primary}>{busy ? '처리 중…' : step === 'email' ? '인증번호 보내기' : step === 'code' ? '인증번호 확인' : '비밀번호 재설정'}</button>
+      {step !== 'email' && <button type="button" className={s.textButton} onClick={restart}>이메일 인증부터 다시 시작</button>}
+      <button type="button" className={s.textButton} onClick={onBack}>로그인으로 돌아가기</button>
+    </fieldset>
+    {error && <p role="alert" className={s.error}>{error}</p>}
+    {message && <p role="status" className={s.message}>{message}</p>}
+  </form>;
 }
 
 export function PasswordForm({ onChanged, onExpired }) {
