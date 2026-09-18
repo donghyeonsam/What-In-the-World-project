@@ -44,7 +44,8 @@ public enum ErrorCode {
     PASSWORD_RESET_NOT_VERIFIED(HttpStatus.UNAUTHORIZED, "AU10", "비밀번호 재설정을 위한 이메일 인증이 필요합니다."),
     SSAFY_AUTH_FAILED(HttpStatus.UNAUTHORIZED, "AU11", "SSAFY 인증에 실패했습니다."),
     AUTH_PROVIDER_CONFLICT(HttpStatus.CONFLICT, "AU12", "이미 다른 방식으로 가입된 이메일입니다."),
-    SSAFY_SERVER_ERROR(HttpStatus.BAD_GATEWAY, "AU13", "SSAFY 인증 서버와 통신할 수 없습니다.");
+    SSAFY_SERVER_ERROR(HttpStatus.BAD_GATEWAY, "AU13", "SSAFY 인증 서버와 통신할 수 없습니다."),
+    INTEREST_THEME_DUPLICATED(HttpStatus.CONFLICT, "IN01", "이미 등록한 관심 테마입니다.");
 
 
     private final HttpStatus status;
