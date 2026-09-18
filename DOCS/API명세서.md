@@ -27,7 +27,7 @@ URL의 쿼리 파라미터 값은 기본값이며, 조회 개수는 모두 1~10 
 
 | 기능 | 화면 | Method | URL | 진행 상황 |
 |---|---|---|---|---|
-| 국가 대시보드 조회 (최근 24시간 수집 기사 수·순위·인기 테마·국가 간 언급 비율·대표 기사) | DSBD-002 | GET | `/api/v1/countries/{countryCode}` | 구현 완료 |
+| 국가 대시보드 조회 (최근 24시간 수집 기사 수·순위·국가별 핫이슈 TOP 5·인기 테마·국가 간 언급 비율) | DSBD-002 | GET | `/api/v1/countries/{countryCode}` | 구현 완료 |
 | 국가별 인기 테마 및 시간별 기사 수 추이 조회 | DSBD-002, DSBD-004 | GET | `/api/v1/countries/{countryCode}/themes/popular?limit=3` | 구현 완료 |
 | 테마 개요·주요 이슈·대표 기사 조회 | DSBD-005 | GET | `/api/v1/themes/{themeId}/overview?issueLimit=3&articleLimit=10` | 구현 완료 |
 | 분야별 테마 ID·이름·최근 24시간 기사 수 조회 | 미지정 | GET | `/api/v1/themes/by-field` | 구현 완료 |

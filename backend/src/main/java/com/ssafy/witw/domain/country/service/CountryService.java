@@ -2,12 +2,14 @@ package com.ssafy.witw.domain.country.service;
 
 import com.ssafy.witw.common.time.QueryTime;
 import com.ssafy.witw.domain.article.dao.ArticleRepository;
-import com.ssafy.witw.domain.article.dto.RepresentArticle;
 import com.ssafy.witw.domain.country.dao.CountryRepository.MentionRatioRow;
 import com.ssafy.witw.domain.country.dao.CountryRepository;
+import com.ssafy.witw.domain.country.dto.CountryMainResponse.CountryIssue;
 import com.ssafy.witw.domain.country.dto.CountryMainResponse.MentionRatio;
 import com.ssafy.witw.domain.country.dto.CountryMainResponse;
 import com.ssafy.witw.domain.country.entity.Country;
+import com.ssafy.witw.domain.issue.dao.IssueRepository;
+import com.ssafy.witw.domain.issue.dao.IssueRepository.CountryIssueRankRow;
 import com.ssafy.witw.domain.theme.dao.ThemeRepository.PopularThemeRow;
 import com.ssafy.witw.domain.theme.dao.ThemeRepository;
 import com.ssafy.witw.domain.theme.dto.PopularTheme;
@@ -24,11 +26,12 @@ import java.util.List;
 public class CountryService {
 
     private static final int POPULAR_THEME_LIMIT = 3;   // FR-DSB-007: 3개
+    private static final int COUNTRY_ISSUE_LIMIT = 5;
     private static final int MENTION_LIMIT = 4;   // FR-DSB-010: 최대 4개
-    private static final int REPRESENT_ARTICLE_LIMIT = 3;
 
     private final CountryRepository countryRepository;
     private final CountryFinder countryFinder;
+    private final IssueRepository issueRepository;
     private final ThemeRepository themeRepository;
     private final ArticleRepository articleRepository;
 
@@ -45,10 +48,10 @@ public class CountryService {
                 country.getNameKo(),
                 articleRepository.countArticlesLast24Hours(countryCode, null, asOf),
                 getGlobalRank(countryCode, asOf),
+                getCountryIssues(countryCode, asOf),
                 getPopularThemes(countryCode, POPULAR_THEME_LIMIT, asOf),
                 toMentionRatios(countryRepository.findOutgoingMentionRatios(countryCode, MENTION_LIMIT, asOf)),
-                toMentionRatios(countryRepository.findIncomingMentionRatios(countryCode, MENTION_LIMIT, asOf)),
-                getRepresentArticles(countryCode, REPRESENT_ARTICLE_LIMIT, asOf)
+                toMentionRatios(countryRepository.findIncomingMentionRatios(countryCode, MENTION_LIMIT, asOf))
         );
     }
 
@@ -74,11 +77,22 @@ public class CountryService {
         );
     }
 
-    private List<RepresentArticle> getRepresentArticles(String countryCode, int limit, LocalDateTime asOf) {
-        return articleRepository.findRepresentArticlesByCountry(countryCode, limit, asOf)
+    private List<CountryIssue> getCountryIssues(String countryCode, LocalDateTime asOf) {
+        return issueRepository.findCountryIssueRankFromLatestSnapshot(countryCode, COUNTRY_ISSUE_LIMIT, asOf)
                 .stream()
-                .map(RepresentArticle::from)
+                .map(this::toCountryIssue)
                 .toList();
+    }
+
+    private CountryIssue toCountryIssue(CountryIssueRankRow row) {
+        return new CountryIssue(
+                row.getIssueId(),
+                row.getFieldName(),
+                row.getThemeName(),
+                row.getIssueName(),
+                row.getScoreVersion(),
+                row.getLocalHeatScore()
+        );
     }
 
     private List<MentionRatio> toMentionRatios(List<MentionRatioRow> rows) {

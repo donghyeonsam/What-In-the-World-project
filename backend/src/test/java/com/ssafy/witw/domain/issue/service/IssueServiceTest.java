@@ -118,6 +118,31 @@ class IssueServiceTest extends TestContainerSupport {
     }
 
     @Test
+    void 국가별_최신_점수_스냅샷을_내림차순으로_조회한다() {
+        LocalDateTime asOf = LocalDateTime.now(ZoneId.of("Asia/Seoul"));
+        LocalDateTime oldSnapshot = asOf.minusMinutes(10);
+        LocalDateTime latestSnapshot = asOf.minusMinutes(1);
+        insertCountryScore(HOT_ISSUE_ID, COUNTRY_A, oldSnapshot, 99.0);
+        insertCountryScore(MINOR_ISSUE_ID, COUNTRY_A, oldSnapshot, 10.0);
+        insertCountryScore(HOT_ISSUE_ID, COUNTRY_A, latestSnapshot, 25.0);
+        insertCountryScore(MINOR_ISSUE_ID, COUNTRY_A, latestSnapshot, 90.0);
+        insertCountryScore(HOT_ISSUE_ID, COUNTRY_B, latestSnapshot, 100.0);
+
+        List<IssueRepository.CountryIssueRankRow> rows =
+                issueRepository.findCountryIssueRankFromLatestSnapshot(COUNTRY_A, 5, asOf);
+
+        assertThat(rows)
+                .extracting(IssueRepository.CountryIssueRankRow::getIssueId)
+                .containsExactly(MINOR_ISSUE_ID, HOT_ISSUE_ID);
+        assertThat(rows)
+                .extracting(IssueRepository.CountryIssueRankRow::getLocalHeatScore)
+                .containsExactly(90.0, 25.0);
+        assertThat(rows.getFirst().getFieldName()).isEqualTo("테스트 분야");
+        assertThat(rows.getFirst().getThemeName()).isEqualTo("테스트 테마");
+        assertThat(rows.getFirst().getScoreVersion()).isEqualTo("hierarchical-v1");
+    }
+
+    @Test
     void 이슈_랭킹에_전체_기사_수와_최근_24시간_기사_수를_함께_반환한다() {
         // when
         GlobalIssueRankResponse response = issueService.getGlobalIssueRank();
@@ -287,6 +312,24 @@ class IssueServiceTest extends TestContainerSupport {
                 Timestamp.valueOf(calculatedAt),
                 globalHeatScore,
                 countryCount
+        );
+    }
+
+    private void insertCountryScore(
+            long issueId,
+            String countryCode,
+            LocalDateTime calculatedAt,
+            double localHeatScore
+    ) {
+        jdbcTemplate.update("""
+                        INSERT INTO issue_country_heat_score (
+                            issue_id, country_code, calculated_at, score_version, local_heat_score
+                        ) VALUES (?, ?, ?, 'hierarchical-v1', ?)
+                        """,
+                issueId,
+                countryCode,
+                Timestamp.valueOf(calculatedAt),
+                localHeatScore
         );
     }
 }

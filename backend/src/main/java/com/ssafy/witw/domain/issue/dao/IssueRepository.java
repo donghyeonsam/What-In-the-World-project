@@ -153,6 +153,38 @@ public interface IssueRepository extends JpaRepository<Issue, Long> {
         return findGlobalIssueRankFromLatestSnapshot(limit, QueryTime.now());
     }
 
+    // 선택 국가에 대해 asOf 이전 15분 내의 최신 점수 스냅샷만 사용한다.
+    @Query(value = """
+            WITH latest_score_snapshot AS (
+                SELECT MAX(s.calculated_at) AS calculated_at
+                FROM issue_country_heat_score s
+                WHERE s.country_code = :countryCode
+                  AND s.calculated_at <= CAST(:asOf AS timestamp)
+                  AND s.calculated_at >= CAST(:asOf AS timestamp) - INTERVAL '15 minutes'
+            )
+            SELECT i.id             AS "issueId",
+                   f.name           AS "fieldName",
+                   t.name           AS "themeName",
+                   i.name           AS "issueName",
+                   s.score_version  AS "scoreVersion",
+                   s.local_heat_score::double precision AS "localHeatScore"
+            FROM issue_country_heat_score s
+            JOIN latest_score_snapshot latest
+              ON latest.calculated_at = s.calculated_at
+            JOIN issue i ON i.id = s.issue_id AND i.created_at <= :asOf
+            JOIN theme t ON t.id = i.theme_id
+            JOIN field f ON f.id = t.field_id
+            WHERE s.country_code = :countryCode
+            ORDER BY s.local_heat_score DESC,
+                     s.issue_id
+            LIMIT :limit
+            """, nativeQuery = true)
+    List<CountryIssueRankRow> findCountryIssueRankFromLatestSnapshot(
+            @Param("countryCode") String countryCode,
+            @Param("limit") int limit,
+            @Param("asOf") LocalDateTime asOf
+    );
+
     // LEFT JOIN 이라 기사가 0건인 이슈도 집계 0으로 행이 나오고, 이슈가 없을 때만 null 이 된다.
     // 삭제 조건은 ON 절에 둔다. WHERE 로 옮기면 삭제된 기사만 있는 이슈가 행 자체를 잃는다.
     @Query(value = """
@@ -218,6 +250,14 @@ public interface IssueRepository extends JpaRepository<Issue, Long> {
         String getScoreVersion();
         Double getGlobalHeatScore();
         Long getCountryCount();
+    }
+    interface CountryIssueRankRow {
+        long getIssueId();
+        String getFieldName();
+        String getThemeName();
+        String getIssueName();
+        String getScoreVersion();
+        Double getLocalHeatScore();
     }
     interface CountryToneRow {
         String getCountryCode();
