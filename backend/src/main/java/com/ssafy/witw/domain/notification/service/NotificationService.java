@@ -3,6 +3,7 @@ package com.ssafy.witw.domain.notification.service;
 import com.ssafy.witw.common.exception.GlobalException;
 import com.ssafy.witw.common.response.ErrorCode;
 import com.ssafy.witw.domain.notification.dao.NotificationRepository;
+import com.ssafy.witw.domain.notification.dao.NotificationSettingRepository;
 import com.ssafy.witw.domain.notification.dto.response.NotificationListResponse;
 import com.ssafy.witw.domain.notification.dto.response.NotificationResponse;
 import com.ssafy.witw.domain.notification.dto.response.NotificationUnreadCountResponse;
@@ -26,6 +27,7 @@ public class NotificationService {
 
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
+    private final NotificationSettingRepository notificationSettingRepository;
 
     public NotificationListResponse getNotifications(Long userId, int page, int size) {
         User user = userRepository.findById(userId)
@@ -119,5 +121,17 @@ public class NotificationService {
         long unreadCount = notificationRepository.countByUserIdAndReadAtIsNullAndDeletedAtIsNull(userId);
 
         return new NotificationUnreadCountResponse(unreadCount);
+    }
+
+    @Transactional
+    public void updateNotificationSetting(Long userId, boolean enabled) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new GlobalException(ErrorCode.UNAUTHORIZED));
+
+        if (user.isWithdrawn()) {
+            throw new GlobalException(ErrorCode.UNAUTHORIZED);
+        }
+
+        notificationSettingRepository.upsertSetting(userId, enabled);
     }
 }

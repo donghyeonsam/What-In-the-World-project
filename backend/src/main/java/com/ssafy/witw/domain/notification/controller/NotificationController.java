@@ -7,8 +7,10 @@ import com.ssafy.witw.common.response.SuccessCode;
 import com.ssafy.witw.domain.notification.dto.response.NotificationListResponse;
 import com.ssafy.witw.domain.notification.dto.response.NotificationUnreadCountResponse;
 import com.ssafy.witw.domain.notification.service.NotificationService;
+import com.ssafy.witw.domain.notification.dto.request.NotificationSettingRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
 
 @RestController
 @RequiredArgsConstructor
@@ -125,5 +128,24 @@ public class NotificationController {
         NotificationUnreadCountResponse response = notificationService.getUnreadCount(userId);
 
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS, response);
+    }
+
+    @PatchMapping("/settings")
+    @Operation(summary = "관심사 알림 전체 설정")
+    public ResponseEntity<BaseResponse<Void>> updateNotificationSetting(
+            @Valid @RequestBody NotificationSettingRequest body,
+            HttpServletRequest request
+    ) {
+        HttpSession session = request.getSession(false);
+
+        if (session == null) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+        Object attribute = session.getAttribute("userId");
+
+        if (!(attribute instanceof Long userId)) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+        notificationService.updateNotificationSetting(userId, body.enabled());
+
+        return BaseResponse.success(SuccessCode.REQUEST_SUCCESS);
     }
 }
