@@ -6,7 +6,7 @@ import { dateLabel, safeUrl } from '../data/responseAdapters.js';
 import { httpNewsSource } from '../news/newsSource.js';
 import { accountApi } from './accountApi.js';
 import { readSsafyCallback } from './ssafyOAuth.js';
-import { AuthForm, PasswordForm } from './AccountForms.jsx';
+import { AuthForm, PasswordForm, WithdrawForm } from './AccountForms.jsx';
 import { accountStorageKey, emptyInterests, parseInterests, loadPersonalNews } from './model.js';
 import s from './Personalization.module.css';
 
@@ -91,12 +91,17 @@ export function PersonalizationProvider({ children }) {
   };
   const openPanel = (next) => { setNotice(''); setPanel(next); if (user) refreshSession(); };
   const logout = async () => { await accountApi.logout(); revision.current++; setSession(null); setPanel(null); };
+  const completeWithdrawal = async () => {
+    if (user) try { localStorage.removeItem(accountStorageKey(user.id)); } catch { /* Storage is optional. */ }
+    revision.current++; setSession(null); setChecking(false);
+    setNotice('회원 탈퇴가 완료되었습니다.'); setPanel('profile');
+  };
   const context = { user, interests, toggle, panel, setPanel: openPanel, checking, logout };
   return <Context.Provider value={context}>{children}{panel && <Modal title={checking ? '계정 확인' : !user ? '로그인 / 회원가입' : panel === 'inbox' ? '뉴스 구독함' : '마이페이지'} close={() => setPanel(null)} inbox={!!user && panel === 'inbox'}>
     {checking ? <p role="status">로그인 상태를 확인하고 있습니다…</p> : !user ? <>
       {sessionError && <p className={s.error} role="alert">{sessionError} <button type="button" onClick={() => refreshSession()}>다시 확인</button></p>}
       <AuthForm notice={notice} onLogin={async () => { const current = await refreshSession(); if (!current) { setSessionError('로그인 세션을 확인하지 못했습니다. 연결 상태를 확인해 주세요.'); return; } setPanel('profile'); setNotice(''); }} />
-    </> : panel === 'inbox' ? <Inbox key={user.id} interests={interests} onProfile={() => setPanel('profile')} /> : <Profile key={user.id} user={user} interests={interests} toggle={toggle} storageError={storageError} onInbox={() => setPanel('inbox')} onExpired={expire} onLogout={logout} />}
+    </> : panel === 'inbox' ? <Inbox key={user.id} interests={interests} onProfile={() => setPanel('profile')} /> : <Profile key={user.id} user={user} interests={interests} toggle={toggle} storageError={storageError} onInbox={() => setPanel('inbox')} onExpired={expire} onLogout={logout} onWithdraw={completeWithdrawal} />}
   </Modal>}</Context.Provider>;
 }
 
@@ -129,16 +134,16 @@ export function InterestButton({ kind, id, name }) {
 function Chips({ items, remove }) {
   return <div className={s.chips}>{items.map((item) => <span className={s.chip} key={item.id}>{item.name}<button type="button" onClick={() => remove(item)} aria-label={`${item.name} 관심 해제`}><CloseIcon /></button></span>)}</div>;
 }
-function Profile({ user, interests, toggle, storageError, onInbox, onExpired, onLogout }) {
+function Profile({ user, interests, toggle, storageError, onInbox, onExpired, onLogout, onWithdraw }) {
   const [tab, setTab] = useState('interests');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const filters = useResource('subscription-filters', (signal) => httpNewsSource.filters({ signal }));
   return <>
     <div className={s.account}><span className={s.avatar}>{user.email.slice(0, 1).toUpperCase()}</span><div><strong>{user.email}</strong></div><button className={s.textButton} type="button" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { await onLogout(); } catch (err) { if (err.status === 401) onExpired(); else setError(err.message); } finally { setBusy(false); } }}>로그아웃</button></div>
-    <div className={s.tabs}><button type="button" aria-pressed={tab === 'interests'} onClick={() => setTab('interests')}>관심사 설정</button><button type="button" aria-pressed={tab === 'password'} onClick={() => setTab('password')}>비밀번호 변경</button></div>
+    <div className={s.tabs}><button type="button" aria-pressed={tab === 'interests'} onClick={() => setTab('interests')}>관심사 설정</button><button type="button" aria-pressed={tab === 'password'} onClick={() => setTab('password')}>비밀번호 변경</button><button type="button" className={s.dangerTab} aria-pressed={tab === 'withdraw'} onClick={() => setTab('withdraw')}>회원탈퇴</button></div>
     {error && <p role="alert" className={s.error}>{error}</p>}
-    {tab === 'password' ? user.authProvider === 'LOCAL' ? <PasswordForm onExpired={onExpired} onChanged={() => onExpired('비밀번호를 변경했습니다. 새 비밀번호로 로그인해 주세요.')} /> : <p className={s.description}>외부 계정의 비밀번호는 해당 로그인 서비스에서 변경해 주세요.</p> : <>
+    {tab === 'withdraw' ? user.authProvider === 'LOCAL' ? <WithdrawForm onExpired={onExpired} onWithdraw={onWithdraw} /> : <div className={s.dangerNotice}><strong>SSAFY 계정은 여기서 탈퇴할 수 없습니다.</strong><p>현재 서버는 이메일 계정의 비밀번호 확인 방식만 지원합니다.</p></div> : tab === 'password' ? user.authProvider === 'LOCAL' ? <PasswordForm onExpired={onExpired} onChanged={() => onExpired('비밀번호를 변경했습니다. 새 비밀번호로 로그인해 주세요.')} /> : <p className={s.description}>외부 계정의 비밀번호는 해당 로그인 서비스에서 변경해 주세요.</p> : <>
       <p className={s.description}>관심 있는 테마 키워드를 선택하면 뉴스 구독함에 관련 기사가 모입니다.</p>
       {storageError && <p role="alert" className={s.error}>{storageError}</p>}
       {filters.loading && <p role="status">선택 목록을 불러오는 중…</p>}

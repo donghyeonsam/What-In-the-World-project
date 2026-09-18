@@ -50,6 +50,7 @@ test('account API sends session cookies, correct bodies and accepts success with
     await accountApi.sendCode('test@example.com');
     await accountApi.verifyCode('test@example.com', 'AB12345');
     await accountApi.changePassword('old-password', 'new-password');
+    await accountApi.withdraw('current-password');
     await accountApi.logout();
     assert.ok(calls.every((call) => call.credentials === 'include'));
     assert.equal(calls[0].method, 'POST');
@@ -58,8 +59,33 @@ test('account API sends session cookies, correct bodies and accepts success with
     assert.deepEqual(JSON.parse(calls[1].body), { code: 'authorization-code' });
     assert.equal(calls[5].method, 'PATCH'); assert.equal(calls[5].url, '/api/v1/users/password');
     assert.deepEqual(JSON.parse(calls[5].body), { currentPassword: 'old-password', newPassword: 'new-password' });
+    assert.equal(calls[6].method, 'PATCH'); assert.equal(calls[6].url, '/api/v1/users/withdraw');
+    assert.deepEqual(JSON.parse(calls[6].body), { password: 'current-password' });
     globalThis.fetch = async () => new Response(JSON.stringify({ status: 401, message: '로그인 필요' }), { status: 401 });
     await assert.rejects(accountApi.me(), { status: 401 });
+  } finally { globalThis.fetch = original; }
+});
+
+test('password recovery uses dedicated endpoints and the verified session for reset', async () => {
+  const original = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, ...options });
+    return new Response(JSON.stringify(url.endsWith('/send')
+      ? { status: 200, data: { timeLimit: 300 } }
+      : { status: 200, message: '성공' }));
+  };
+  try {
+    assert.deepEqual(await accountApi.sendPasswordResetCode('member@example.com'), { timeLimit: 300 });
+    await accountApi.verifyPasswordResetCode('member@example.com', 'ABC1234');
+    await accountApi.resetPassword('new-password');
+    assert.deepEqual(calls.map(({ url, method, credentials, body }) => ({ url, method, credentials, body: JSON.parse(body) })), [
+      { url: '/api/v1/auth/password/email/send', method: 'POST', credentials: 'include', body: { email: 'member@example.com' } },
+      { url: '/api/v1/auth/password/email/verify', method: 'POST', credentials: 'include', body: { email: 'member@example.com', code: 'ABC1234' } },
+      { url: '/api/v1/auth/password/reset', method: 'POST', credentials: 'include', body: { newPassword: 'new-password' } },
+    ]);
+    globalThis.fetch = async () => new Response(JSON.stringify({ status: 400, message: '인증이 만료되었습니다.' }), { status: 400 });
+    await assert.rejects(accountApi.resetPassword('new-password'), { status: 400, message: '인증이 만료되었습니다.' });
   } finally { globalThis.fetch = original; }
 });
 

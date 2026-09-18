@@ -8,7 +8,13 @@ export const accountApi = {
   signup: (email, password) => post('/auth/signup', { email, password }),
   sendCode: (email) => post('/auth/email/send', { email }),
   verifyCode: (email, code) => post('/auth/email/verify', { email, code }),
+  sendPasswordResetCode: (email) => post('/auth/password/email/send', { email }),
+  verifyPasswordResetCode: (email, code) => post('/auth/password/email/verify', { email, code }),
+  resetPassword: (newPassword) => post('/auth/password/reset', { newPassword }),
   changePassword: (currentPassword, newPassword) => request('/users/password', {
     method: 'PATCH', body: { currentPassword, newPassword }, allowEmpty: true,
+  }),
+  withdraw: (password) => request('/users/withdraw', {
+    method: 'PATCH', body: { password }, allowEmpty: true,
   }),
 };
