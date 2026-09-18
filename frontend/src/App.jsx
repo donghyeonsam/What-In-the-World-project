@@ -38,6 +38,17 @@ function Empty({ items, children }) {
   return items.length ? children : <p role="status">해당 조건의 데이터가 없습니다.</p>;
 }
 
+function issueRankCard(item) {
+  const score = Number(item.globalHeatScore);
+  return {
+    title: item.issueName,
+    field: item.fieldName,
+    theme: item.themeName,
+    count: `${score.toFixed(1)}점`,
+    countries: `${fmt(item.countryCount)}개국`,
+  };
+}
+
 
 export default function App() {
   return <PersonalizationProvider><AppContent /></PersonalizationProvider>;
@@ -173,8 +184,10 @@ function DashboardApp({ onNews, initialCountry, asOf, timeProps, trip, onArrive 
   if (view.type === 'dash') body = <ResourceState resource={dashboard}>{(data) => <div className={s.globalDashboard}>
     <PanelHeading title="글로벌 동향" updated={updated} />
     <KpiCards items={[{ label: '전체 수집 기사', value: fmt(data.totalArticleCount), unit: '건' }, { label: '최근 24시간 수집 기사', value: fmt(data.recent24ArticleCount), unit: '건' }]} />
-    <SectionTitle title={asOf ? '그날의 이슈 TOP 5' : '실시간 이슈 TOP 5'} note="최근 24시간 발행 기사량 순" help={asOf ? '선택 시점 직전 24시간을 기준으로 집계합니다.' : '수집 현황은 10분마다 갱신됩니다.'} />
-    <Empty items={data.globalIssues}><IssueCardList issues={data.globalIssues.map((item) => ({ title: item.issueName, field: item.fieldName, theme: item.themeName, count: `${fmt(item.articleCount)}건` }))} onSelect={(index) => openIssue(data.globalIssues[index])} /></Empty>
+    <SectionTitle title={asOf ? '그날의 이슈 TOP 5' : '실시간 이슈 TOP 5'}
+      note="국가별 보도 강도·확산도 종합 점수 순"
+      help={asOf ? '선택 시점 직전 24시간을 기준으로 집계합니다.' : '핫이슈 점수는 5분마다 갱신됩니다.'} />
+    <Empty items={data.globalIssues}><IssueCardList issues={data.globalIssues.map(issueRankCard)} onSelect={(index) => openIssue(data.globalIssues[index])} /></Empty>
   </div>}</ResourceState>;
   else if (view.type === 'country') body = <ResourceState resource={country}>{(data) => <>
     <CountryIdentity flag={flagOf(data.countryCode)}

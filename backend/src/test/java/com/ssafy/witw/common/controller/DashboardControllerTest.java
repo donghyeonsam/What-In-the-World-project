@@ -100,7 +100,10 @@ class DashboardControllerTest {
     void 로그인_없이_글로벌_기사_수와_이슈_순위를_조회한다() throws Exception {
         // given
         when(issueService.getGlobalIssueRank(any(LocalDateTime.class))).thenReturn(new GlobalIssueRankResponse(100, 20,
-                List.of(new GlobalIssueRankResponse.GlobalIssue(1, "환경", "기후", "폭염", 10, TIME))));
+                List.of(new GlobalIssueRankResponse.GlobalIssue(
+                        1, "환경", "기후", "폭염", TIME,
+                        "hierarchical-v1", 82.5, 4L
+                ))));
 
         // when / then
         mvc.perform(get("/api/v1/global/issues"))
@@ -112,6 +115,9 @@ class DashboardControllerTest {
                 .andExpect(jsonPath("$.data.totalArticleCount").value(100))
                 .andExpect(jsonPath("$.data.recent24ArticleCount").value(20))
                 .andExpect(jsonPath("$.data.globalIssues[0].issueId").value(1))
+                .andExpect(jsonPath("$.data.globalIssues[0].scoreVersion").value("hierarchical-v1"))
+                .andExpect(jsonPath("$.data.globalIssues[0].globalHeatScore").value(82.5))
+                .andExpect(jsonPath("$.data.globalIssues[0].countryCount").value(4))
                 .andExpect(jsonPath("$.data.globalIssues[0].firstSeenAt").value("2026-09-08T12:00:00"));
         verify(issueService).getGlobalIssueRank(any(LocalDateTime.class));
     }

@@ -29,7 +29,7 @@ public class GlobalIssueController {
     private final IssueService issueService;
 
     @GetMapping
-    @Operation(summary = "글로벌 이슈 TOP 5 조회", description = "전체 수집 기사 수, 최근 24시간 수집 기사 수, 이슈 TOP 5를 함께 반환합니다. 순위와 개수는 서비스의 고정 기준을 사용합니다.")
+    @Operation(summary = "글로벌 이슈 TOP 5 조회", description = "전체 수집 기사 수, 최근 24시간 수집 기사 수, 최신 계층형 점수 스냅샷의 이슈 TOP 5를 반환합니다.")
     public ResponseEntity<BaseResponse<GlobalIssueRankResponse>> getGlobalIssueRank(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS, issueService.getGlobalIssueRank(QueryTime.resolve(asOf)));
     }
