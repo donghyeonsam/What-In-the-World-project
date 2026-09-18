@@ -107,16 +107,21 @@ public class AuthService {
 
         if(providerUser != null){
             if(providerUser.isWithdrawn()) {
-                providerUser.reactivateSsafy();
+                providerUser.reactivateSsafy(providerId);
             }
             return providerUser.getId();
         }
 
-        if(userRepository.findByEmailIgnoreCase(email).isPresent())
-            throw new GlobalException(ErrorCode.AUTH_PROVIDER_CONFLICT);
+        User emailUser = userRepository.findByEmailIgnoreCase(email).orElse(null);
+
+        if(emailUser != null){
+            if(!emailUser.isWithdrawn()) throw new GlobalException(ErrorCode.AUTH_PROVIDER_CONFLICT);
+
+            emailUser.reactivateSsafy(providerId);
+            return emailUser.getId();
+        }
 
         User user = User.createSsafy(email, providerId);
-
         userRepository.save(user);
 
         return user.getId();

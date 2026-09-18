@@ -46,13 +46,13 @@ class IssueCountryAnalysisTargetRepositoryTest extends TestContainerSupport {
     }
 
     private void prepareData() {
+        Timestamp issueCreatedAt = Timestamp.valueOf(PERIOD_START);
         jdbcTemplate.update("INSERT INTO country (country_code, name_ko, name_en) VALUES ('ZX', '분석국가1', 'Analysis 1')");
         jdbcTemplate.update("INSERT INTO country (country_code, name_ko, name_en) VALUES ('ZY', '분석국가2', 'Analysis 2')");
         jdbcTemplate.update("INSERT INTO field (id, code, name, description) VALUES (?, 'ANALYSIS_FIELD', '분석 분야', '분석 분야')", FIELD_ID);
         jdbcTemplate.update("INSERT INTO theme (id, field_id, code, name, description) VALUES (?, ?, 'ANALYSIS_THEME', '분석 테마', '분석 테마')", THEME_ID, FIELD_ID);
-        jdbcTemplate.update("INSERT INTO issue (id, theme_id, name) VALUES (?, ?, '분석 이슈 1')", FIRST_ISSUE_ID, THEME_ID);
-        jdbcTemplate.update("INSERT INTO issue (id, theme_id, name) VALUES (?, ?, '분석 이슈 2')", SECOND_ISSUE_ID, THEME_ID);
-
+        jdbcTemplate.update("INSERT INTO issue (id, theme_id, name, created_at) VALUES (?, ?, '분석 이슈 1', ?)", FIRST_ISSUE_ID, THEME_ID, issueCreatedAt);
+        jdbcTemplate.update("INSERT INTO issue (id, theme_id, name, created_at) VALUES (?, ?, '분석 이슈 2', ?)", SECOND_ISSUE_ID, THEME_ID, issueCreatedAt);
         for (int index = 0; index < 10; index++) {
             insertArticle("first-zx-" + index, FIRST_ISSUE_ID, "ZX", PERIOD_START.plusMinutes(index), false);
         }
