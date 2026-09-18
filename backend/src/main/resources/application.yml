@@ -27,7 +27,7 @@ springdoc:
 analysis:
   # 글로벌 이슈 목록과 국가별 분석 대상에 동일하게 적용됩니다. 7 또는 10으로 변경할 수 있습니다.
   top-issue-limit: 5
-  min-country-articles: 10
+  min-country-articles: 1
   scheduler:
     enabled: true
     # 매시 정각: 0 0 * * * * / 3시간마다 정각: 0 0 */3 * * * (Asia/Seoul)
