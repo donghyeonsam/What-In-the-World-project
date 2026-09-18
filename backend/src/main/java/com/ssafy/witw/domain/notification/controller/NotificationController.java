@@ -5,6 +5,7 @@ import com.ssafy.witw.common.response.BaseResponse;
 import com.ssafy.witw.common.response.ErrorCode;
 import com.ssafy.witw.common.response.SuccessCode;
 import com.ssafy.witw.domain.notification.dto.response.NotificationListResponse;
+import com.ssafy.witw.domain.notification.dto.response.NotificationSettingResponse;
 import com.ssafy.witw.domain.notification.dto.response.NotificationUnreadCountResponse;
 import com.ssafy.witw.domain.notification.service.NotificationService;
 import com.ssafy.witw.domain.notification.dto.request.NotificationSettingRequest;
@@ -147,5 +148,28 @@ public class NotificationController {
         notificationService.updateNotificationSetting(userId, body.enabled());
 
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS);
+    }
+
+    @GetMapping("/settings")
+    @Operation(summary = "관심사 알림 전체 설정 조회")
+    public ResponseEntity<BaseResponse<NotificationSettingResponse>> getNotificationSetting(
+            HttpServletRequest request
+    ) {
+        HttpSession session = request.getSession(false);
+
+        if (session == null) {
+            throw new GlobalException(ErrorCode.UNAUTHORIZED);
+        }
+
+        Object attribute = session.getAttribute("userId");
+
+        if (!(attribute instanceof Long userId)) {
+            throw new GlobalException(ErrorCode.UNAUTHORIZED);
+        }
+
+        NotificationSettingResponse response =
+                notificationService.getNotificationSetting(userId);
+
+        return BaseResponse.success(SuccessCode.REQUEST_SUCCESS, response);
     }
 }
