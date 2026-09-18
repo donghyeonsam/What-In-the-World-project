@@ -50,6 +50,7 @@ test('account API sends session cookies, correct bodies and accepts success with
     await accountApi.sendCode('test@example.com');
     await accountApi.verifyCode('test@example.com', 'AB12345');
     await accountApi.changePassword('old-password', 'new-password');
+    await accountApi.withdraw('current-password');
     await accountApi.logout();
     assert.ok(calls.every((call) => call.credentials === 'include'));
     assert.equal(calls[0].method, 'POST');
@@ -58,6 +59,8 @@ test('account API sends session cookies, correct bodies and accepts success with
     assert.deepEqual(JSON.parse(calls[1].body), { code: 'authorization-code' });
     assert.equal(calls[5].method, 'PATCH'); assert.equal(calls[5].url, '/api/v1/users/password');
     assert.deepEqual(JSON.parse(calls[5].body), { currentPassword: 'old-password', newPassword: 'new-password' });
+    assert.equal(calls[6].method, 'PATCH'); assert.equal(calls[6].url, '/api/v1/users/withdraw');
+    assert.deepEqual(JSON.parse(calls[6].body), { password: 'current-password' });
     globalThis.fetch = async () => new Response(JSON.stringify({ status: 401, message: '로그인 필요' }), { status: 401 });
     await assert.rejects(accountApi.me(), { status: 401 });
   } finally { globalThis.fetch = original; }

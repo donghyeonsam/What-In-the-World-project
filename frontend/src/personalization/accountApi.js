@@ -11,4 +11,7 @@ export const accountApi = {
   changePassword: (currentPassword, newPassword) => request('/users/password', {
     method: 'PATCH', body: { currentPassword, newPassword }, allowEmpty: true,
   }),
+  withdraw: (password) => request('/users/withdraw', {
+    method: 'PATCH', body: { password }, allowEmpty: true,
+  }),
 };

@@ -81,3 +81,25 @@ export function PasswordForm({ onChanged, onExpired }) {
     <button className={s.primary} type="submit">{busy ? '변경 중…' : '비밀번호 변경'}</button></fieldset>{error && <p className={s.error} role="alert">{error}</p>}
   </form>;
 }
+
+export function WithdrawForm({ onWithdraw, onExpired }) {
+  const [password, setPassword] = useState('');
+  const [agreed, setAgreed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function submit(event) {
+    event.preventDefault(); setError(''); setBusy(true);
+    try { await accountApi.withdraw(password); setPassword(''); await onWithdraw(); }
+    catch (err) { if (err.status === 401) onExpired(); else setError(err.message); }
+    finally { setBusy(false); }
+  }
+  return <form className={`${s.form} ${s.dangerZone}`} onSubmit={submit}>
+    <div className={s.dangerNotice}><strong>계정을 삭제하시겠어요?</strong><p>탈퇴하면 현재 계정과 로그인 세션이 비활성화됩니다. 다시 이용하려면 새로 가입해야 합니다.</p></div>
+    <fieldset disabled={busy}>
+      <label>현재 비밀번호<input type="password" required minLength={8} maxLength={72} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="본인 확인을 위해 입력해 주세요" /></label>
+      <label className={s.agreement}><input type="checkbox" checked={agreed} onChange={(event) => setAgreed(event.target.checked)} /> <span>회원탈퇴 안내를 확인했으며 계정 삭제에 동의합니다.</span></label>
+      <button className={s.dangerButton} type="submit" disabled={!agreed || password.length < 8}>{busy ? '탈퇴 처리 중…' : '회원 탈퇴'}</button>
+    </fieldset>
+    {error && <p className={s.error} role="alert">{error}</p>}
+  </form>;
+}
