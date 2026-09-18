@@ -41,6 +41,7 @@ __pycache__/
 
 # Codex가 로컬 검증 중 생성하는 임시 의존성 캐시
 .codex-tmp/
+.pnpm-store/
 
 ### 민감 정보 / 환경 설정 ###
 .env

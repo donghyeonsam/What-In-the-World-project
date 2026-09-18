@@ -120,44 +120,37 @@ public interface IssueRepository extends JpaRepository<Issue, Long> {
         String getCountryName();
     }
 
-    // 최근 24시간 기사 수 기준 상위 이슈 랭킹 (이슈 단위)
-    // TODO: article (deleted_at, published_at, issue_id) 복합 인덱스 검토
+    // asOf 이전 15분 내의 최신 점수 스냅샷만 사용한다.
+    // 유효한 스냅샷이 없는 시점은 랭킹을 반환하지 않는다.
     @Query(value = """
-            WITH bounds AS (
-                SELECT CAST(:asOf AS timestamp) AS end_at
-            ),
-            top_issues AS (
-                SELECT a.issue_id  AS issue_id,
-                       COUNT(*)    AS article_count
-                FROM article a
-                CROSS JOIN bounds b
-                WHERE (a.deleted_at IS NULL OR a.deleted_at > :asOf)
-                  AND a.issue_assigned_at <= :asOf
-                  AND a.created_at <= :asOf
-                  AND a.published_at < :asOf
-                  AND a.issue_id IS NOT NULL
-                  AND a.published_at >= b.end_at - INTERVAL '24 hours'
-                  AND a.published_at < b.end_at
-                GROUP BY a.issue_id
-                ORDER BY article_count DESC, a.issue_id
-                LIMIT :limit
+            WITH latest_score_snapshot AS (
+                SELECT MAX(s.calculated_at) AS calculated_at
+                FROM issue_global_heat_score s
+                WHERE s.calculated_at <= CAST(:asOf AS timestamp)
+                  AND s.calculated_at >= CAST(:asOf AS timestamp) - INTERVAL '15 minutes'
             )
             SELECT i.id             AS "issueId",
                    f.name           AS "fieldName",
                    t.name           AS "themeName",
                    i.name           AS "issueName",
-                   ti.article_count AS "articleCount",
-                   i.first_seen_at  AS "firstSeenAt"
-            FROM top_issues ti
-            JOIN issue i ON i.id = ti.issue_id AND i.created_at <= :asOf
+                   i.first_seen_at  AS "firstSeenAt",
+                   s.score_version  AS "scoreVersion",
+                   s.global_heat_score::double precision AS "globalHeatScore",
+                   s.country_count AS "countryCount"
+            FROM issue_global_heat_score s
+            JOIN latest_score_snapshot latest
+              ON latest.calculated_at = s.calculated_at
+            JOIN issue i ON i.id = s.issue_id AND i.created_at <= :asOf
             JOIN theme t ON t.id = i.theme_id
             JOIN field f ON f.id = t.field_id
-            ORDER BY ti.article_count DESC, i.id
+            ORDER BY s.global_heat_score DESC,
+                     s.issue_id
+            LIMIT :limit
             """, nativeQuery = true)
-    List<GlobalIssueRankRow> findGlobalIssueRankLast24Hours(@Param("limit") int limit, @Param("asOf") LocalDateTime asOf);
+    List<GlobalIssueRankRow> findGlobalIssueRankFromLatestSnapshot(@Param("limit") int limit, @Param("asOf") LocalDateTime asOf);
 
-    default List<GlobalIssueRankRow> findGlobalIssueRankLast24Hours(int limit) {
-        return findGlobalIssueRankLast24Hours(limit, QueryTime.now());
+    default List<GlobalIssueRankRow> findGlobalIssueRankFromLatestSnapshot(int limit) {
+        return findGlobalIssueRankFromLatestSnapshot(limit, QueryTime.now());
     }
 
     // LEFT JOIN 이라 기사가 0건인 이슈도 집계 0으로 행이 나오고, 이슈가 없을 때만 null 이 된다.
@@ -221,8 +214,10 @@ public interface IssueRepository extends JpaRepository<Issue, Long> {
         String getFieldName();
         String getThemeName();
         String getIssueName();
-        long getArticleCount();
         LocalDateTime getFirstSeenAt();
+        String getScoreVersion();
+        Double getGlobalHeatScore();
+        Long getCountryCount();
     }
     interface CountryToneRow {
         String getCountryCode();

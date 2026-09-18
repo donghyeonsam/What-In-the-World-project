@@ -83,7 +83,7 @@ public class IssueService {
     public GlobalIssueRankResponse getGlobalIssueRank(LocalDateTime asOf) {
         long totalArticleCount = articleRepository.countVisibleAt(asOf);
         long recent24ArticleCount = articleRepository.countArticlesLast24Hours(null, null, asOf);
-        List<GlobalIssue> globalIssues = issueRepository.findGlobalIssueRankLast24Hours(globalIssueRankLimit, asOf)
+        List<GlobalIssue> globalIssues = issueRepository.findGlobalIssueRankFromLatestSnapshot(globalIssueRankLimit, asOf)
                 .stream()
                 .map(this::toGlobalIssue)
                 .toList();
@@ -117,8 +117,10 @@ public class IssueService {
                 row.getFieldName(),
                 row.getThemeName(),
                 row.getIssueName(),
-                row.getArticleCount(),
-                row.getFirstSeenAt()
+                row.getFirstSeenAt(),
+                row.getScoreVersion(),
+                row.getGlobalHeatScore(),
+                row.getCountryCount()
         );
     }
 
