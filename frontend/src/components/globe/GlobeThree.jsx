@@ -419,6 +419,8 @@ export default function GlobeThree({
     };
     const paintTone = () => {
       toneCtx.clearRect(0, 0, toneCv.width, toneCv.height);
+      const selectedGeometry = !TONE.active && focusedId ? GEO?.[focusedId] : null;
+      toneMesh.visible = TONE.active || Boolean(selectedGeometry?.length);
       if (TONE.active) {
         countries.forEach((c) => {
           const col = toneColorOf(c.id);
@@ -456,6 +458,16 @@ export default function GlobeThree({
           }
         });
         toneCtx.shadowBlur = 0;
+      } else if (selectedGeometry?.length) {
+        // 선택 국가는 지형이 보이는 얇은 채움으로 표시한다. 논조 색과는 겹치지 않는다.
+        toneCtx.fillStyle = 'rgba(255,180,84,.18)';
+        toneCtx.strokeStyle = 'rgba(255,215,151,.98)';
+        toneCtx.lineWidth = 2.5;
+        toneCtx.shadowBlur = 0;
+        selectedGeometry.forEach((geometry) => {
+          if (geometry.type === 'Polygon') paintPoly(geometry.coordinates);
+          else if (geometry.type === 'MultiPolygon') geometry.coordinates.forEach(paintPoly);
+        });
       }
       toneTex.needsUpdate = true;
     };
@@ -512,11 +524,15 @@ export default function GlobeThree({
     };
 
     const buildCountryOutlines = () => {
+      disposeObj(countryOutlineGroup);
       countryOutlineGroup.clear();
       countryOutlines.clear();
       countries.forEach((c) => {
         const lines = [];
-        countryRings(c).forEach((ring) => {
+        // 윤곽선은 줌 계산용 단순화 좌표 대신 실제 국경 좌표를 사용한다.
+        const rings = GEO?.[c.id]?.flatMap((geometry) => geometry.type === 'Polygon'
+          ? geometry.coordinates : geometry.coordinates.flat()) || countryRings(c);
+        rings.forEach((ring) => {
           const pts = ring.map((p) => ll2v(p[1], p[0], 1.008));
           const line = new THREE.Line(
             new THREE.BufferGeometry().setFromPoints(pts),
@@ -554,16 +570,20 @@ export default function GlobeThree({
     const setCountryOutlineActive = (id) => {
       countryOutlines.forEach((lines, cid) => {
         lines.forEach((line) => {
-          const on = id && cid === id;
-          line.material.color.set(on ? AMBER : 0x89ddff);
-          line.material.opacity = on ? 1 : 0.2;
-          line.scale.setScalar(on ? 1.035 : 1);
+          const selected = cid === focusedId;
+          const hovered = id && cid === id;
+          line.material.color.set(selected ? 0xffd797 : hovered ? AMBER : 0x89ddff);
+          line.material.opacity = selected || hovered ? 1 : 0.2;
+          // 국경을 구체 밖으로 부풀리면 해안선과 어긋나므로 표면에 고정한다.
+          line.scale.setScalar(1);
         });
       });
       countryLabels.forEach((label) => {
-        const on = id && label.userData.id === id;
-        label.scale.set(on ? 0.17 : 0.16, on ? 0.05 : 0.046, 1);
-        label.material.opacity = on ? 1 : 0.82;
+        const selected = label.userData.id === focusedId;
+        const hovered = id && label.userData.id === id;
+        label.scale.set(selected ? 0.195 : hovered ? 0.17 : 0.16, selected ? 0.056 : hovered ? 0.05 : 0.046, 1);
+        label.material.color.set(selected && !TONE.active ? 0xffd797 : 0xffffff);
+        label.material.opacity = selected || hovered ? 1 : 0.82;
       });
     };
 
@@ -590,7 +610,7 @@ export default function GlobeThree({
             targetZ = mentionGroup.children.length ? Math.max(IDLE_CAMERA_Z, focusCameraZ())
               : countryFocusCameraZ(countries.find((c) => c.id === focusedId));
           }
-          if (TONE.active) paintTone();
+          paintTone();
         })
         .catch(() => {
           /* 폴백(근사 원)으로 계속 표시한다 */
@@ -831,10 +851,12 @@ export default function GlobeThree({
     };
 
     const onDown = (e) => {
+      if (e.target !== renderer.domElement) return;
       if (!firstFrameRendered || e.button !== 0 || e.isPrimary === false || activePointer !== null) return;
       activePointer = e.pointerId;
       caughtInertia = Math.hypot(vx, vy) > 0.15;
-      wrap.setPointerCapture?.(e.pointerId);
+      // 클릭 대상과 캡처 대상을 canvas로 통일한다. 부모가 캡처하면 click이 부모로 재지정된다.
+      renderer.domElement.setPointerCapture?.(e.pointerId);
       dragging = true;
       vx = 0;
       vy = 0;
@@ -858,7 +880,7 @@ export default function GlobeThree({
       } else {
         ({ yaw: vx, pitch: vy } = globeReleaseVelocity(dragSamples, e.timeStamp));
       }
-      if (wrap.hasPointerCapture?.(e.pointerId)) wrap.releasePointerCapture(e.pointerId);
+      if (renderer.domElement.hasPointerCapture?.(e.pointerId)) renderer.domElement.releasePointerCapture(e.pointerId);
       activePointer = null;
       dragSamples = [];
       dragging = false;
@@ -1266,6 +1288,7 @@ export default function GlobeThree({
         }
         paintTone();
         syncBeacons(focusedId);
+        setCountryOutlineActive(activeId());
       },
       focusCountry(id) {
         const c = countries.find((x) => x.id === id);
@@ -1288,6 +1311,7 @@ export default function GlobeThree({
         setAutoSpin(false);
         syncBeacons(id);
         setCountryOutlineActive(id);
+        paintTone();
         spawnCountryFx(c);
       },
       reset() {
@@ -1303,6 +1327,7 @@ export default function GlobeThree({
         clearCountryFx();
         setCountryOutlineActive(highlightId);
         syncBeacons(highlightId);
+        paintTone();
       },
       releaseFocus() {
         focusedId = null;
@@ -1312,6 +1337,7 @@ export default function GlobeThree({
         clearCountryFx();
         setCountryOutlineActive(highlightId);
         syncBeacons(highlightId);
+        paintTone();
       },
       /* 줌·핀 없이 윤곽만 강조한다 — 목록을 좁혔을 뿐 화면을 옮긴 게 아니므로 */
       setHighlight(id) {
