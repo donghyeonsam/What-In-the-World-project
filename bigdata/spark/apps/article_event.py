@@ -142,17 +142,18 @@ def build_article_upsert_event(article: dict[str, Any]) -> dict[str, Any]:
     if isinstance(theme_id, bool) or not isinstance(theme_id, int):
         raise InvalidEnrichedArticle("nlp_worker_data.theme_id must be an integer")
 
-    embedding = _embedding(
+    article_embedding = _embedding(
         nlp.get("article_embedding"), "nlp_worker_data.article_embedding"
     )
 
-    # 요약 임베딩은 요약이 실패하면 None 이므로 optional 이다.
-    # 요약 임베딩 하나 때문에 기사 전체를 버리지 않는다.
+    # 요약 임베딩은 요약이 실패하면 None 이므로 optional 이다. 제공된 경우에는
+    # 기사 저장뿐 아니라 기존 이슈 매칭과 신규 이슈 클러스터링에도 우선 사용한다.
     summary_embedding = nlp.get("summary_embedding")
     if summary_embedding is not None:
         summary_embedding = _embedding(
             summary_embedding, "nlp_worker_data.summary_embedding"
         )
+    issue_processing_embedding = summary_embedding or article_embedding
 
     processed_at = _required_text(nlp, "processed_at")
     discovered_at = _required_text(article, "discovered_at")
@@ -179,10 +180,13 @@ def build_article_upsert_event(article: dict[str, Any]) -> dict[str, Any]:
             ),
             # 본문 3문장 한국어 요약. 실패 시 None 이므로 optional 로 다룬다.
             "summary": _optional_text(nlp, "summary"),
-            # 그 요약문의 E5 임베딩. 요약이 없으면 None.
+            # 기사 검색/추천 등에서 재사용할 수 있도록 DB Writer에도 전달한다.
             "summary_embedding": summary_embedding,
             "crawled_at": discovered_at,
-            "embedding": embedding,
+            # 이 필드는 DB 저장용이 아니라 뒤 이슈 매칭/클러스터링 단계로
+            # 전달되는 벡터다. 신규 summary_embedding을 우선하고, 구버전
+            # NLP Worker 메시지는 article_embedding으로 호환한다.
+            "embedding": issue_processing_embedding,
             "tone_score": _tone_score(nlp.get("sentiment")),
             "published_at": published_at,
             "mentioned_countries": _mentioned_countries(

@@ -38,6 +38,27 @@ class ArticleEventTest(unittest.TestCase):
         self.assertEqual(event["event_type"], "ARTICLE_UPSERT")
         self.assertEqual(event["payload"]["theme_relevance_score"], 0.8123)
 
+    def test_prefers_summary_embedding_for_downstream_issue_processing(self):
+        self.article["nlp_worker_data"]["summary_embedding"] = [0.91, -0.22]
+
+        event = build_article_upsert_event(self.article)
+
+        self.assertEqual(event["payload"]["embedding"], [0.91, -0.22])
+
+    def test_falls_back_to_article_embedding_for_older_nlp_messages(self):
+        event = build_article_upsert_event(self.article)
+
+        self.assertEqual(event["payload"]["embedding"], [0.031, -0.114])
+
+    def test_rejects_invalid_summary_embedding_without_silent_fallback(self):
+        self.article["nlp_worker_data"]["summary_embedding"] = [0.91, float("nan")]
+
+        with self.assertRaisesRegex(
+            InvalidEnrichedArticle,
+            "summary_embedding must contain only numbers",
+        ):
+            build_article_upsert_event(self.article)
+
     def test_rejects_missing_theme_relevance_score(self):
         del self.article["nlp_worker_data"]["theme_relevance_score"]
 
