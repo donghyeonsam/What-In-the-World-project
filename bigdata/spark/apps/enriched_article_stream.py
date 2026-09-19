@@ -35,7 +35,7 @@ KAFKA_UNCLASSIFIED_TOPIC = os.getenv(
 POSTGRESQL_URL = os.getenv("POSTGRESQL_URL", "").strip()
 POSTGRESQL_USER = os.getenv("POSTGRESQL_USER", "").strip()
 POSTGRESQL_PASSWORD = os.getenv("POSTGRESQL_PASSWORD", "")
-ISSUE_MATCH_THRESHOLD = float(os.getenv("ISSUE_MATCH_THRESHOLD", "0.85"))
+ISSUE_MATCH_THRESHOLD = float(os.getenv("ISSUE_MATCH_THRESHOLD", "0.93"))
 SPARK_CHECKPOINT_LOCATION = os.getenv(
     "SPARK_CHECKPOINT_LOCATION",
     "hdfs://namenode:9000/checkpoints/enriched-article-events-v1",
