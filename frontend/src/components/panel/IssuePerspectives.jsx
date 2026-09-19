@@ -10,10 +10,10 @@ import ArticleFeed from './ArticleFeed.jsx';
 import { InterestButton } from '../../personalization/Personalization.jsx';
 import s from './issuePerspectives.module.css';
 
-export default function IssuePerspectives({ data, issueId, asOf, spot, onSelectCountry }) {
+export default function IssuePerspectives({ data, issueId, asOf, countryAnalyses, analysis, spot, onSelectCountry }) {
   const [expandedIssueId, setExpandedIssueId] = useState(null);
   const showAllCountries = expandedIssueId === issueId;
-  const ranked = issueCountryPerspectives(data);
+  const ranked = issueCountryPerspectives(data, countryAnalyses.data?.countryAnalyses);
   const visibleCountries = showAllCountries ? ranked : ranked.slice(0, 10);
   const metrics = issueMetrics(ranked);
   const deviation = issueToneDeviation(ranked);
@@ -59,6 +59,9 @@ export default function IssuePerspectives({ data, issueId, asOf, spot, onSelectC
     </div>
     <SectionTitle title="국가별 언론의 보도 관점" note={`보도량 순 · ${ranked.length}개국`}
       help="언론사 소재 국가 기준입니다. 정부 입장이나 국민 여론을 뜻하지 않습니다. 평균 논조는 국가별 기사 수로 가중한 값입니다(−1 ~ +1)." />
+    {countryAnalyses.loading && !countryAnalyses.data && <p className={s.hint} role="status">국가별 분석 요약을 불러오고 있습니다…</p>}
+    {countryAnalyses.error && <div role="alert"><p>국가별 분석 요약을 불러오지 못했습니다.</p>
+      <button type="button" onClick={countryAnalyses.retry}>분석 요약 다시 시도</button></div>}
     <div className={s.list}>
       {visibleCountries.map((row, index) => {
         const code = row.country.countryCode.toLowerCase();
@@ -91,7 +94,8 @@ export default function IssuePerspectives({ data, issueId, asOf, spot, onSelectC
                 <span className={s.toneHelp}>선: 최소~최대 · 점: 평균 · −1~1 기준</span>
               </span>
             </span></span>
-          <span className={s.summary}>{row.analysis?.title || '보도 관점 요약'}<small>{row.analysis?.summary || '분석 준비 중'}</small></span>
+          <span className={s.summary}>{row.analysis?.title || '보도 관점 요약'}<small>{row.analysis?.summary
+            || (countryAnalyses.loading ? '분석 요약을 불러오는 중…' : countryAnalyses.error ? '분석 요약 조회 실패' : '등록된 분석 없음')}</small></span>
           <span className={s.count}>{fmt(row.articleCount)}건<small>관련 기사</small></span>
         </button>;
       })}
@@ -104,13 +108,18 @@ export default function IssuePerspectives({ data, issueId, asOf, spot, onSelectC
     {!selected && <p className={s.hint}>{spot ? '선택한 국가의 최근 24시간 관련 기사가 없습니다.' : '국가를 선택하면 보도 관점의 상세 요약과 대표 기사를 확인할 수 있습니다.'}</p>}
     {selected && <section className={s.evidence}>
       <SectionTitle title={`${selected.country.countryName} 언론의 보도 관점`} />
-      {selected.analysis ? <div className={s.analysis}>
-        {selected.analysis.title && <h3>{selected.analysis.title}</h3>}
-        <p>{selected.analysis.summary || '분석 준비 중'}</p>
-        {selected.analysis.details && <p>{selected.analysis.details}</p>}
-        <small>분석에 사용한 기사 {fmt(selected.analysis.articleCount)}건
-          {selected.analysis.createdAt && <> · {selected.analysis.createdAt.replace('T', ' ')} 분석</>}</small>
-      </div> : <p className={s.hint}>분석 준비 중입니다. 아래 대표 기사에서 보도 내용을 확인할 수 있습니다.</p>}
+      {analysis.loading && !analysis.data ? <p role="status">보도 관점을 불러오고 있습니다…</p>
+        : analysis.error ? <div role="alert"><p>분석 결과를 불러오지 못했습니다.</p>
+          <button type="button" onClick={analysis.retry}>분석 상세 다시 시도</button></div>
+          : analysis.data ? <div className={s.analysis}>
+            <h3>{analysis.data.title}</h3>
+            <p>{analysis.data.summary}</p>
+            {analysis.data.details?.length > 0 && <ul>{analysis.data.details.map((detail, index) => <li key={index}>{detail}</li>)}</ul>}
+            <small>분석에 사용한 기사 {fmt(analysis.data.articleCount)}건
+              {analysis.data.windowEnd && <> · 분석 기준 시각 <time dateTime={analysis.data.windowEnd}>
+                {new Date(analysis.data.windowEnd).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
+              </time> (한국 시간)</>}</small>
+          </div> : <p className={s.hint} role="status">조회 시점까지 등록된 국가별 분석이 없습니다.</p>}
       <SectionTitle title={`${selected.country.countryName} 대표 기사`} note="조회 시점까지 전체 기간 · 관련도순 최대 10건" />
       <p className={s.hint}>관련도순 대표 기사이며, 요약 분석에 사용한 기사 목록과는 다를 수 있습니다.</p>
       {articles.loading && !articles.data ? <p role="status">기사를 불러오고 있습니다…</p>

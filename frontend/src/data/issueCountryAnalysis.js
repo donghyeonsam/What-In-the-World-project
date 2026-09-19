@@ -1,4 +1,6 @@
-// No public analysis endpoint is connected yet. Do not invent country perspectives.
-export async function loadIssueCountryAnalysis() {
-  return null;
+import { api } from './api.js';
+
+export async function loadIssueCountryAnalysis({ issueId, countryCode, asOf }, signal) {
+  const data = await api.countryAnalysis(issueId, countryCode, signal, asOf);
+  return data.analysis;
 }

@@ -158,22 +158,23 @@ function DashboardApp({ onNews, initialCountry, asOf, timeProps, trip, onArrive 
 
   const catalog = useMemo(() => (fields.data || []).flatMap((field) => field.themes.map((item) => ({ ...item, fieldId: field.fieldId, fieldName: field.fieldName }))), [fields.data]);
   const globalIssue = view.type === 'issue' && !view.countryCode;
-  const rankedCountries = useMemo(() => issueCountryPerspectives(issue.error ? {} : issue.data || {}), [issue.data, issue.error]);
+  const countryAnalyses = useResource(view.type === 'issue' ? `country-analyses:${asOf}:${view.issueId}` : null,
+    (signal) => api.countryAnalyses(view.issueId, signal, asOf));
+  const rankedCountries = useMemo(() => issueCountryPerspectives(issue.error ? {} : issue.data || {}, countryAnalyses.data?.countryAnalyses),
+    [issue.data, issue.error, countryAnalyses.data]);
   const issueCards = useMemo(() => globalIssue ? rankedCountries.filter((row) => countryMetadata.some((c) => c.id === row.country.countryCode.toLowerCase())) : [], [globalIssue, rankedCountries]);
   const rows = (issue.data?.countryTones || []).filter((row) => !view.countryCode || row.country.countryCode.toUpperCase() === view.countryCode);
   const selectedCountry = view.type === 'issue' ? countryMetadata.find((item) => item.id === spot) : null;
-  const selectedTone = selectedCountry
+  const selectedTone = view.type === 'issue' && spot
     ? issue.data?.countryTones?.find((row) => row.country.countryCode.toLowerCase() === spot) : null;
   const analysisToneColor = selectedTone?.articleCount >= 30 && selectedTone.toneAvg != null
     ? toneRGB(scoreOf(selectedTone.toneAvg)).join(', ') : null;
-  const analysis = useResource(selectedTone ? `analysis:${asOf}:${view.issueId}:${spot}` : null,
-    () => loadIssueCountryAnalysis({
+  const analysis = useResource(view.type === 'issue' && spot && issue.data && !issue.error ? `analysis:${asOf}:${view.issueId}:${spot}` : null,
+    (signal) => loadIssueCountryAnalysis({
       issueId: view.issueId,
-      issueTitle: issue.data.issuePreview.issueTitle,
-      countryCode: selectedTone?.country.countryCode,
-      countryName: selectedTone?.country.countryName,
-      articleCount: selectedTone?.articleCount,
-    }));
+      countryCode: spot,
+      asOf,
+    }, signal));
   const mapTone = useMemo(() => view.type === 'issue' && issue.data && !issue.error
     ? { name: issue.data.issuePreview.issueTitle, t: globeTones(issue.data.countryTones, view.countryCode) }
     : null,
@@ -222,7 +223,8 @@ function DashboardApp({ onNews, initialCountry, asOf, timeProps, trip, onArrive 
     <SectionTitle title={view.countryCode ? `${countryName} 대표 기사` : '대표 기사'} action={{ label: '더 보기 →', onClick: openArticles }} />
     <ArticleFeed articles={data.representArticles.slice(0, 3).map(articleCard)} />
   </>}</ResourceState>;
-  else if (globalIssue) body = <ResourceState resource={issue}>{(data) => <IssuePerspectives data={data} issueId={view.issueId} asOf={asOf} spot={spot} onSelectCountry={selectIssueCountry} />}</ResourceState>;
+  else if (globalIssue) body = <ResourceState resource={issue}>{(data) => <IssuePerspectives data={data} issueId={view.issueId} asOf={asOf}
+    countryAnalyses={countryAnalyses} analysis={analysis} spot={spot} onSelectCountry={selectIssueCountry} />}</ResourceState>;
   else if (view.type === 'issue') body = <ResourceState resource={issue}>{(data) => <>
     <SubHeading title={data.issuePreview.issueTitle} desc={data.issuePreview.themeTitle} />
     <InterestButton kind="issues" id={view.issueId} name={data.issuePreview.issueTitle} />
@@ -250,16 +252,17 @@ function DashboardApp({ onNews, initialCountry, asOf, timeProps, trip, onArrive 
     header={<HeaderMinimal {...timeProps} route={view.countryCode ? 'country' : 'global'} onRoute={(route) => route === 'news' ? onNews() : route === 'global' ? go(HOME) : goCountry(view.countryCode?.toLowerCase() || 'kr')} onSearch={openPalette} />}
     stage={<GlobeSlot><GlobeThree countries={countryMetadata} iso3={iso3} tone={mapTone} minSample={null} focus={spot || view.countryCode?.toLowerCase() || issueCards[0]?.country.countryCode.toLowerCase()}
       issueCards={issueCards} selectedIssueCountry={spot}
-      onSelectIssueCountry={setSpot}
+      onSelectIssueCountry={selectIssueCountry}
+      analysisListLoading={countryAnalyses.loading} analysisListError={Boolean(countryAnalyses.error)}
       globalIssueView={globalIssue}
       satelliteDemo={!asOf && !trip}
       timeTravel={trip ? (journey.reduced ? 0 : journey.progress) : null}
-      calloutCountry={!globalIssue ? selectedCountry?.id || null : null}
+      calloutCountry={selectedCountry?.id || null}
       callout={selectedCountry ? <IssueCountryAnalysis countryName={selectedCountry.name}
-        noCoverage={!selectedTone} toneColor={analysisToneColor} resource={analysis} /> : null}
+        toneColor={analysisToneColor} resource={analysis} onClose={() => setSpot(null)} /> : null}
       countryClickHint="클릭하면 국가 분석 보기"
       onGlobeMove={view.type === 'issue' && spot ? () => setSpot(null) : undefined}
-      mentionRelations={relations} spinControl={!trip} onOpenCountry={goCountry} />
+      mentionRelations={relations} spinControl={!trip} onOpenCountry={view.type === 'issue' ? selectIssueCountry : goCountry} />
       <StageClock asOf={asOf} travelDate={journey.date} />
       {trip && <TimeTravelEffects trip={trip} {...journey} onArrive={onArrive} />}
       </GlobeSlot>}
