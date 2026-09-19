@@ -519,14 +519,14 @@ article a-123
 
 최고 similarity를 기준으로 기존 Issue와의 매칭 여부를 판단한다.
 
-유사도가 기본 임계값 `0.85` 이상인지 판단해서 분기 처리한다. 운영 환경에서는
-`ISSUE_MATCH_THRESHOLD`로 임계값을 조정할 수 있으며 기본값은 `0.85`다.
+유사도가 기본 임계값 `0.93` 이상인지 판단해서 분기 처리한다. 운영 환경에서는
+`ISSUE_MATCH_THRESHOLD`로 임계값을 조정할 수 있으며 기본값은 `0.93`이다.
 
 ```
-similarity >= 0.85
+similarity >= 0.93
     → 기존 Issue 매칭
 
-similarity < 0.85
+similarity < 0.93
     → 미분류 기사
 ```
 
@@ -607,10 +607,10 @@ Spark 마이크로 배치가 50건보다 작더라도 메시지가 사라지지 
 HDBSCAN을 실행한다. 72시간이 지난 pending 기사는 trigger 집계와 상태 저장에서
 제외한다.
 
-MVP 고정값은 최소 군집 크기 4, `min_samples` 3이다. 테마 전체가 하나의 사건으로
+MVP 고정값은 최소 군집 크기 4, `min_samples` 4이다. 테마 전체가 하나의 사건으로
 강제 수렴하지 않도록 HDBSCAN의 단일 군집 허용 옵션은 끈다. HDBSCAN 군집 안에서도
-개별 membership probability가 0.70 미만인 기사와 군집 centroid cosine similarity가
-0.85 미만인 기사를 반복 제거한다. 제거 후 4건 미만인 군집은 생성하지 않는다.
+개별 membership probability가 0.80 미만인 기사와 군집 centroid cosine similarity가
+0.92 미만인 기사를 반복 제거한다. 제거 후 4건 미만인 군집은 생성하지 않는다.
 한 번에 Driver로 가져오는 기사 수는 테마별 2,000건으로 제한하고, 초과분은 상태에
 남겨 다음 실행에서 처리한다.
 
