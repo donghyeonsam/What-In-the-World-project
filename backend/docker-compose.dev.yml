@@ -79,6 +79,7 @@ services:
       SSAFY_CLIENT_ID: ${SSAFY_CLIENT_ID:?SSAFY_CLIENT_ID is required}
       SSAFY_CLIENT_SECRET: ${SSAFY_CLIENT_SECRET:?SSAFY_CLIENT_SECRET is required}
       SSAFY_REDIRECT_URI: ${SSAFY_REDIRECT_URI:?SSAFY_REDIRECT_URI is required}
+      GMS_API_KEY: ${GMS_API_KEY:?GMS_API_KEY is required}
     ports:
       - "127.0.0.1:8081:8080"
     depends_on:
