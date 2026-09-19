@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { api, request, ApiError } from '../src/data/api.js';
+import { loadIssueCountryAnalysis } from '../src/data/issueCountryAnalysis.js';
 import { articleCard, themeCard, mentionRows, globeTones, scoreOf, safeUrl } from '../src/data/responseAdapters.js';
 
 test('all seven existing endpoints use the documented query limits and response envelope', async () => {
@@ -33,6 +34,40 @@ test('country-scoped theme and issue requests include the publisher country', as
   } finally {
     global.fetch = original;
   }
+});
+
+test('analysis endpoints preserve separate list/detail contracts and null results', async () => {
+  const original = globalThis.fetch;
+  const urls = [];
+  const summary = { analysisId: 7, countryCode: 'KR', title: '목록 제목', summary: '목록 요약', articleCount: 15, windowEnd: '2026-09-18T09:00:00+09:00' };
+  const detail = { ...summary, issueId: 42, title: '상세 제목', details: ['첫 번째 관점', '두 번째 관점'] };
+  const responses = [{ issueId: 42, countryAnalyses: [summary] }, { analysis: detail }, { analysis: null }];
+  globalThis.fetch = async (url) => {
+    urls.push(url);
+    return new Response(JSON.stringify({ status: 200, data: responses.shift() }));
+  };
+  try {
+    assert.deepEqual(await api.countryAnalyses(42), { issueId: 42, countryAnalyses: [summary] });
+    assert.deepEqual(await loadIssueCountryAnalysis({ issueId: 42, countryCode: 'kr' }), detail);
+    assert.equal(await loadIssueCountryAnalysis({ issueId: 42, countryCode: 'us' }), null);
+    assert.deepEqual(urls, ['/api/v1/global/issues/42/country-analyses',
+      '/api/v1/global/issues/42/country-analyses/KR', '/api/v1/global/issues/42/country-analyses/US']);
+  } finally { globalThis.fetch = original; }
+});
+
+test('analysis detail propagates cancellation and failures instead of treating them as absent analyses', async () => {
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => new Response(JSON.stringify({ status: 500, message: '분석 조회 실패' }), { status: 500 });
+    await assert.rejects(loadIssueCountryAnalysis({ issueId: 42, countryCode: 'kr' }), { status: 500 });
+    const controller = new AbortController();
+    globalThis.fetch = (_, { signal }) => new Promise((resolve, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+    });
+    const pending = loadIssueCountryAnalysis({ issueId: 42, countryCode: 'kr' }, controller.signal);
+    controller.abort();
+    await assert.rejects(pending, { name: 'AbortError' });
+  } finally { globalThis.fetch = original; }
 });
 test('API errors, invalid envelopes, and cancellation do not become sample data', async () => {
   const original = globalThis.fetch;

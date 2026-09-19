@@ -6,10 +6,9 @@ export function rankIssueCountries(rows = []) {
       || a.country.countryCode.localeCompare(b.country.countryCode));
 }
 
-// Frontend integration contract: one analysis per country from the issue detail response.
-// The backend must select the latest analysis at/before asOf for historical requests.
-export function issueCountryPerspectives(data = {}) {
-  const analyses = new Map((data.countryAnalyses || []).map((analysis) => [
+// Join the separate analysis-list response to the recent country-tone rows.
+export function issueCountryPerspectives(data = {}, countryAnalyses = []) {
+  const analyses = new Map(countryAnalyses.map((analysis) => [
     analysis.countryCode?.toUpperCase(), analysis,
   ]));
   return rankIssueCountries(data.countryTones).map((row) => ({

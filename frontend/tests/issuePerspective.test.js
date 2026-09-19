@@ -14,8 +14,8 @@ test('metrics weight scored articles and keep missing tone out of the denominato
 });
 
 test('country analyses join by country code without fabricating missing summaries', () => {
-  const analysis = { countryCode: 'kr', title: '공급망 재편', summary: '국내 언론 보도 요약', details: '상세 내용', articleCount: 12 };
-  const result = issueCountryPerspectives({ countryTones: [row('US', 20, 40), row('KR', 30, 60)], countryAnalyses: [analysis] });
+  const analysis = { analysisId: 7, countryCode: 'kr', title: '공급망 재편', summary: '국내 언론 보도 요약', articleCount: 12, windowEnd: '2026-09-18T10:00:00+09:00' };
+  const result = issueCountryPerspectives({ countryTones: [row('US', 20, 40), row('KR', 30, 60)] }, [analysis]);
   assert.equal(result[0].analysis, analysis);
   assert.equal(result[1].analysis, null);
   assert.equal(issueCountryPerspectives({ countryTones: [row('KR', 30, 60)] })[0].analysis, null);

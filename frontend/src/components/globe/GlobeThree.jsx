@@ -155,6 +155,8 @@ export default function GlobeThree({
   issueCards = [],
   selectedIssueCountry = null,
   onSelectIssueCountry,
+  analysisListLoading = false,
+  analysisListError = false,
   satelliteDemo = false,
   globalIssueView = false,
   calloutCountry = null,
@@ -1497,7 +1499,8 @@ export default function GlobeThree({
           <span className={s.issueFlag} aria-hidden="true">{country?.flagImage
             ? <img src={country.flagImage} alt="" />
             : country?.flagClass ? <i className={country.flagClass} /> : flagOf(id)}</span><span><strong>{row.country.countryName}</strong>
-          <small className={s.issueSummary}>{row.analysis?.title || row.analysis?.summary || '분석 준비 중'}</small>
+          <small className={s.issueSummary}>{row.analysis?.title || row.analysis?.summary
+            || (analysisListLoading ? '분석 요약을 불러오는 중…' : analysisListError ? '분석 요약 조회 실패' : '등록된 분석 없음')}</small>
           <small>{fmt(row.articleCount)}건 · {score == null ? '논조 분석 없음' : toneLabel3(score)}</small></span>
           <i style={{ background: score == null ? '#9a8fc4' : `rgb(${toneRGB(score).join(',')})` }} />
         </button>;

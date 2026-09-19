@@ -40,27 +40,56 @@ test('screens render real DTO fields, empty states, and missing-data notices', a
     assert.match(feed, /원문 링크가 제공되지 않았습니다/); assert.doesNotMatch(feed, /<button/);
     assert.match(render(Feed, { articles: [] }), /조건에 맞는 기사가 없습니다/);
     const { default: Perspectives } = await vite.ssrLoadModule('/src/components/panel/IssuePerspectives.jsx');
+    const emptyAnalysis = { data: null, loading: false, error: null, retry() {} };
+    const renderPerspectives = (props) => render(Perspectives, { countryAnalyses: emptyAnalysis, analysis: emptyAnalysis, ...props });
     const perspectiveData = { issuePreview: { issueTitle: '테스트 이슈', themeTitle: '안보' }, countryTones: [
       { country: { countryCode: 'KR', countryName: '한국' }, articleCount: 40, toneAvg: 75 },
       { country: { countryCode: 'US', countryName: '미국' }, articleCount: 20, toneAvg: null },
     ] };
-    const perspectives = render(Perspectives, { data: perspectiveData, issueId: 1, spot: null });
+    const perspectives = renderPerspectives({ data: perspectiveData, issueId: 1, spot: null });
     assert.match(perspectives, /국가별 언론의 보도 관점/);
     assert.match(perspectives, /보도량 순 · 2개국/);
     assert.match(perspectives, /논조 분석 없음/);
-    assert.match(perspectives, /분석 준비 중/);
+    assert.match(perspectives, /등록된 분석 없음/);
     assert.doesNotMatch(perspectives, /이슈 발생국|연결선/);
-    const analyzed = render(Perspectives, { data: { ...perspectiveData, countryAnalyses: [
-      { countryCode: 'KR', title: '공급망 재편 주목', summary: '협력의 필요성을 보도', details: '기업별 대응을 분석', articleCount: 12, createdAt: '2026-09-18T10:00:00' },
-    ] }, issueId: 1, spot: 'kr' });
+    const analysisSummary = { analysisId: 7, countryCode: 'KR', title: '공급망 재편 주목', summary: '협력의 필요성을 보도', articleCount: 12, windowEnd: '2026-09-18T10:00:00+09:00' };
+    const analysisDetail = { ...analysisSummary, issueId: 1, title: '선택한 국가의 상세 제목', details: ['기업별 대응을 분석', '두 번째 보도 관점', '세 번째 보도 관점'] };
+    const detailResource = { ...emptyAnalysis, data: analysisDetail };
+    const analyzed = renderPerspectives({ data: perspectiveData,
+      countryAnalyses: { ...emptyAnalysis, data: { issueId: 1, countryAnalyses: [analysisSummary] } },
+      analysis: detailResource, issueId: 1, spot: 'kr' });
     assert.match(analyzed, /공급망 재편 주목/);
     assert.match(analyzed, /협력의 필요성을 보도/);
     assert.match(analyzed, /기업별 대응을 분석/);
     assert.match(analyzed, /분석에 사용한 기사 12건/);
-    assert.match(analyzed, /2026-09-18 10:00:00 분석/);
+    assert.match(analyzed, /선택한 국가의 상세 제목/);
+    assert.match(analyzed, /<li>두 번째 보도 관점<\/li>/);
+    assert.match(analyzed, /<li>세 번째 보도 관점<\/li>/);
+    assert.match(analyzed, /dateTime="2026-09-18T10:00:00\+09:00"/i);
     assert.doesNotMatch(perspectives, /세계 여론|강경 지지/);
-    assert.match(render(Perspectives, { data: { ...perspectiveData, countryTones: [] }, issueId: 1 }), /관련 기사가 있는 국가가 없습니다/);
-    assert.match(render(Perspectives, { data: perspectiveData, issueId: 1, spot: 'kr' }), /한국 대표 기사/);
+    assert.match(renderPerspectives({ data: { ...perspectiveData, countryTones: [] }, issueId: 1 }), /관련 기사가 있는 국가가 없습니다/);
+    assert.match(renderPerspectives({ data: perspectiveData, issueId: 1, spot: 'kr' }), /한국 대표 기사/);
+    assert.match(renderPerspectives({ data: perspectiveData, issueId: 1, spot: 'kr' }), /조회 시점까지 등록된 국가별 분석이 없습니다/);
+    const failedList = renderPerspectives({ data: perspectiveData, issueId: 1, spot: 'kr', analysis: detailResource,
+      countryAnalyses: { ...emptyAnalysis, error: new Error('목록 실패') } });
+    assert.match(failedList, /분석 요약 다시 시도/);
+    assert.match(failedList, /선택한 국가의 상세 제목/);
+    assert.match(failedList, /한국 대표 기사/);
+    const { default: CountryAnalysis } = await vite.ssrLoadModule('/src/components/panel/IssueCountryAnalysis.jsx');
+    const callout = render(CountryAnalysis, { countryName: '한국', resource: detailResource, onClose() {} });
+    assert.match(callout, /선택한 국가의 상세 제목/);
+    assert.match(callout, /<li>세 번째 보도 관점<\/li>/);
+    assert.match(callout, /분석에 사용한 기사 12건/);
+    assert.match(callout, /국가 분석 닫기/);
+    assert.doesNotMatch(callout, /화면 예시|undefined|분석 시각 정보가 없습니다/);
+    for (const Component of [CountryAnalysis, Perspectives]) {
+      const props = { countryName: '한국', data: perspectiveData, countryAnalyses: emptyAnalysis, issueId: 1, spot: 'kr' };
+      const loading = { ...emptyAnalysis, loading: true };
+      const failed = { ...emptyAnalysis, error: new Error('상세 실패') };
+      assert.match(render(Component, { ...props, resource: loading, analysis: loading }), /보도 관점을 불러오고 있습니다/);
+      assert.match(render(Component, { ...props, resource: failed, analysis: failed }), /분석 결과를 불러오지 못했습니다/);
+      assert.match(render(Component, { ...props, resource: emptyAnalysis, analysis: emptyAnalysis }), /조회 시점까지 등록된 국가별 분석이 없습니다/);
+    }
     const { default: Tones } = await vite.ssrLoadModule('/src/components/panel/ApiToneScatter.jsx');
     const tone = render(Tones, { rows: [{ country: { countryCode: 'KR', countryName: '한국' }, toneAvg: 75, toneMin: 40, toneMax: 90, toneSd: 12.5, articleCount: 40 }] });
     assert.match(tone, /한국/); assert.match(tone, /\+0.50/); assert.match(tone, /40건/);

@@ -39,7 +39,7 @@ test('shared URLs restore the same instant and invalid URLs return to live mode'
   }
 });
 
-test('all ten content requests receive the identical asOf and returning live removes it', async () => {
+test('all twelve content requests receive the identical asOf and returning live removes it', async () => {
   const original = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url) => {
@@ -55,12 +55,18 @@ test('all ten content requests receive the identical asOf and returning live rem
     await api.theme(1, 'KR', undefined, asOf);
     await api.issue(1, undefined, asOf);
     await api.overview(1, 'KR', undefined, asOf);
+    await api.countryAnalyses(1, undefined, asOf);
+    await api.countryAnalysis(1, 'kr', undefined, asOf);
     await httpNewsSource.filters({ asOf });
     await httpNewsSource.list({ page: 1 }, { asOf });
     await httpNewsSource.detail('a', { asOf });
-    assert.equal(calls.length, 10);
+    assert.equal(calls.length, 12);
     assert.ok(calls.every((url) => url.searchParams.get('asOf') === asOf));
     await api.dashboard(undefined, null);
+    assert.equal(calls.at(-1).searchParams.has('asOf'), false);
+    await api.countryAnalyses(1, undefined, null);
+    assert.equal(calls.at(-1).searchParams.has('asOf'), false);
+    await api.countryAnalysis(1, 'KR', undefined, null);
     assert.equal(calls.at(-1).searchParams.has('asOf'), false);
   } finally { globalThis.fetch = original; }
 });
