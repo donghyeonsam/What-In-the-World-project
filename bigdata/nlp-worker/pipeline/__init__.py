@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from .language import detect_language
 from .country import get_country_code, extract_mentioned_countries
-from .embedding import create_article_embedding
+from .embedding import create_article_embedding, create_summary_embedding
 from .classifier import classify_theme
 from .sentiment import analyze_sentiment
 from .title_translation import translate_title
@@ -113,6 +113,15 @@ def process_article(article):
     # 5. Theme / Field 분류
     theme = classify_theme(embedding)
 
+    # 6. 본문 3문장 한국어 요약 + 그 요약의 임베딩
+    # 다른 필드와 달리 요약은 실패해도 예외를 던지지 않고 None 을 돌려준다.
+    # 요약 하나 때문에 기사 전체를 버리지 않기 위해서다.
+    # 요약이 없으면 임베딩도 없다.
+    summary = summarize(article, language_code)
+    summary_embedding = (
+        create_summary_embedding(summary) if summary else None
+    )
+
     # 원본 dict를 덮어쓰지 않아
     # archive/재처리 입력과 collector 필드를 보존한다.
     enriched = dict(article)
@@ -124,17 +133,17 @@ def process_article(article):
         # 한국어 표시용 제목
         "translated_title": translated_title,
 
-        # 본문 3문장 한국어 요약
-        # 다른 필드와 달리 실패해도 예외를 던지지 않고 None 을 돌려준다.
-        # 요약 하나 때문에 기사 전체를 버리지 않기 위해서다.
-        "summary": summarize(article, language_code),
+        # 본문 3문장 한국어 요약과 그 요약의 E5 임베딩(768차원).
+        # 둘 다 요약 실패 시 None 이다.
+        "summary": summary,
+        "summary_embedding": summary_embedding,
 
         "field_id": theme["field_id"],
         "theme_id": theme["theme_id"],
         "theme_relevance_score": theme["similarity"],
         "mentioned_countries": mentioned,
 
-        # 6. 논조 채점
+        # 7. 논조 채점
         # field_id / theme_id 를 반드시 넘긴다.
         #   teacher backend: 분야별 가설 문장이 달라진다.
         #   student backend: 분야별로 학습된 모델 5개 중 하나로 라우팅된다.

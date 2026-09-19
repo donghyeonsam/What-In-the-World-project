@@ -111,6 +111,14 @@ public class DbWriterService {
                 ? null
                 : summary.trim()
         );
+        // 요약 임베딩도 같은 이유로 필수가 아니다. 요약이 없으면 임베딩도 없다.
+        // TEXT 컬럼이므로 JSON 배열 문자열로 직렬화해서 넣는다(Theme/Issue 와 동일).
+        List<BigDecimal> summaryEmbedding = payload.summaryEmbedding();
+        article.setSummaryEmbedding(
+            summaryEmbedding == null || summaryEmbedding.isEmpty()
+                ? null
+                : writeJson(summaryEmbedding)
+        );
         article.setOriginalTitle(requireText(payload.originalTitle(), "payload.original_title"));
         article.setCrawledAt(toKstLocalDateTime(require(payload.crawledAt(), "payload.crawled_at")));
         article.setToneScore(requireRange(

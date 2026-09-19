@@ -17,6 +17,8 @@ public record ArticleUpsertPayload(
         @JsonProperty("translated_title") String translatedTitle,
         // 기사 본문 3문장 한국어 요약
         String summary,
+        // 그 요약문의 E5 임베딩(768차원). 요약이 실패한 기사는 null 이다.
+        @JsonProperty("summary_embedding") List<BigDecimal> summaryEmbedding,
         @JsonProperty("original_title") String originalTitle,
         @JsonProperty("crawled_at") OffsetDateTime crawledAt,
         List<BigDecimal> embedding,

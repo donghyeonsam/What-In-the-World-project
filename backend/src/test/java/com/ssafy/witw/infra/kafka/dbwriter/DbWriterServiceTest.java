@@ -86,6 +86,8 @@ class DbWriterServiceTest {
                     "url": "https://example.com/article",
                     "original_title": "Title",
                     "translated_title": "번역된 제목",
+                    "summary": "요약 문장입니다.",
+                    "summary_embedding": [0.2, -0.5],
                     "crawled_at": "2026-09-01T08:22:28.256121Z",
                     "embedding": [0.031, -0.114],
                     "tone_score": 51.5,
@@ -109,6 +111,9 @@ class DbWriterServiceTest {
         assertThat(saved.getThemeRelevanceScore()).isEqualByComparingTo("0.8123");
         assertThat(saved.getOriginalTitle()).isEqualTo("Title");
         assertThat(saved.getTranslatedTitle()).isEqualTo("번역된 제목");
+        assertThat(saved.getSummary()).isEqualTo("요약 문장입니다.");
+        // TEXT 컬럼이므로 JSON 배열 문자열로 저장된다.
+        assertThat(saved.getSummaryEmbedding()).isEqualTo("[0.2,-0.5]");
         assertThat(saved.getCrawledAt()).isEqualTo(
                 LocalDateTime.parse("2026-09-01T17:22:28.256121")
         );
@@ -124,6 +129,49 @@ class DbWriterServiceTest {
                 "a-123",
                 "US"
         );
+    }
+
+    @Test
+    void articleUpsertKeepsArticleWhenSummaryIsMissing() throws Exception {
+        // 요약(LLM)이 실패하면 summary 와 summary_embedding 이 모두 없다.
+        // 그래도 기사 자체는 저장돼야 한다. 요약 하나로 기사를 버리지 않는다.
+        Country korea = country("KR");
+        Theme theme = theme(27L);
+        when(countryRepository.findById("KR")).thenReturn(Optional.of(korea));
+        when(themeRepository.findById(27L)).thenReturn(Optional.of(theme));
+        when(articleRepository.findById("a-124")).thenReturn(Optional.empty());
+
+        DbWriterEvent event = objectMapper.readValue("""
+                {
+                  "event_type": "ARTICLE_UPSERT",
+                  "occurred_at": "2026-09-04T03:20:15+09:00",
+                  "payload": {
+                    "article_id": "a-124",
+                    "publisher_country_code": "KR",
+                    "theme_id": 27,
+                    "theme_relevance_score": 0.8123,
+                    "publisher": "Publisher",
+                    "url": "https://example.com/article",
+                    "original_title": "Title",
+                    "summary": null,
+                    "summary_embedding": null,
+                    "crawled_at": "2026-09-01T08:22:28.256121Z",
+                    "embedding": [0.031, -0.114],
+                    "tone_score": 51.5,
+                    "published_at": "2026-09-01T08:15:03Z",
+                    "mentioned_countries": []
+                  }
+                }
+                """, DbWriterEvent.class);
+
+        dbWriterService.handle(event);
+
+        ArgumentCaptor<Article> captor = ArgumentCaptor.forClass(Article.class);
+        verify(articleRepository).saveAndFlush(captor.capture());
+        Article saved = captor.getValue();
+        assertThat(saved.getId()).isEqualTo("a-124");
+        assertThat(saved.getSummary()).isNull();
+        assertThat(saved.getSummaryEmbedding()).isNull();
     }
 
     @Test
