@@ -18,6 +18,13 @@ public class IssueCountryAnalysisQueryRepository {
             SELECT EXISTS (SELECT 1 FROM issue WHERE id = ? AND created_at <= ?)
             """;
 
+    private static final String ANALYSIS_EXISTS_AT = """
+            SELECT EXISTS (
+                SELECT 1 FROM issue_country_analysis
+                WHERE issue_id = ? AND country_code = ? AND created_at <= ?
+            )
+            """;
+
     private static final String LATEST_BY_ISSUE = """
             SELECT DISTINCT ON (country_code)
                    id, issue_id, country_code, title, summary, details, article_count, created_at
@@ -39,6 +46,11 @@ public class IssueCountryAnalysisQueryRepository {
     public boolean issueExistsAt(long issueId, LocalDateTime asOf) {
         return Boolean.TRUE.equals(jdbcTemplate.queryForObject(
                 ISSUE_EXISTS_AT, Boolean.class, issueId, Timestamp.valueOf(asOf)));
+    }
+
+    public boolean analysisExistsAt(long issueId, String countryCode, LocalDateTime asOf) {
+        return Boolean.TRUE.equals(jdbcTemplate.queryForObject(
+                ANALYSIS_EXISTS_AT, Boolean.class, issueId, countryCode, Timestamp.valueOf(asOf)));
     }
 
     public List<AnalysisRow> findLatestByIssue(long issueId, LocalDateTime asOf) {

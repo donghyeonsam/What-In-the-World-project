@@ -33,7 +33,8 @@ import static org.mockito.Mockito.*;
 // TestContainerSupport supplies an isolated test DB. No GMS or scheduled execution is enabled here.
 @RepositoryTest
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({IssueCountryAnalysisArticleRepository.class, IssueCountryAnalysisResultRepository.class,
+@Import({IssueCountryAnalysisArticleRepository.class, IssueCountryAnalysisQueryRepository.class,
+        IssueCountryAnalysisResultRepository.class,
         IssueCountryAnalysisArticleService.class, IssueCountryAnalysisPromptService.class,
         IssueCountryAnalysisResponseValidator.class, IssueCountryAnalysisResultService.class,
         IssueCountryAnalysisWorkerService.class, IssueCountryAnalysisPersistenceTest.JsonConfig.class})

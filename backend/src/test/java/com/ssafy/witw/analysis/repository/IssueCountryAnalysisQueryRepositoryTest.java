@@ -41,6 +41,10 @@ class IssueCountryAnalysisQueryRepositoryTest extends TestContainerSupport {
 
         assertThat(repository.issueExistsAt(ID, CREATED.minusSeconds(1))).isFalse();
         assertThat(repository.issueExistsAt(ID, asOf)).isTrue();
+        assertThat(repository.analysisExistsAt(ID, "ZQ", CREATED.plusMinutes(30))).isFalse();
+        assertThat(repository.analysisExistsAt(ID, "ZQ", asOf)).isTrue();
+        assertThat(repository.analysisExistsAt(ID, "ZR", asOf)).isTrue();
+        assertThat(repository.analysisExistsAt(ID, "ZZ", asOf)).isFalse();
         assertThat(repository.findLatestByIssue(ID, asOf))
                 .extracting(IssueCountryAnalysisQueryRepository.AnalysisRow::title)
                 .containsExactly("최신", "다른 국가");

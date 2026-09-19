@@ -1,6 +1,7 @@
 package com.ssafy.witw.analysis.service;
 
 import com.ssafy.witw.analysis.config.IssueCountryAnalysisAsyncConfig;
+import com.ssafy.witw.analysis.repository.IssueCountryAnalysisQueryRepository;
 import com.ssafy.witw.analysis.repository.IssueCountryAnalysisTargetRepository.Target;
 import com.ssafy.witw.analysis.service.IssueCountryAnalysisGmsService.GmsAnalysisException;
 import com.ssafy.witw.analysis.service.IssueCountryAnalysisPromptService.PreparedPrompt;
@@ -26,6 +27,7 @@ class IssueCountryAnalysisWorkerAsyncTest {
     @Timeout(15)
     void a_single_async_worker_queues_the_next_target_and_survives_a_failed_request() throws Exception {
         var articles = mock(IssueCountryAnalysisArticleService.class);
+        var analysisQueryRepository = mock(IssueCountryAnalysisQueryRepository.class);
         var prompts = mock(IssueCountryAnalysisPromptService.class);
         var gms = mock(IssueCountryAnalysisGmsService.class);
         var validator = mock(IssueCountryAnalysisResponseValidator.class);
@@ -39,6 +41,7 @@ class IssueCountryAnalysisWorkerAsyncTest {
         var workerThread = new AtomicReference<String>();
         when(prompts.prepare(anyLong(), anyString(), anyString(), anyString(), anyLong(), any(), any(), anyList()))
                 .thenReturn(prompt);
+        when(analysisQueryRepository.analysisExistsAt(anyLong(), anyString(), any())).thenReturn(true);
         when(gms.analyze(prompt)).thenAnswer(call -> {
             workerThread.set(Thread.currentThread().getName());
             if (calls.incrementAndGet() == 1) {
@@ -57,6 +60,7 @@ class IssueCountryAnalysisWorkerAsyncTest {
         try (var context = new AnnotationConfigApplicationContext()) {
             context.register(IssueCountryAnalysisAsyncConfig.class, IssueCountryAnalysisWorkerService.class);
             context.registerBean(IssueCountryAnalysisArticleService.class, () -> articles);
+            context.registerBean(IssueCountryAnalysisQueryRepository.class, () -> analysisQueryRepository);
             context.registerBean(IssueCountryAnalysisPromptService.class, () -> prompts);
             context.registerBean(IssueCountryAnalysisGmsService.class, () -> gms);
             context.registerBean(IssueCountryAnalysisResponseValidator.class, () -> validator);

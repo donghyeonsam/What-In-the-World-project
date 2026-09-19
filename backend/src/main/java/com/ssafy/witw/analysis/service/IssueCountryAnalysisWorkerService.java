@@ -1,6 +1,7 @@
 package com.ssafy.witw.analysis.service;
 
 import com.ssafy.witw.analysis.repository.IssueCountryAnalysisArticleRepository.ArticleForAnalysis;
+import com.ssafy.witw.analysis.repository.IssueCountryAnalysisQueryRepository;
 import com.ssafy.witw.analysis.repository.IssueCountryAnalysisTargetRepository.Target;
 import com.ssafy.witw.analysis.service.IssueCountryAnalysisGmsService.GmsAnalysisException;
 import com.ssafy.witw.analysis.service.IssueCountryAnalysisPromptService.InsufficientArticlesException;
@@ -31,6 +32,7 @@ import java.util.List;
 public class IssueCountryAnalysisWorkerService {
 
     private final IssueCountryAnalysisArticleService articleService;
+    private final IssueCountryAnalysisQueryRepository analysisQueryRepository;
     private final IssueCountryAnalysisPromptService promptService;
     private final IssueCountryAnalysisGmsService gmsService;
     private final IssueCountryAnalysisResponseValidator responseValidator;
@@ -93,7 +95,7 @@ public class IssueCountryAnalysisWorkerService {
              * 2. GMS 분석용 대표 기사를 선정하고 Prompt를 생성한다.
              *
              * PromptService 내부에서:
-             * - summary 없는 기사 제외
+             * - 재분석에서는 summary / toneScore 없는 기사 제외
              * - 제목 중복 제거
              * - 최소 분석 가능 기사 수 확인
              * - 언론사 / 논조 / 시간대 다양성 고려
@@ -102,8 +104,9 @@ public class IssueCountryAnalysisWorkerService {
              * 대표 기사 ID는 GMS로 전달하지 않고
              * PreparedPrompt 내부에 별도로 보관한다.
              */
+            boolean hasPreviousAnalysis = analysisQueryRepository.analysisExistsAt(issueId, countryCode, periodEnd);
             PreparedPrompt prompt =
-                    promptService.prepare(
+                    (hasPreviousAnalysis ? promptService.prepare(
                             issueId,
                             issueName,
                             countryCode,
@@ -112,7 +115,16 @@ public class IssueCountryAnalysisWorkerService {
                             periodStart,
                             periodEnd,
                             articles
-                    );
+                    ) : promptService.prepareInitial(
+                            issueId,
+                            issueName,
+                            countryCode,
+                            countryName,
+                            target.articleCount(),
+                            periodStart,
+                            periodEnd,
+                            articles
+                    ));
 
             log.debug(
                     "GMS Prompt 생성 완료: "
@@ -179,9 +191,9 @@ public class IssueCountryAnalysisWorkerService {
         } catch (InsufficientArticlesException exception) {
 
             /*
-             * Target 선정 당시 기사 수는 충분했더라도,
-             * summary 누락 또는 제목 중복 제거 후
-             * 실제 사용할 수 있는 기사가 5개 미만일 수 있다.
+             * 첫 분석은 제목이 있는 기사가 한 건도 없으면,
+             * 재분석은 요약 누락 또는 제목 중복 제거 후
+             * 실제 사용할 수 있는 기사가 5개 미만이면 건너뛴다.
              *
              * 이 경우 시스템 장애가 아니므로 해당 Target만 건너뛴다.
              */

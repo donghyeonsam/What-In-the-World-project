@@ -31,7 +31,7 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class IssueCountryAnalysisPromptService {
 
-    // 분석 가능한 서로 다른 기사가 최소 5개는 있어야 GMS 분석을 수행한다.
+    // 이미 분석이 저장된 이슈 × 국가는 재분석에 서로 다른 기사 5개가 필요하다.
     private static final int MIN_USABLE_ARTICLES = 5;
 
     // GMS에 전달할 대표 기사 최대 개수
@@ -64,6 +64,8 @@ public class IssueCountryAnalysisPromptService {
               해당 국가 국민 전체의 여론이나 정부의 공식 입장으로 일반화하지 않는다.
             - 여러 기사에서 반복적으로 나타나는 공통 관점과 서로 다른 관점을 함께 고려한다.
             - 일부 기사에만 나타나는 주장이나 관점을 전체 언론의 공통 입장처럼 표현하지 않는다.
+            - 근거 기사가 적거나 기사 요약이 비어 있으면 확인 가능한 내용만 서술하고,
+              해당 국가 언론 전체의 공통 관점이라고 일반화하지 않는다.
 
             [논조 점수]
             - toneScore는 기사별 보도 논조를 나타내는 참고 정보다.
@@ -120,6 +122,36 @@ public class IssueCountryAnalysisPromptService {
             LocalDateTime periodEnd,
             List<ArticleForAnalysis> articles
     ) {
+        return prepare(issueId, issueName, countryCode, countryName, totalArticleCount,
+                periodStart, periodEnd, articles, true);
+    }
+
+    /** 저장된 분석이 없는 이슈 × 국가는 기사 한 건부터 첫 분석을 생성한다. */
+    public PreparedPrompt prepareInitial(
+            long issueId,
+            String issueName,
+            String countryCode,
+            String countryName,
+            long totalArticleCount,
+            LocalDateTime periodStart,
+            LocalDateTime periodEnd,
+            List<ArticleForAnalysis> articles
+    ) {
+        return prepare(issueId, issueName, countryCode, countryName, totalArticleCount,
+                periodStart, periodEnd, articles, false);
+    }
+
+    private PreparedPrompt prepare(
+            long issueId,
+            String issueName,
+            String countryCode,
+            String countryName,
+            long totalArticleCount,
+            LocalDateTime periodStart,
+            LocalDateTime periodEnd,
+            List<ArticleForAnalysis> articles,
+            boolean requireCompleteArticles
+    ) {
         Objects.requireNonNull(periodStart, "periodStart");
         Objects.requireNonNull(periodEnd, "periodEnd");
         Objects.requireNonNull(articles, "articles");
@@ -135,7 +167,8 @@ public class IssueCountryAnalysisPromptService {
         /*
          * GMS 분석에 실제 사용할 수 있는 기사만 남긴다.
          *
-         * title / summary / toneScore / publishedAt이 모두 있어야 한다.
+         * 첫 분석은 기사 ID, 제목, 발행 시각만 필수다.
+         * 재분석은 기존처럼 summary / toneScore도 검사한다.
          * 또한 현재 분석 기간에 포함되는 기사인지 한 번 더 검증한다.
          */
         List<ArticleForAnalysis> candidates = articles.stream()
@@ -145,11 +178,9 @@ public class IssueCountryAnalysisPromptService {
                                 && !article.articleId().isBlank()
                                 && article.title() != null
                                 && !article.title().isBlank()
-                                && article.summary() != null
-                                && !article.summary().isBlank()
-                                && article.toneScore() != null
-                                && article.toneScore().compareTo(BigDecimal.ZERO) >= 0
-                                && article.toneScore().compareTo(BigDecimal.valueOf(100)) <= 0
+                                && (!requireCompleteArticles || (article.summary() != null
+                                        && !article.summary().isBlank()
+                                        && validToneScore(article.toneScore())))
                                 && article.publishedAt() != null
                                 && !article.publishedAt().isBefore(periodStart)
                                 && article.publishedAt().isBefore(periodEnd)
@@ -197,12 +228,14 @@ public class IssueCountryAnalysisPromptService {
         }
 
         /*
-         * 분석에 사용할 수 있는 서로 다른 기사가 5개보다 적으면
-         * 해당 국가에 대한 분석 근거가 부족하다고 판단한다.
+         * 첫 분석은 근거 기사가 한 건이면 진행한다. 이후 재분석에는
+         * 기존의 서로 다른 유효 기사 5건 조건을 적용한다.
          */
-        if (byTitle.size() < MIN_USABLE_ARTICLES) {
+        if (byTitle.size() < (requireCompleteArticles ? MIN_USABLE_ARTICLES : 1)) {
             throw new InsufficientArticlesException(
-                    "At least five distinct articles with summaries are required"
+                    requireCompleteArticles
+                            ? "At least five distinct articles with summaries are required"
+                            : "At least one article with a title is required for initial analysis"
             );
         }
 
@@ -230,11 +263,11 @@ public class IssueCountryAnalysisPromptService {
                                 article.title(),
                                 MAX_TITLE_LENGTH
                         ),
-                        shorten(
+                        article.summary() == null ? "" : shorten(
                                 article.summary(),
                                 MAX_SUMMARY_LENGTH
                         ),
-                        article.toneScore(),
+                        validToneScore(article.toneScore()) ? article.toneScore() : null,
                         article.publisher(),
                         article.publishedAt().toString()
                 ))
@@ -344,7 +377,7 @@ public class IssueCountryAnalysisPromptService {
         Map<String, Integer> publisherCounts =
                 new HashMap<>();
 
-        int[] toneCounts = new int[3];
+        int[] toneCounts = new int[4];
         int[] timeCounts = new int[3];
 
         while (!remaining.isEmpty()
@@ -424,6 +457,9 @@ public class IssueCountryAnalysisPromptService {
     private static int toneBucket(
             BigDecimal score
     ) {
+        if (!validToneScore(score)) {
+            return 3;
+        }
         if (score.compareTo(
                 BigDecimal.valueOf(39)
         ) <= 0) {
@@ -437,6 +473,12 @@ public class IssueCountryAnalysisPromptService {
         }
 
         return 2;
+    }
+
+    private static boolean validToneScore(BigDecimal score) {
+        return score != null
+                && score.compareTo(BigDecimal.ZERO) >= 0
+                && score.compareTo(BigDecimal.valueOf(100)) <= 0;
     }
 
     /**

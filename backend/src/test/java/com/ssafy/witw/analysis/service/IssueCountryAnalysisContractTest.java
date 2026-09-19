@@ -98,6 +98,31 @@ class IssueCountryAnalysisContractTest {
     }
 
     @Test
+    void 첫_분석은_요약과_논조가_없는_기사_한_건으로도_프롬프트를_만든다() throws Exception {
+        ArticleForAnalysis article = new ArticleForAnalysis("single", "기사 제목", null, null,
+                "매체A", PERIOD_START.plusHours(1), BigDecimal.ONE);
+
+        PreparedPrompt prompt = promptService.prepareInitial(56, "구체적인 이슈", "KR", "대한민국", 1,
+                PERIOD_START, PERIOD_END, List.of(article));
+
+        assertThat(prompt.usableArticleCount()).isEqualTo(1);
+        assertThat(prompt.representativeArticleIds()).containsExactly("single");
+        Map<?, ?> body = objectMapper.readValue(prompt.userMessage(), Map.class);
+        Map<?, ?> evidence = (Map<?, ?>) ((List<?>) body.get("representativeArticles")).getFirst();
+        assertThat(evidence.get("title")).isEqualTo("기사 제목");
+        assertThat(evidence.get("summary")).isEqualTo("");
+        assertThat(evidence.get("toneScore")).isNull();
+        assertThat(prompt.systemMessage()).contains("근거 기사가 적거나");
+        assertThatThrownBy(() -> prepare(List.of(article))).isInstanceOf(InsufficientArticlesException.class);
+    }
+
+    @Test
+    void 첫_분석도_근거_기사가_전혀_없으면_건너뛴다() {
+        assertThatThrownBy(() -> promptService.prepareInitial(56, "구체적인 이슈", "KR", "대한민국", 0,
+                PERIOD_START, PERIOD_END, List.of())).isInstanceOf(InsufficientArticlesException.class);
+    }
+
+    @Test
     void 응답은_세_필드만_허용하고_근거_기사_ID를_받지_않는다() {
         String valid = """
                 {"title":"보도 관점","summary":"서로 다른 보도 관점이 나타납니다.",
