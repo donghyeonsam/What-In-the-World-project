@@ -609,6 +609,19 @@ class CollectorQualityTests(unittest.TestCase):
         soup = BeautifulSoup(html, "html.parser")
         self.assertEqual(extract_title(soup, read_jsonld(soup)), "Actual headline")
 
+    def test_title_decodes_html_entities_from_jsonld(self):
+        html = """
+        <script type="application/ld+json">
+          {"@type":"NewsArticle","headline":"[기고]호르무즈 파병&#x20;&apos;참전하지 않는 기여&apos;, 한국은 어디까지 할 것인가?…김태준의 美·이란戰 중계&lt;98&gt;"}
+        </script>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+
+        self.assertEqual(
+            extract_title(soup, read_jsonld(soup)),
+            "[기고]호르무즈 파병 '참전하지 않는 기여', 한국은 어디까지 할 것인가?…김태준의 美·이란戰 중계<98>",
+        )
+
     def test_fetch_improves_title_body_and_publication_date_in_place(self):
         paragraph = "A detailed article sentence with meaningful reporting. " * 12
         html = f"""

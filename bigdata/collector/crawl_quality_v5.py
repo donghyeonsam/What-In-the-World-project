@@ -13,6 +13,7 @@ import re
 import unicodedata
 from collections import Counter
 from datetime import datetime, timezone
+from html import unescape
 from typing import Any, Iterable
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -85,6 +86,12 @@ LATIN_STOPWORDS = {
 
 def safe(value: Any) -> str:
     return str(value or "").strip()
+
+
+def clean_extracted_title(value: Any) -> str:
+    """Decode publisher HTML entities and normalize title whitespace."""
+
+    return " ".join(unescape(safe(value)).split())
 
 
 def truthy(value: Any) -> bool:
@@ -224,24 +231,24 @@ def extract_title(soup: BeautifulSoup, jsonld: list[dict[str, Any]], fallback: s
     # Search every object for a headline first so the publisher's generic
     # ``name`` does not replace the actual article title.
     for item in jsonld:
-        if safe(item.get("headline")):
-            return safe(item.get("headline"))
+        if title := clean_extracted_title(item.get("headline")):
+            return title
     for item in jsonld:
         item_type = item.get("@type")
         types = item_type if isinstance(item_type, list) else [item_type]
         if any("article" in safe(value).casefold() for value in types):
-            if safe(item.get("name")):
-                return safe(item.get("name"))
+            if title := clean_extracted_title(item.get("name")):
+                return title
     for selector in ('meta[property="og:title"]', 'meta[name="twitter:title"]'):
         node = soup.select_one(selector)
-        if node and safe(node.get("content")):
-            return safe(node.get("content"))
+        if node and (title := clean_extracted_title(node.get("content"))):
+            return title
     heading = soup.find("h1")
-    if heading and safe(heading.get_text(" ", strip=True)):
-        return safe(heading.get_text(" ", strip=True))
-    if soup.title and safe(soup.title.get_text(" ", strip=True)):
-        return safe(soup.title.get_text(" ", strip=True))
-    return safe(fallback)
+    if heading and (title := clean_extracted_title(heading.get_text(" ", strip=True))):
+        return title
+    if soup.title and (title := clean_extracted_title(soup.title.get_text(" ", strip=True))):
+        return title
+    return clean_extracted_title(fallback)
 
 
 def extract_site_names(
