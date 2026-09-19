@@ -81,6 +81,20 @@ def _theme_relevance_score(value: Any) -> float:
     return score
 
 
+def _embedding(value: Any, field: str) -> list[float]:
+    # 임베딩은 유한한 숫자만 담은 비어 있지 않은 배열이어야 한다.
+    if not isinstance(value, list) or not value:
+        raise InvalidEnrichedArticle(f"{field} must be a non-empty array")
+    if any(
+        isinstance(item, bool)
+        or not isinstance(item, (int, float))
+        or not math.isfinite(float(item))
+        for item in value
+    ):
+        raise InvalidEnrichedArticle(f"{field} must contain only numbers")
+    return [float(item) for item in value]
+
+
 def _mentioned_countries(value: Any) -> list[dict[str, Any]]:
     # 기사에 언급된 국가도 발행 국가와 동일한 두 글자 국가 코드 계약을 적용한다.
     if value is None:
@@ -128,19 +142,16 @@ def build_article_upsert_event(article: dict[str, Any]) -> dict[str, Any]:
     if isinstance(theme_id, bool) or not isinstance(theme_id, int):
         raise InvalidEnrichedArticle("nlp_worker_data.theme_id must be an integer")
 
-    embedding = nlp.get("article_embedding")
-    if not isinstance(embedding, list) or not embedding:
-        raise InvalidEnrichedArticle(
-            "nlp_worker_data.article_embedding must be a non-empty array"
-        )
-    if any(
-        isinstance(item, bool)
-        or not isinstance(item, (int, float))
-        or not math.isfinite(float(item))
-        for item in embedding
-    ):
-        raise InvalidEnrichedArticle(
-            "nlp_worker_data.article_embedding must contain only numbers"
+    embedding = _embedding(
+        nlp.get("article_embedding"), "nlp_worker_data.article_embedding"
+    )
+
+    # 요약 임베딩은 요약이 실패하면 None 이므로 optional 이다.
+    # 요약 임베딩 하나 때문에 기사 전체를 버리지 않는다.
+    summary_embedding = nlp.get("summary_embedding")
+    if summary_embedding is not None:
+        summary_embedding = _embedding(
+            summary_embedding, "nlp_worker_data.summary_embedding"
         )
 
     processed_at = _required_text(nlp, "processed_at")
@@ -168,8 +179,10 @@ def build_article_upsert_event(article: dict[str, Any]) -> dict[str, Any]:
             ),
             # 본문 3문장 한국어 요약. 실패 시 None 이므로 optional 로 다룬다.
             "summary": _optional_text(nlp, "summary"),
+            # 그 요약문의 E5 임베딩. 요약이 없으면 None.
+            "summary_embedding": summary_embedding,
             "crawled_at": discovered_at,
-            "embedding": [float(item) for item in embedding],
+            "embedding": embedding,
             "tone_score": _tone_score(nlp.get("sentiment")),
             "published_at": published_at,
             "mentioned_countries": _mentioned_countries(
