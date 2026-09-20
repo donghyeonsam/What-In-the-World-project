@@ -59,5 +59,50 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
             @Param("deletedAt") LocalDateTime deletedAt
     );
 
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(value = """
+    INSERT INTO notification (
+        user_id,
+        theme_id,
+        title,
+        message,
+        article_count,
+        period_start,
+        period_end
+    )
+    SELECT
+        i.user_id,
+        t.id,
+        '[' || t.name || ']에 새로운 기사가 올라왔습니다.',
+        '새로운 기사 ' || COUNT(*) || '건을 확인해보세요.',
+        CAST(COUNT(*) AS INTEGER),
+        :periodStart,
+        :periodEnd
+    FROM user_interest_theme i
+    JOIN users u
+      ON u.id = i.user_id
+    JOIN theme t
+      ON t.id = i.theme_id
+    JOIN article a
+      ON a.theme_id = i.theme_id
+    LEFT JOIN notification_setting s
+      ON s.user_id = i.user_id
+    WHERE u.withdrawn_at IS NULL
+      AND i.notification_enabled = TRUE
+      AND COALESCE(s.enabled, TRUE) = TRUE
+      AND a.deleted_at IS NULL
+      AND a.created_at >= :periodStart
+      AND a.created_at < :periodEnd
+      AND a.created_at >= i.created_at
+    GROUP BY i.user_id, t.id, t.name
+    ON CONFLICT (user_id, theme_id, period_start, period_end)
+    DO NOTHING
+    """, nativeQuery = true)
+
+    int createThemeNotifications(
+            @Param("periodStart") LocalDateTime periodStart,
+            @Param("periodEnd") LocalDateTime periodEnd
+    );
+
 
 }
