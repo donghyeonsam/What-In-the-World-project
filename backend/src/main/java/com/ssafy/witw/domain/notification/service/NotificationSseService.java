@@ -2,6 +2,7 @@ package com.ssafy.witw.domain.notification.service;
 
 import com.ssafy.witw.common.exception.GlobalException;
 import com.ssafy.witw.common.response.ErrorCode;
+import com.ssafy.witw.domain.notification.event.NotificationsCreatedEvent;
 import com.ssafy.witw.domain.user.dao.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -9,6 +10,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.session.Session;
 import org.springframework.session.SessionRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.event.TransactionPhase;
+import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
@@ -109,5 +112,30 @@ public class NotificationSseService {
         if (connections.remove(connectionId, connection)) {
             connection.emitter().complete();
         }
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onNotificationsCreated(NotificationsCreatedEvent event) {
+        connections.forEach((connectionId, connection) -> {
+            if (!event.userIds().contains(connection.userId())) {
+                return;
+            }
+
+            try {
+                if (!isSessionValid(connection)) {
+                    close(connectionId, connection);
+                    return;
+                }
+
+                connection.emitter().send(
+                        SseEmitter.event()
+                                .name("notifications-changed")
+                                .data("refresh")
+                );
+            } catch (Exception exception) {
+                log.warn("SSE 알림 갱신 신호 전송에 실패했습니다.", exception);
+                close(connectionId, connection);
+            }
+        });
     }
 }
