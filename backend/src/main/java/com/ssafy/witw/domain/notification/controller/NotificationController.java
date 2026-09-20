@@ -9,12 +9,14 @@ import com.ssafy.witw.domain.notification.dto.response.NotificationSettingRespon
 import com.ssafy.witw.domain.notification.dto.response.NotificationUnreadCountResponse;
 import com.ssafy.witw.domain.notification.service.NotificationService;
 import com.ssafy.witw.domain.notification.dto.request.NotificationSettingRequest;
+import com.ssafy.witw.domain.notification.service.NotificationSseService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -24,6 +26,7 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
 @RequiredArgsConstructor
@@ -32,6 +35,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 public class NotificationController {
 
     private final NotificationService notificationService;
+    private final NotificationSseService notificationSseService;
 
     @GetMapping
     @Operation(summary = "내 알림 목록 조회")
@@ -197,5 +201,35 @@ public class NotificationController {
         );
 
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS);
+    }
+
+    @GetMapping(
+            value = "/subscribe",
+            produces = MediaType.TEXT_EVENT_STREAM_VALUE
+    )
+    @Operation(summary = "실시간 알림 SSE 구독")
+    public ResponseEntity<SseEmitter> subscribe(
+            HttpServletRequest request
+    ) {
+        HttpSession session = request.getSession(false);
+
+        if (session == null) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+
+        Object attribute = session.getAttribute("userId");
+
+        if (!(attribute instanceof Long userId)) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+
+        SseEmitter emitter = notificationSseService.subscribe(
+                userId,
+                session.getId()
+        );
+
+        return ResponseEntity.ok()
+                .header("Cache-Control", "no-cache")
+                .header("X-Accel-Buffering", "no")
+                .contentType(MediaType.TEXT_EVENT_STREAM)
+                .body(emitter);
     }
 }
