@@ -29,6 +29,9 @@ public class UserInterestTheme {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "notification_enabled", nullable = false)
+    private boolean notificationEnabled = true;
+
     public static UserInterestTheme create(Long userId, Long themeId) {
         UserInterestTheme interest = new UserInterestTheme();
 
