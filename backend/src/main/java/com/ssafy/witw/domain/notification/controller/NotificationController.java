@@ -172,4 +172,30 @@ public class NotificationController {
 
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS, response);
     }
+
+    @PatchMapping("/themes/{themeId}/settings")
+    @Operation(summary = "관심 테마별 알림 설정")
+    public ResponseEntity<BaseResponse<Void>> updateThemeNotificationSetting(
+            @PathVariable Long themeId,
+            @Valid @RequestBody NotificationSettingRequest body,
+            HttpServletRequest request
+    ) {
+        HttpSession session = request.getSession(false);
+
+        if (session == null) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+
+        Object attribute = session.getAttribute("userId");
+
+        if (!(attribute instanceof Long userId)) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+
+        notificationService.updateThemeNotificationSetting(
+                userId,
+                themeId,
+                body.enabled()
+        );
+
+        return BaseResponse.success(SuccessCode.REQUEST_SUCCESS);
+    }
 }

@@ -3,6 +3,7 @@ package com.ssafy.witw.domain.interest.dao;
 import com.ssafy.witw.domain.interest.entity.UserInterestTheme;
 import com.ssafy.witw.domain.interest.entity.UserInterestThemeId;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -31,4 +32,17 @@ public interface UserInterestThemeRepository
         Long getThemeId();
         String getThemeName();
     }
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+    UPDATE UserInterestTheme i
+    SET i.notificationEnabled = :enabled
+    WHERE i.userId = :userId
+      AND i.themeId = :themeId
+    """)
+    int updateNotificationEnabled(
+            @Param("userId") Long userId,
+            @Param("themeId") Long themeId,
+            @Param("enabled") boolean enabled
+    );
 }

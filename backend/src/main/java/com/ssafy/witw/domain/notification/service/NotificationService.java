@@ -2,6 +2,7 @@ package com.ssafy.witw.domain.notification.service;
 
 import com.ssafy.witw.common.exception.GlobalException;
 import com.ssafy.witw.common.response.ErrorCode;
+import com.ssafy.witw.domain.interest.dao.UserInterestThemeRepository;
 import com.ssafy.witw.domain.notification.dao.NotificationRepository;
 import com.ssafy.witw.domain.notification.dao.NotificationSettingRepository;
 import com.ssafy.witw.domain.notification.dto.response.NotificationListResponse;
@@ -30,6 +31,7 @@ public class NotificationService {
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
     private final NotificationSettingRepository notificationSettingRepository;
+    private final UserInterestThemeRepository userInterestThemeRepository;
 
     public NotificationListResponse getNotifications(Long userId, int page, int size) {
         User user = userRepository.findById(userId)
@@ -149,5 +151,27 @@ public class NotificationService {
                 .orElse(true);
 
         return new NotificationSettingResponse(enabled);
+    }
+
+    @Transactional
+    public void updateThemeNotificationSetting(
+            Long userId,
+            Long themeId,
+            boolean enabled
+    ) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new GlobalException(ErrorCode.UNAUTHORIZED));
+
+        if (user.isWithdrawn()) throw new GlobalException(ErrorCode.UNAUTHORIZED);
+
+
+        int updated = userInterestThemeRepository.updateNotificationEnabled(
+                userId,
+                themeId,
+                enabled
+        );
+
+        if (updated == 0) throw new GlobalException(ErrorCode.ENTITY_NOT_FOUND);
+
     }
 }
