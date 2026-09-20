@@ -318,7 +318,10 @@
 .articleTone.negative { color: var(--wtw-neg); background: rgba(217, 75, 87, 0.11); }
 .feedCard strong { display: block; margin-top: 9px; font-size: 11px; line-height: 1.45; }
 .feedCard p { margin: 6px 0 10px; color: var(--wtw-muted); font-size: 9px; line-height: 1.55; }
-.feedCard > button { padding: 0; color: var(--wtw-accent); font-size: 9px; }
+.feedCard .articleActions { margin-top: 10px; }
+.articleActions a, .articleActions button { padding: 0; color: var(--wtw-accent); font-size: 9px; }
+.articleActions a:hover, .articleActions button:hover { text-decoration: underline; text-underline-offset: 3px; }
+.feedCard .articleSummary { margin: 10px 0 0; white-space: pre-wrap; }
 
 .resultHead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .resultHead strong { font-size: 13px; }
@@ -641,8 +644,8 @@
 .feedCard { padding: 16px; border-radius: 12px; }
 .feedCard > div { flex-wrap: wrap; }
 .feedCard p { font-size: 14px; line-height: 1.7; }
-.feedCard > a { color: var(--wtw-accent); }
-.articleCard a:hover, .feedCard > a:hover { text-decoration: underline; text-underline-offset: 3px; }
+.articleActions a, .articleActions button { font-size: 12px; }
+.articleCard a:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 .filterTitle strong, .resultHead strong, .pickerHead strong { font-size: 14px; }
 .filterTitle span, .filterTitle button, .selectedTheme > span, .selectedTheme > strong,
