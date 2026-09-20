@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import s from './panel.module.css';
 
 const TONE_COLOR = {
@@ -50,20 +51,30 @@ export default function ArticleFeed({
   }
   return (
     <div className={s.feed}>
-      {articles.map((a) => (
-        <article className={s.feedCard} key={a.id ?? a.title}>
-          <div>
-            <span className={`${s.articleTone} ${s[a.tone]}`}>{a.toneLabel}</span>
-            <span>
-              {a.source} · {a.time}
-            </span>
-          </div>
-          <strong>{a.title}</strong>
-          <p>{a.summary}</p>
-          {a.url ? <a href={a.url} target="_blank" rel="noopener noreferrer">기사 원문 보기 →</a> : <span>원문 링크가 제공되지 않았습니다.</span>}
-        </article>
-      ))}
+      {articles.map((a) => <FeedArticleCard article={a} key={a.id ?? a.title} />)}
     </div>
+  );
+}
+
+function FeedArticleCard({ article: a }) {
+  const [showSummary, setShowSummary] = useState(false);
+  return (
+    <article className={s.feedCard}>
+      <div>
+        <span className={`${s.articleTone} ${s[a.tone]}`}>{a.toneLabel}</span>
+        <span>
+          {a.source} · {a.time}
+        </span>
+      </div>
+      <strong>{a.title}</strong>
+      <div className={s.articleActions}>
+        {a.url ? <a href={a.url} target="_blank" rel="noopener noreferrer">기사 원문 보기 →</a> : <span>원문 링크가 제공되지 않았습니다.</span>}
+        <button type="button" aria-expanded={showSummary} onClick={() => setShowSummary((shown) => !shown)}>
+          {showSummary ? '요약본 닫기' : '요약본 보기'}
+        </button>
+      </div>
+      {showSummary && <p className={s.articleSummary}>{a.summary?.trim() || '제공된 기사 요약이 없습니다.'}</p>}
+    </article>
   );
 }
 

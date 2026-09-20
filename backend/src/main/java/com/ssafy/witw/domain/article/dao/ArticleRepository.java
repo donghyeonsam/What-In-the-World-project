@@ -47,7 +47,7 @@ public interface ArticleRepository extends JpaRepository<Article, String> {
     @Query(value = """
             SELECT a.id AS "articleId", a.translated_title AS "articleTitle",
                    a.tone_score AS "articleToneScore", a.publisher AS "articlePublisher", a.url AS "url",
-                   a.published_at AS "publishedAt"
+                   a.summary AS "summary", a.published_at AS "publishedAt"
             FROM article a
             WHERE a.theme_id = :themeId AND (a.deleted_at IS NULL OR a.deleted_at > :asOf)
                   AND a.created_at <= :asOf
@@ -64,7 +64,7 @@ public interface ArticleRepository extends JpaRepository<Article, String> {
     @Query(value = """
             SELECT a.id AS "articleId", a.translated_title AS "articleTitle",
                    a.tone_score AS "articleToneScore", a.publisher AS "articlePublisher", a.url AS "url",
-                   a.published_at AS "publishedAt"
+                   a.summary AS "summary", a.published_at AS "publishedAt"
             FROM article a
             WHERE a.theme_id = :themeId
               AND a.publisher_country_code = :countryCode
@@ -88,13 +88,14 @@ public interface ArticleRepository extends JpaRepository<Article, String> {
         BigDecimal getArticleToneScore();
         String getArticlePublisher();
         String getUrl();
+        String getSummary();
         LocalDateTime getPublishedAt();
     }
 
     @Query(value = """
             SELECT a.id AS "articleId", a.translated_title AS "articleTitle",
                    a.tone_score AS "articleToneScore", a.publisher AS "articlePublisher", a.url AS "url",
-                   a.published_at AS "publishedAt"
+                   a.summary AS "summary", a.published_at AS "publishedAt"
             FROM article a
             WHERE a.issue_id = :issueId AND (a.deleted_at IS NULL OR a.deleted_at > :asOf)
                   AND a.issue_assigned_at <= :asOf
@@ -112,7 +113,7 @@ public interface ArticleRepository extends JpaRepository<Article, String> {
     @Query(value = """
             SELECT a.id AS "articleId", a.translated_title AS "articleTitle",
                    a.tone_score AS "articleToneScore", a.publisher AS "articlePublisher", a.url AS "url",
-                   a.published_at AS "publishedAt"
+                   a.summary AS "summary", a.published_at AS "publishedAt"
             FROM article a
             WHERE a.issue_id = :issueId
               AND a.publisher_country_code = :countryCode
@@ -173,6 +174,7 @@ public interface ArticleRepository extends JpaRepository<Article, String> {
                    a.tone_score        AS "articleToneScore",
                    a.publisher         AS "articlePublisher",
                    a.url               AS "url",
+                   a.summary           AS "summary",
                    a.published_at      AS "publishedAt"
             FROM article a
             CROSS JOIN bounds b
