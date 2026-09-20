@@ -44,4 +44,8 @@ public class Issue {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
+    @NotNull
+    @Column(name = "last_active_at", nullable = false)
+    private LocalDateTime lastActiveAt;
+
 }

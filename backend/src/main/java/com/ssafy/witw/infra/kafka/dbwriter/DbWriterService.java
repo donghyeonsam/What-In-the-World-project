@@ -32,12 +32,18 @@ public class DbWriterService {
     private static final String ISSUE_CREATE = "ISSUE_CREATE";
     private static final String ISSUE_UPSERT = """
             INSERT INTO issue
-                (theme_id, name, embedding, first_seen_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (theme_id, name, embedding, first_seen_at, created_at, updated_at, last_active_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (name) DO UPDATE
             SET first_seen_at = LEAST(issue.first_seen_at, EXCLUDED.first_seen_at),
-                updated_at = GREATEST(issue.updated_at, EXCLUDED.updated_at)
+                updated_at = GREATEST(issue.updated_at, EXCLUDED.updated_at),
+                last_active_at = GREATEST(issue.last_active_at, EXCLUDED.last_active_at)
             RETURNING id
+            """;
+    private static final String ISSUE_LAST_ACTIVE_UPDATE = """
+            UPDATE issue
+            SET last_active_at = GREATEST(last_active_at, ?)
+            WHERE id = ?
             """;
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
@@ -181,8 +187,10 @@ public class DbWriterService {
         article.setIssueSimilarity(requireRange(
                 payload.similarity(), "payload.similarity", BigDecimal.ZERO, BigDecimal.ONE
         ));
-        article.setIssueAssignedAt(toKstLocalDateTime(occurredAt));
+        LocalDateTime assignedAt = toKstLocalDateTime(occurredAt);
+        article.setIssueAssignedAt(assignedAt);
         articleRepository.save(article);
+        jdbcTemplate.update(ISSUE_LAST_ACTIVE_UPDATE, assignedAt, issue.getId());
     }
 
     private void createIssue(
@@ -207,7 +215,7 @@ public class DbWriterService {
         Long issueId = jdbcTemplate.queryForObject(
                 ISSUE_UPSERT,
                 Long.class,
-                theme.getId(), name, embedding, firstSeenAt, eventTime, eventTime
+                theme.getId(), name, embedding, firstSeenAt, eventTime, eventTime, eventTime
         );
         if (issueId == null) {
             throw new IllegalStateException("Issue upsert did not return an id");
