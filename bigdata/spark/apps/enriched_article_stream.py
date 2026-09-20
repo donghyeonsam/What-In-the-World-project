@@ -36,6 +36,7 @@ POSTGRESQL_URL = os.getenv("POSTGRESQL_URL", "").strip()
 POSTGRESQL_USER = os.getenv("POSTGRESQL_USER", "").strip()
 POSTGRESQL_PASSWORD = os.getenv("POSTGRESQL_PASSWORD", "")
 ISSUE_MATCH_THRESHOLD = float(os.getenv("ISSUE_MATCH_THRESHOLD", "0.93"))
+ISSUE_MATCH_WINDOW_HOURS = 72
 SPARK_CHECKPOINT_LOCATION = os.getenv(
     "SPARK_CHECKPOINT_LOCATION",
     "hdfs://namenode:9000/checkpoints/enriched-article-events-v1",
@@ -112,12 +113,17 @@ def _load_issue_candidates(spark, theme_ids: list[int]) -> dict[int, list[IssueC
         )
 
     # theme_id는 정수로 확인된 값만 사용하므로 IN 절을 안전하게 구성할 수 있다.
+    # 마지막 기사 연결 후 72시간이 지난 이슈는 신규 기사 매칭 후보에서 제외한다.
     theme_id_csv = ",".join(str(theme_id) for theme_id in sorted(set(theme_ids)))
     query = f"""
         SELECT id AS issue_id, theme_id, embedding
         FROM issue
         WHERE theme_id IN ({theme_id_csv})
           AND embedding IS NOT NULL
+          AND last_active_at >= (
+              CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul'
+              - INTERVAL '{ISSUE_MATCH_WINDOW_HOURS} hours'
+          )
     """
     issue_rows = (
         spark.read.format("jdbc")
@@ -249,6 +255,8 @@ def main() -> None:
 
     if not 0.0 <= ISSUE_MATCH_THRESHOLD <= 1.0:
         raise ValueError("이슈매칭 THRESHOLD값은 0~1사이여야 합니다.")
+    if ISSUE_MATCH_WINDOW_HOURS <= 0:
+        raise ValueError("이슈 매칭 기간은 0보다 커야 합니다.")
     if not POSTGRESQL_URL or not POSTGRESQL_USER or not POSTGRESQL_PASSWORD:
         raise RuntimeError(
             "DB 접근 환경변수가 필요합니다."

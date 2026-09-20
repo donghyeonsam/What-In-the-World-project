@@ -175,7 +175,7 @@ class DbWriterServiceTest {
     }
 
     @Test
-    void articleIssueAssignedUpdatesArticle() throws Exception {
+    void articleIssueAssignedUpdatesArticleAndIssueActivity() throws Exception {
         Article article = new Article();
         article.setId("a-123");
         Issue issue = new Issue();
@@ -203,6 +203,11 @@ class DbWriterServiceTest {
                 LocalDateTime.parse("2026-09-03T15:40:02")
         );
         verify(articleRepository).save(article);
+        verify(jdbcTemplate).update(
+                any(String.class),
+                eq(LocalDateTime.parse("2026-09-03T15:40:02")),
+                eq(102L)
+        );
     }
 
     @Test
@@ -280,6 +285,7 @@ class DbWriterServiceTest {
                 eq("New issue"),
                 eq("[0.031,-0.114]"),
                 eq(LocalDateTime.parse("2026-09-03T12:35:24")),
+                eq(LocalDateTime.parse("2026-09-03T15:50:00")),
                 eq(LocalDateTime.parse("2026-09-03T15:50:00")),
                 eq(LocalDateTime.parse("2026-09-03T15:50:00"))
         );

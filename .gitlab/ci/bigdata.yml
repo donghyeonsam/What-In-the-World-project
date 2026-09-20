@@ -90,7 +90,9 @@ deploy-bigdata:
     - bigdata-deploy
 
   needs:
-    - validate-bigdata
+    - job: validate-bigdata
+    - job: deploy-backend
+      optional: true
 
   resource_group: bigdata-production
   interruptible: false
