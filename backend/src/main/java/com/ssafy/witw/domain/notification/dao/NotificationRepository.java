@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
 
@@ -104,5 +105,16 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
             @Param("periodEnd") LocalDateTime periodEnd
     );
 
+    @Query("""
+    SELECT DISTINCT n.userId
+    FROM Notification n
+    WHERE n.periodStart = :periodStart
+      AND n.periodEnd = :periodEnd
+      AND n.deletedAt IS NULL
+    """)
+    List<Long> findRecipientIdsByPeriod(
+            @Param("periodStart") LocalDateTime periodStart,
+            @Param("periodEnd") LocalDateTime periodEnd
+    );
 
 }
