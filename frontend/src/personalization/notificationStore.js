@@ -4,7 +4,7 @@ export function createNotificationStore({ api, connect, onExpired }) {
   let state = {
     items: [], page: 1, hasNext: false, unreadCount: null, enabled: null,
     loading: true, busy: '', error: '', settingsError: '', streamState: 'connecting',
-    themeSettings: {},
+    themeSettings: {}, arrival: null,
   };
   let active = false;
   let generation = 0;
@@ -13,6 +13,7 @@ export function createNotificationStore({ api, connect, onExpired }) {
   let closeStream;
   let timer;
   let writing = false;
+  let arrivalSequence = 0;
   const update = (patch) => { state = { ...state, ...patch }; listeners.forEach((fn) => fn()); };
   const current = (version) => active && generation === version;
   const stop = () => {
@@ -27,8 +28,10 @@ export function createNotificationStore({ api, connect, onExpired }) {
     onExpired?.();
     return true;
   };
-  async function refresh(page = state.page) {
+  async function refresh(page = state.page, announce = false) {
     if (!active || writing) return;
+    const previousItems = state.items;
+    const previousUnreadCount = state.unreadCount;
     clearTimeout(timer);
     controller?.abort();
     const requestController = new AbortController();
@@ -65,14 +68,19 @@ export function createNotificationStore({ api, connect, onExpired }) {
     } else patch.error = list.reason.message || '알림을 불러오지 못했습니다.';
     if (count.status === 'fulfilled' && Number.isSafeInteger(count.value?.unreadCount) && count.value.unreadCount >= 0) patch.unreadCount = count.value.unreadCount;
     else patch.error = patch.error || count.reason?.message || '미읽음 개수를 확인하지 못했습니다.';
+    if (announce && Array.isArray(patch.items) && Number.isSafeInteger(previousUnreadCount) && patch.unreadCount > previousUnreadCount) {
+      const knownIds = new Set(previousItems.map((item) => String(item.id)));
+      const arrived = patch.items.find((item) => !item.readAt && !knownIds.has(String(item.id)));
+      if (arrived) patch.arrival = { ...arrived, token: ++arrivalSequence };
+    }
     if (settings.status === 'fulfilled' && typeof settings.value?.enabled === 'boolean') patch.enabled = settings.value.enabled;
     else patch.settingsError = settings.reason?.message || '알림 설정을 불러오지 못했습니다.';
     update(patch);
   }
-  function scheduleRefresh() {
+  function scheduleRefresh(announce = false) {
     if (!active) return;
     clearTimeout(timer);
-    timer = setTimeout(() => { void refresh(); }, 150);
+    timer = setTimeout(() => { void refresh(state.page, announce); }, 150);
   }
   async function mutate(key, action, patch) {
     if (!active || writing) return false;
@@ -110,7 +118,7 @@ export function createNotificationStore({ api, connect, onExpired }) {
       const version = generation;
       void refresh();
       closeStream = connect({
-        onRefresh: () => { if (current(version)) scheduleRefresh(); },
+        onRefresh: (eventType) => { if (current(version)) scheduleRefresh(eventType === 'notifications-changed'); },
         onState: (streamState) => { if (current(version)) update({ streamState }); },
         // REST exposes a 401; EventSource errors don't expose HTTP response codes.
         onError: () => { if (current(version)) scheduleRefresh(); },

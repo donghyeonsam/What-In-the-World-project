@@ -165,9 +165,9 @@ test('more and SSE invalidation reload all visible pages as offsets shift', asyn
   assert.equal(f.store.getSnapshot().hasNext, false);
   f.calls.length = 0;
   f.data.items.unshift(item(23));
-  f.streams[0].onRefresh();
-  f.streams[0].onRefresh();
-  f.streams[0].onRefresh();
+  f.streams[0].onRefresh('notifications-changed');
+  f.streams[0].onRefresh('notifications-changed');
+  f.streams[0].onRefresh('notifications-changed');
   t.mock.timers.tick(149);
   assert.equal(f.calls.length, 0);
   t.mock.timers.tick(1);
@@ -176,6 +176,21 @@ test('more and SSE invalidation reload all visible pages as offsets shift', asyn
   assert.equal(f.store.getSnapshot().items.length, 23);
   assert.equal(f.store.getSnapshot().items[0].id, 23);
   assert.equal(f.store.getSnapshot().unreadCount, 23);
+  assert.equal(f.store.getSnapshot().arrival.id, 23);
+});
+
+test('connection and manual refreshes never announce old notifications as new', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const f = fixture(t);
+  f.store.start();
+  await settle();
+  f.streams[0].onRefresh('connected');
+  t.mock.timers.tick(150);
+  await settle();
+  assert.equal(f.store.getSnapshot().arrival, null);
+  f.data.items.unshift(item(3));
+  await f.store.refresh();
+  assert.equal(f.store.getSnapshot().arrival, null);
 });
 
 test('overlapping pagination results deduplicate notifications by ID', async (t) => {

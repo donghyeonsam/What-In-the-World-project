@@ -47,8 +47,8 @@ function fixture() {
 test('stream uses the shared API base and cookies and only invalidation events refresh REST data', () => {
   const f = fixture();
   const states = [];
-  let refreshes = 0;
-  const close = connectNotificationStream({ ...f.options, onState: (state) => states.push(state), onRefresh: () => refreshes++ });
+  const refreshes = [];
+  const close = connectNotificationStream({ ...f.options, onState: (state) => states.push(state), onRefresh: (type) => refreshes.push(type) });
   const source = f.streams[0];
   assert.equal(source.url, `${API_BASE}/notifications/subscribe`);
   assert.deepEqual(source.options, { withCredentials: true });
@@ -56,7 +56,7 @@ test('stream uses the shared API base and cookies and only invalidation events r
   source.emit('connected');
   source.emit('heartbeat');
   source.emit('notifications-changed');
-  assert.equal(refreshes, 2);
+  assert.deepEqual(refreshes, ['connected', 'notifications-changed']);
   assert.deepEqual(states, ['connecting', 'connected']);
   close();
   assert.equal(source.closed, true);
