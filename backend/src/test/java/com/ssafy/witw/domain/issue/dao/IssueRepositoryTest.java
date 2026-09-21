@@ -49,6 +49,41 @@ class IssueRepositoryTest extends TestContainerSupport {
                 .isEqualTo("가장 인기 있는 이슈");
     }
 
+    @Test
+    void 국가별_주요_이슈는_해당_국가_기사만_집계한다() {
+        prepareData();
+        jdbcTemplate.update("INSERT INTO country VALUES ('ZY', '다른 국가', 'Other Country')");
+        jdbcTemplate.update("UPDATE article SET publisher_country_code = 'ZY' WHERE issue_id = ?",
+                POPULAR_ISSUE_ID);
+        LocalDateTime asOf = LocalDateTime.now().plusSeconds(1);
+
+        assertThat(issueRepository.getPrimaryIssuesByThemeId(THEME_ID, 10, asOf, COUNTRY_CODE))
+                .extracting(IssueRepository.PrimaryIssue::getIssueId)
+                .containsExactly(OTHER_ISSUE_ID);
+        assertThat(issueRepository.getPrimaryIssuesByThemeId(THEME_ID, 10, asOf, null))
+                .extracting(IssueRepository.PrimaryIssue::getIssueId)
+                .containsExactly(POPULAR_ISSUE_ID, OTHER_ISSUE_ID);
+    }
+
+    @Test
+    void 주요_이슈는_asOf_직전_24시간의_기사만_집계한다() {
+        prepareData();
+        LocalDateTime asOf = LocalDateTime.now().minusDays(7).withNano(0);
+        jdbcTemplate.update("UPDATE issue SET created_at = ? WHERE theme_id = ?",
+                Timestamp.valueOf(asOf.minusDays(2)), THEME_ID);
+        insertArticle("window-start", THEME_ID, OTHER_ISSUE_ID, asOf.minusHours(24), false);
+        insertArticle("window-recent", THEME_ID, OTHER_ISSUE_ID, asOf.minusHours(1), false);
+        insertArticle("window-old", THEME_ID, POPULAR_ISSUE_ID, asOf.minusHours(24).minusSeconds(1), false);
+        insertArticle("window-end", THEME_ID, POPULAR_ISSUE_ID, asOf, false);
+
+        assertThat(issueRepository.getPrimaryIssuesByThemeId(THEME_ID, 10, asOf, COUNTRY_CODE))
+                .extracting(IssueRepository.PrimaryIssue::getIssueId)
+                .containsExactly(OTHER_ISSUE_ID);
+        assertThat(issueRepository.getPrimaryIssuesByThemeId(THEME_ID, 10, asOf, null))
+                .extracting(IssueRepository.PrimaryIssue::getIssueId)
+                .containsExactly(OTHER_ISSUE_ID);
+    }
+
     private void prepareData() {
         jdbcTemplate.update("INSERT INTO country VALUES (?, ?, ?)", COUNTRY_CODE, "테스트 국가", "Test Country");
         jdbcTemplate.update("INSERT INTO field (id, code, name, description) VALUES (?, ?, ?, ?)",

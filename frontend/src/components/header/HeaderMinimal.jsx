@@ -42,7 +42,7 @@ const SearchIcon = () => (
  *
  * @param {{brand?: string, routes?: {id: string, label: string}[], route?: string,
  *          onRoute?: (id: string) => void, onSearch?: () => void,
- *          searchLabel?: string, shortcut?: string}} props
+ *          searchLabel?: string}} props
  */
 export default function HeaderMinimal({
   brand = 'What In the World!',
@@ -60,7 +60,6 @@ export default function HeaderMinimal({
   onTimeMachine,
   onLive,
   searchLabel = '국가 검색',
-  shortcut = '⌘ K',
 }) {
   const personal = usePersonalization();
   return (
@@ -89,7 +88,6 @@ export default function HeaderMinimal({
         {showSearch && <button type="button" className={s.search} onClick={onSearch} aria-label={searchLabel}>
           <SearchIcon />
           <span>{searchLabel}</span>
-          <kbd className={s.kbd}>{shortcut}</kbd>
         </button>}
         {personal && <>
           {personal.user && <button type="button" className={`${s.iconButton} ${s.notificationButton}`} aria-label={`알림${personal.unreadCount === null ? '' : `, 미읽음 ${personal.unreadCount}개`}`} title="알림" aria-haspopup="dialog" aria-expanded={personal.panel === 'notifications'} onClick={() => personal.setPanel('notifications')}>

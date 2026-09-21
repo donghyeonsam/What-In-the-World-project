@@ -42,10 +42,10 @@ public class ThemeController {
     @GetMapping("/{themeId}/overview")
     @Operation(summary = "테마 개요 조회", description = "테마 정보, 주요 이슈와 대표 기사를 반환합니다.")
     public ResponseEntity<BaseResponse<ThemeOverviewResponse>> getThemeOverview(
-            @Parameter(description = "테마 ID", example = "1") @PathVariable @Positive Long themeId,
-            @Parameter(description = "주요 이슈 개수 (1~10)") @RequestParam(defaultValue = "3") @Min(1) @Max(10) int issueLimit,
-            @Parameter(description = "대표 기사 개수 (1~10)") @RequestParam(defaultValue = "10") @Min(1) @Max(10) int articleLimit,
-            @Parameter(description = "대표 기사 발행 국가 코드") @RequestParam(required = false) @Pattern(regexp = "[a-zA-Z]{2}") String countryCode,
+            @Parameter(description = "테마 ID", example = "1") @PathVariable("themeId") @Positive Long themeId,
+            @Parameter(description = "주요 이슈 개수 (1~10)") @RequestParam(name = "issueLimit", defaultValue = "3") @Min(1) @Max(10) int issueLimit,
+            @Parameter(description = "대표 기사 개수 (1~10)") @RequestParam(name = "articleLimit", defaultValue = "10") @Min(1) @Max(10) int articleLimit,
+            @Parameter(description = "대표 기사 발행 국가 코드") @RequestParam(name = "countryCode", required = false) @Pattern(regexp = "[a-zA-Z]{2}") String countryCode,
             @RequestParam(name = "asOf", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS,
                 themeService.getThemeOverview(themeId, issueLimit, articleLimit,

@@ -8,7 +8,7 @@ import { earthTextureUrls, loadEarthTexture } from '../../lib/earthTextures.js';
 import { createMentionGroup, updateMentionFlow } from '../../lib/mentionLinks.js';
 import { layoutGlobeCallout, resolveGlobeCalloutSide } from '../../lib/globeCallout.js';
 import s from './GlobeThree.module.css';
-import { flagOf, fmt, scoreOf } from '../../data/responseAdapters.js';
+import { flagOf, scoreOf } from '../../data/responseAdapters.js';
 import { displayCountryCode } from '../../data/countries.js';
 import SatelliteRelay from './SatelliteRelay.jsx';
 import { issueCardSlots, placeIssueCards } from '../../lib/issueCardLayout.js';
@@ -22,6 +22,7 @@ const FALLBACK_RAD = { kr: 2.6, us: 12, uk: 4, au: 14, me: 3.2, af: 7, br: 13 };
 const CYAN = 0x6fe7ff;
 const AMBER = 0xffb454;
 const IDLE_CAMERA_Z = 3.7;
+const GLOBAL_ISSUE_CAMERA_SCALE = 1.1;
 const MIN_CAMERA_Z = 1.5;
 const WHEEL_ZOOM_SPEED = 0.0015;
 const CAMERA_LERP = 0.06;
@@ -157,11 +158,10 @@ export default function GlobeThree({
   issueCards = [],
   selectedIssueCountry = null,
   onSelectIssueCountry,
-  analysisListLoading = false,
-  analysisListError = false,
   satelliteDemo = false,
   globalIssueView = false,
   calloutCountry = null,
+  calloutToneColor = '154, 143, 196',
   callout = null,
   children,
 }) {
@@ -655,7 +655,8 @@ export default function GlobeThree({
           buildCountryOutlines();
           setCountryOutlineActive(activeId());
           if (focusedId && !userZoomed && !userRotated) {
-            targetZ = mentionGroup.children.length ? Math.max(IDLE_CAMERA_Z, focusCameraZ())
+            targetZ = mentionGroup.children.length
+              ? Math.max(IDLE_CAMERA_Z, focusCameraZ()) * (globalIssueRef.current ? GLOBAL_ISSUE_CAMERA_SCALE : 1)
               : countryFocusCameraZ(countries.find((c) => c.id === focusedId));
           }
           paintTone();
@@ -876,7 +877,7 @@ export default function GlobeThree({
       return VISIBLE_GLOBE_RADIUS / Math.sin(limitingHalfFov * FOCUS_FILL_RATIO);
     };
     const countryFocusCameraZ = (c) => {
-      if (globalIssueRef.current) return Math.max(IDLE_CAMERA_Z, focusCameraZ());
+      if (globalIssueRef.current) return Math.max(IDLE_CAMERA_Z, focusCameraZ()) * GLOBAL_ISSUE_CAMERA_SCALE;
       if (!c) return focusCameraZ();
       return countryCameraZ({
         rings: countryRings(c), lat: c.lat, lon: c.lon,
@@ -1053,7 +1054,8 @@ export default function GlobeThree({
       cam.updateProjectionMatrix();
       if (userZoomed) targetZ = clampCameraZ(targetZ);
       else if (focusedId && !userRotated) {
-        targetZ = mentionGroup.children.length ? Math.max(IDLE_CAMERA_Z, focusCameraZ())
+        targetZ = mentionGroup.children.length
+          ? Math.max(IDLE_CAMERA_Z, focusCameraZ()) * (globalIssueRef.current ? GLOBAL_ISSUE_CAMERA_SCALE : 1)
           : countryFocusCameraZ(countries.find((c) => c.id === focusedId));
       }
     };
@@ -1128,7 +1130,15 @@ export default function GlobeThree({
         node.setAttribute('visibility', 'visible');
       });
     };
-    const positionIssueCards = () => {
+    let lastCardMotionAt = 0;
+    const positionIssueCards = (now) => {
+      const moving = spin || dragging || focusRotation || vx || vy
+        || Math.abs(cam.position.z - targetZ) > 0.015;
+      if (moving) lastCardMotionAt = now;
+      if (moving || now - lastCardMotionAt < 160) {
+        issueCardRefs.current.forEach((card) => { card.style.visibility = 'hidden'; });
+        return;
+      }
       // Do not move a button out from under the pointer between pointerdown and click.
       if (hoveredIssueCardRef.current && issueCardRefs.current.has(hoveredIssueCardRef.current)) return;
       const satellite = satelliteRef.current;
@@ -1318,7 +1328,7 @@ export default function GlobeThree({
       updateMentionFlow(mentionGroup, performance.now() / 1000, reduced);
       renderer.render(scene, cam);
       positionCallout(now, elapsedMs);
-      positionIssueCards();
+      positionIssueCards(now);
       updateSatellite(now);
       if (!firstFrameRendered) {
         firstFrameRendered = true;
@@ -1390,7 +1400,7 @@ export default function GlobeThree({
         vy = 0;
         focusedId = null;
         focusRotation = null;
-        targetZ = globalIssueRef.current ? Math.max(IDLE_CAMERA_Z, focusCameraZ()) : IDLE_CAMERA_Z;
+        targetZ = globalIssueRef.current ? Math.max(IDLE_CAMERA_Z, focusCameraZ()) * GLOBAL_ISSUE_CAMERA_SCALE : IDLE_CAMERA_Z;
         userZoomed = false;
         userRotated = false;
         spin = !reduced;
@@ -1507,8 +1517,8 @@ export default function GlobeThree({
       <div className={s.tip} ref={tipRef} />
       {earthStatus === 'ready' && <SatelliteRelay departing={timeMachineActive} satelliteRef={satelliteRef} signalRefs={signalRefs} />}
       {earthStatus === 'ready' && calloutCountry && callout && <>
-        <svg className={s.analysisLink} aria-hidden="true"><line ref={calloutLineRef} /></svg>
-        <span className={s.analysisAnchor} ref={calloutAnchorRef} aria-hidden="true" />
+        <svg className={s.analysisLink} style={{ '--analysis-tone-rgb': calloutToneColor }} aria-hidden="true"><line ref={calloutLineRef} /></svg>
+        <span className={s.analysisAnchor} style={{ '--analysis-tone-rgb': calloutToneColor }} ref={calloutAnchorRef} aria-hidden="true" />
         <div className={s.analysisCallout} ref={calloutRef}>{callout}</div>
       </>}
       {earthStatus === 'ready' && issueCards.map((row) => {
@@ -1517,6 +1527,8 @@ export default function GlobeThree({
         const score = scoreOf(row.toneAvg);
         return <button type="button" key={id} ref={(node) => { if (node) issueCardRefs.current.set(id, node); else issueCardRefs.current.delete(id); }}
           className={`${s.issueCard} ${selectedIssueCountry === id ? s.issueCardSelected : ''}`}
+          style={{ '--issue-tone': score == null ? NO_SAMPLE.join(',') : toneRGB(score).join(',') }}
+          aria-label={`${row.country.countryName}, ${score == null ? '논조 분석 없음' : toneLabel3(score)}, 관련 기사 ${row.articleCount}건`}
           aria-pressed={selectedIssueCountry === id}
           onPointerEnter={() => { hoveredIssueCardRef.current = id; }}
           onPointerLeave={() => { hoveredIssueCardRef.current = null; }}
@@ -1525,11 +1537,8 @@ export default function GlobeThree({
           onClick={(event) => { event.stopPropagation(); (onSelectIssueCountry || onOpenCountry)?.(id); if (event.detail === 0 || event.nativeEvent.pointerType === 'touch') hoveredIssueCardRef.current = null; }}>
           <span className={s.issueFlag} aria-hidden="true">{country?.flagImage
             ? <img src={country.flagImage} alt="" />
-            : country?.flagClass ? <i className={country.flagClass} /> : flagOf(id)}</span><span><strong>{row.country.countryName}</strong>
-          <small className={s.issueSummary}>{row.analysis?.title || row.analysis?.summary
-            || (analysisListLoading ? '분석 요약을 불러오는 중…' : analysisListError ? '분석 요약 조회 실패' : '등록된 분석 없음')}</small>
-          <small>{fmt(row.articleCount)}건 · {score == null ? '논조 분석 없음' : toneLabel3(score)}</small></span>
-          <i style={{ background: score == null ? '#9a8fc4' : `rgb(${toneRGB(score).join(',')})` }} />
+            : country?.flagClass ? <i className={country.flagClass} /> : flagOf(id)}</span>
+          <strong>{row.country.countryName}</strong>
         </button>;
       })}
       {issueCards.length > 0 && <div className={s.issueLegend}>국가별 언론의 보도 관점<small></small><span><b style={{ color: '#d94b57' }}>● 부정</b>　<b style={{ color: '#9ea7b4' }}>● 중립</b>　<b style={{ color: '#1f9d6b' }}>● 긍정</b></span></div>}

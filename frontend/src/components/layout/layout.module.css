@@ -147,12 +147,12 @@
 @media (min-width: 1000px) {
   .dashboard { --stage-width: 52%; --relay-light: 142, 190, 210; }
   .stage { border-right: 0; }
-  .hologram { margin: 20px 20px 20px 48px; }
+  .hologram { margin: 20px 20px 20px 64px; }
   .projection {
     display: block; position: absolute; z-index: 2;
-    /* Tail nozzle: 76% x / 74% y of the 180px craft at right:12px, top:12px. */
-    --projection-origin-y: 125px;
-    left: calc(var(--stage-width) - 55px); top: 20px; bottom: 20px; width: 104px;
+    /* Tail nozzle: 76% x / 74% y of the 140px craft at right:12px, top:12px. */
+    --projection-origin-y: 96px;
+    left: calc(var(--stage-width) - 46px); top: 20px; bottom: 20px; width: 110px;
     clip-path: polygon(0 var(--projection-origin-y), 100% 0, 100% 100%);
     background: linear-gradient(90deg, rgba(var(--relay-light), .28), rgba(var(--relay-light), .06) 45%, rgba(var(--relay-light), .12));
     animation: projectorGlow 7s ease-in-out infinite;

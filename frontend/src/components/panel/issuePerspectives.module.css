@@ -1,8 +1,6 @@
 .screen { padding-bottom: 24px; }
-.eyebrow { display: flex; justify-content: space-between; gap: 12px; font-size: 11px; color: var(--wtw-text-muted, #8496ad); margin-bottom: 18px; }
-.eyebrow > span:first-child { color: var(--wtw-text, #b4c8e5); border: 1px solid #667c9538; border-radius: 5px; padding: 3px 8px; }
 .headingRow { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.headingRow > div { min-width: 0; margin-bottom: 22px; }
+.headingRow > div { min-width: 0; margin-bottom: 0; }
 .headingRow > button { flex: 0 0 auto; margin: 0; white-space: nowrap; }
 .list { display: grid; gap: 8px; }
 .moreCountries { width: 100%; margin: 10px 0 4px; padding: 11px 14px; border: 1px solid var(--wtw-line-strong); border-radius: 9px; background: var(--wtw-surface); color: var(--wtw-accent); font-size: 12px; font-weight: 600; }
@@ -51,14 +49,14 @@
 .analysis small { color: var(--wtw-muted); font-size: 11px; }
 .hint { font-size: 12px; opacity: .6; line-height: 1.7; }
 @media (max-width: 460px) { .row { gap: 8px; padding: 12px 9px; } .rank { display: none; } .flag { width: 38px; height: 29px; flex-basis: 38px; font-size: 20px; } .summary { font-size: 10px; } .identity { min-width: 65px; } }
-.metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 24px 0; }
-.metricCard { min-width: 0; padding: 20px; border: 1px solid var(--wtw-line); border-radius: 14px; background: var(--wtw-surface); }
-.metricLabel { display: flex; align-items: center; gap: 8px; color: var(--wtw-text); font-size: 16px; font-weight: 650; margin-bottom: 12px; }
-.metricCard > strong { display: block; font-size: 36px; line-height: 1.2; font-variant-numeric: tabular-nums; }
-.metricCard em { font-size: 16px; font-style: normal; font-weight: 500; margin-left: 7px; color: var(--wtw-muted); }
+.metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0 20px; }
+.metricCard { min-width: 0; padding: 16px; border: 1px solid var(--wtw-line); border-radius: 14px; background: var(--wtw-surface); }
+.metricLabel { display: flex; align-items: center; gap: 8px; color: var(--wtw-muted); font-size: 12px; font-weight: 500; line-height: 1.5; margin-bottom: 12px; }
+.metricCard > strong { display: block; font-size: 28px; line-height: 1.2; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.metricCard em { font-size: 13px; font-style: normal; font-weight: 500; margin-left: 5px; color: var(--wtw-muted); }
 .overallCard { grid-column: 1 / -1; }
 .overallTone { color: var(--badge-color); }
-.overallChart { margin-top: 20px; }
+.overallChart { margin-top: 16px; }
 .overallChart .toneAxis, .overallChart .toneValues { font-size: 12px; color: var(--wtw-text-2); }
 .overallTrack { position: relative; height: 2px; margin: 22px 6px; background: var(--wtw-line-strong, #526074); }
 .deviationBand { position: absolute; top: -8px; height: 18px; border-radius: 4px; background: var(--badge-color); opacity: .22; }
@@ -66,4 +64,4 @@
 .helpIcon { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--wtw-line-strong); border-radius: 50%; color: var(--wtw-muted); font-size: 11px; line-height: 1; cursor: default; }
 .helpTooltip { position: absolute; z-index: 20; left: 50%; bottom: calc(100% + 9px); width: 250px; padding: 10px 12px; border: 1px solid #53657a; border-radius: 8px; background: #101c2c; color: #e3ecf7; box-shadow: 0 8px 22px #0005; font-size: 11px; font-weight: 400; line-height: 1.6; opacity: 0; visibility: hidden; transform: translate(-50%, 4px); transition: opacity .15s, transform .15s, visibility .15s; pointer-events: none; }
 .helpWrap:hover .helpTooltip { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
-@media (max-width: 460px) { .headingRow { align-items: stretch; flex-direction: column; gap: 0; } .headingRow > button { align-self: flex-end; margin-top: -12px; } .metricCard { padding: 16px 12px; } .metricLabel { font-size: 14px; } .metricCard > strong { font-size: 30px; } .helpTooltip { left: auto; right: -8px; transform: translateY(4px); } .helpWrap:hover .helpTooltip { transform: translateY(0); } }
+@media (max-width: 460px) { .headingRow { align-items: stretch; flex-direction: column; gap: 0; } .headingRow > button { align-self: flex-end; margin-top: -12px; } .metricCard { padding: 14px 12px; } .metricCard > strong { font-size: 23px; } .helpTooltip { left: auto; right: -8px; transform: translateY(4px); } .helpWrap:hover .helpTooltip { transform: translateY(0); } }

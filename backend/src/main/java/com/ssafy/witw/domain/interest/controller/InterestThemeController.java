@@ -59,7 +59,7 @@ public class InterestThemeController {
     @DeleteMapping("/{themeId}")
     @Operation(summary = "관심 테마 해제", description = "등록돼 있지 않은 테마를 해제해도 성공으로 처리한다.")
     public ResponseEntity<BaseResponse<Void>> removeInterestTheme(
-            @PathVariable Long themeId, HttpServletRequest httpRequest
+            @PathVariable("themeId") Long themeId, HttpServletRequest httpRequest
     ){
         Long userId = resolveUserId(httpRequest);
 

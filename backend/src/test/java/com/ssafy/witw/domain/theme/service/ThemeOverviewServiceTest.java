@@ -22,6 +22,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -61,7 +62,7 @@ class ThemeOverviewServiceTest {
         when(article.getPublishedAt()).thenReturn(LocalDateTime.of(2026, 1, 1, 12, 0));
 
         when(themeRepository.findById(THEME_ID)).thenReturn(Optional.of(theme));
-        when(issueRepository.getPrimaryIssuesByThemeId(eq(THEME_ID), eq(3), any(LocalDateTime.class))).thenReturn(List.of(issue));
+        when(issueRepository.getPrimaryIssuesByThemeId(eq(THEME_ID), eq(3), any(LocalDateTime.class), isNull())).thenReturn(List.of(issue));
         when(articleRepository.getRepresentArticlesByThemeId(eq(THEME_ID), eq(10), any(LocalDateTime.class))).thenReturn(List.of(article));
 
         // when
@@ -85,18 +86,19 @@ class ThemeOverviewServiceTest {
     }
 
     @Test
-    @DisplayName("[테마 개요 조회] 국가 코드가 있으면 해당 국가 대표 기사만 조회한다")
+    @DisplayName("[테마 개요 조회] 국가 코드가 있으면 주요 이슈와 대표 기사를 해당 국가로 조회한다")
     void 국가별_대표_기사를_조회한다() {
         Theme theme = new Theme();
         theme.setId(THEME_ID);
         theme.setName("기후 변화");
         when(themeRepository.findById(THEME_ID)).thenReturn(Optional.of(theme));
-        when(issueRepository.getPrimaryIssuesByThemeId(eq(THEME_ID), eq(3), any(LocalDateTime.class))).thenReturn(List.of());
+        when(issueRepository.getPrimaryIssuesByThemeId(eq(THEME_ID), eq(3), any(LocalDateTime.class), eq("KR"))).thenReturn(List.of());
         when(articleRepository.getRepresentArticlesByThemeIdAndCountryCode(eq(THEME_ID), eq("KR"), eq(10), any(LocalDateTime.class)))
                 .thenReturn(List.of());
 
         service().getThemeOverview(THEME_ID, 3, 10, "KR");
 
+        verify(issueRepository).getPrimaryIssuesByThemeId(eq(THEME_ID), eq(3), any(LocalDateTime.class), eq("KR"));
         verify(articleRepository).getRepresentArticlesByThemeIdAndCountryCode(eq(THEME_ID), eq("KR"), eq(10), any(LocalDateTime.class));
     }
 

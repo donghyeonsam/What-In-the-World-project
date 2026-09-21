@@ -48,7 +48,7 @@ public class AuthController {
     @GetMapping("/exists")
     @Operation(summary = "이메일 중복 확인")
     public ResponseEntity<BaseResponse<EmailExistsResponse>> checkEmailExists(
-            @RequestParam
+            @RequestParam("email")
             @NotBlank
             @Email
             @Size(max = 255)

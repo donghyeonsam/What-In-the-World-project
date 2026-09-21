@@ -1,5 +1,10 @@
 import s from './panel.module.css';
 import { SectionTitle } from './PanelChrome.jsx';
+import { flagImageOf } from '../../data/countries.js';
+
+function AttentionFlag({ code }) {
+  return code ? <img className={s.attentionFlag} src={flagImageOf(code)} alt="" /> : <span aria-hidden="true">—</span>;
+}
 
 /**
  * 국가 관심도 요약 목록 — 개요 화면에 들어가는 3줄짜리.
@@ -13,7 +18,7 @@ export function AttentionList({ rows, limit = 3 }) {
     <div className={s.attentionList}>
       {rows.slice(0, limit).map((r) => (
         <div className={s.attentionRow} key={r[1]}>
-          <span className={s.flag}>{r[0]}</span>
+          <span className={s.flag}><AttentionFlag code={r[5]} /></span>
           <div>
             <strong>{r[1]}</strong>
             <div className={s.bar}>
@@ -36,7 +41,7 @@ export function AttentionList({ rows, limit = 3 }) {
  *          onDirection?: (d: string) => void,
  *          rows: [string, string, string, number, string][]}} props
  */
-export default function AttentionPanel({ country, flag = '🌐', direction, onDirection, rows }) {
+export default function AttentionPanel({ country, countryCode, direction, onDirection, rows }) {
   const outgoing = direction === 'outgoing';
   return (
     <>
@@ -60,9 +65,9 @@ export default function AttentionPanel({ country, flag = '🌐', direction, onDi
       </div>
 
       <div className={s.attentionInsight}>
-        <span className={s.attentionNode}>{outgoing ? flag : rows[0]?.[0] || '🌐'}</span>
+        <span className={s.attentionNode}><AttentionFlag code={outgoing ? countryCode : rows[0]?.[5]} /></span>
         <i className={s.attentionArrow} />
-        <span className={s.attentionNode}>{outgoing ? rows[0]?.[0] || '🌐' : flag}</span>
+        <span className={s.attentionNode}><AttentionFlag code={outgoing ? rows[0]?.[5] : countryCode} /></span>
         <div>
           <small>{outgoing ? `${country} → 해외` : `해외 → ${country}`}</small>
           <strong>
@@ -81,7 +86,7 @@ export default function AttentionPanel({ country, flag = '🌐', direction, onDi
         {rows.map((row, index) => (
           <div className={s.rankRow} key={row[1]}>
             <span className={s.rankNum}>{String(index + 1).padStart(2, '0')}</span>
-            <span className={s.flag}>{row[0]}</span>
+            <span className={s.flag}><AttentionFlag code={row[5]} /></span>
             <div>
               <strong>{row[1]}</strong>
               <span className={s.bar}>

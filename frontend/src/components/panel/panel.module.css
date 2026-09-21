@@ -260,12 +260,12 @@
 .directionSwitch button { padding: 8px; border-radius: 6px; color: var(--wtw-muted); font-size: 9px; text-align: center; }
 .directionSwitch button.on { background: var(--wtw-surface-2); color: var(--wtw-text); }
 .attentionInsight {
-  display: grid; grid-template-columns: 35px 30px 35px 1fr; align-items: center; gap: 8px;
+  display: grid; grid-template-columns: 44px 30px 44px minmax(0, 1fr); align-items: center; gap: 14px;
   padding: 15px; margin-bottom: 20px;
   border: 1px solid var(--wtw-line); border-radius: 12px; background: var(--wtw-bg-2, #f7f9fb);
 }
 .attentionNode {
-  width: 35px; height: 35px; display: grid; place-items: center;
+  width: 44px; height: 44px; display: grid; place-items: center; overflow: hidden;
   border: 1px solid var(--wtw-line-strong); border-radius: 50%; background: var(--wtw-surface); font-size: 17px;
 }
 .attentionArrow { position: relative; height: 1px; background: linear-gradient(90deg, var(--wtw-accent-2), var(--wtw-accent)); }
@@ -279,7 +279,7 @@
 .attentionInsight p { margin: 4px 0 0; color: var(--wtw-muted); font-size: 7px; }
 
 .attentionList { border: 1px solid var(--wtw-line); border-radius: 12px; padding: 4px 13px; }
-.attentionRow { display: grid; grid-template-columns: 24px 1fr 55px; gap: 8px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--wtw-line); }
+.attentionRow { display: grid; grid-template-columns: 30px minmax(0, 1fr) 55px; gap: 14px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--wtw-line); }
 .attentionRow:last-child { border-bottom: 0; }
 .attentionRow .flag { font-size: 16px; }
 .attentionRow .bar { height: 4px; border-radius: 4px; background: var(--wtw-surface); }
@@ -287,11 +287,11 @@
 .attentionRow span:last-child { text-align: right; font-size: 9px; color: var(--wtw-text-2); }
 
 .rankList { border: 1px solid var(--wtw-line); border-radius: 11px; padding: 3px 12px; }
-.rankRow { display: grid; grid-template-columns: 22px 25px 1fr 58px; gap: 7px; align-items: center; min-height: 47px; border-bottom: 1px solid var(--wtw-line); }
+.rankRow { display: grid; grid-template-columns: 22px 30px minmax(0, 1fr) 58px; gap: 14px; align-items: center; min-height: 64px; border-bottom: 1px solid var(--wtw-line); }
 .rankRow:last-child { border-bottom: 0; }
 .rankNum { color: var(--wtw-faint); font-size: 8px; }
 .rankRow .flag { font-size: 15px; }
-.rankRow strong { display: block; font-size: 9px; margin-bottom: 5px; }
+.rankRow strong { display: block; font-size: 9px; margin-bottom: 10px; }
 .rankRow .bar { display: block; height: 4px; background: var(--wtw-surface); border-radius: 4px; }
 .rankRow .bar i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--wtw-accent-2), var(--wtw-accent)); }
 .count { text-align: right; color: var(--wtw-text-2); font-size: 8px; }
@@ -339,7 +339,38 @@
 .taxonomyPath i { color: var(--wtw-faint); font-style: normal; }
 
 /* ── 테마 선택 패널 · 전체 찾기 ── */
+.attentionFlag { display: block; width: 26px; height: 18px; object-fit: contain; border-radius: 2px; }
+.attentionNode .attentionFlag { width: 26px; height: 18px; }
+.countryDashboard { padding-bottom: 12px; }
+.themeHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+.themeHeading > .subheading { flex: 1; min-width: 0; margin-bottom: 0; }
+.themeHeadingAction { flex: 0 1 auto; max-width: 50%; text-align: right; }
+.themeHeadingAction > button { margin: 0; }
+.countrySection + .countrySection { margin-top: 32px; padding-top: 28px; border-top: 1px solid var(--wtw-line); }
+.countrySection .sectionTitle { gap: 10px 16px; margin-bottom: 18px; }
+.countrySection .sectionTitle > span { flex-basis: 100%; line-height: 1.5; }
+.countrySection .sectionTitle > button {
+  padding: 7px 10px; border: 1px solid var(--wtw-line); border-radius: 8px;
+  color: var(--wtw-accent); background: var(--wtw-surface); font-weight: 600;
+}
+.countrySection .sectionTitle > button:hover { border-color: var(--wtw-accent); }
+.countrySection .themeList, .countrySection .attentionList { margin-bottom: 0; }
 .themeFilterPanel { position: relative; margin-bottom: 18px; }
+.themeToolbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 16px; border: 1px solid var(--wtw-line); border-radius: 12px;
+  background: var(--wtw-surface);
+}
+.themeSummary { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.themeSummary > span { color: var(--wtw-muted); font-size: 12px; }
+.themeSummary > strong { color: var(--wtw-text); font-size: 20px; font-weight: 750; line-height: 1.3; overflow-wrap: anywhere; }
+.themeSearchButton {
+  display: inline-flex; align-items: center; gap: 10px; flex-shrink: 0;
+  padding: 10px 12px; border: 1px solid var(--wtw-accent); border-radius: 8px;
+  color: var(--wtw-accent); background: rgba(128, 200, 207, 0.08); font-size: 13px; font-weight: 650;
+}
+.themeSearchButton:hover { background: rgba(128, 200, 207, 0.16); }
+.themeSearchButton:focus-visible { outline: 2px solid var(--wtw-accent); outline-offset: 3px; }
 .filterTitle { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
 .filterTitle strong { display: block; font-size: 12px; }
 .filterTitle span { display: block; margin-top: 4px; color: var(--wtw-muted); font-size: 9px; }

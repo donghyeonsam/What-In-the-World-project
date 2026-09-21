@@ -27,7 +27,7 @@ public class CountryService {
 
     private static final int POPULAR_THEME_LIMIT = 3;   // FR-DSB-007: 3개
     private static final int COUNTRY_ISSUE_LIMIT = 5;
-    private static final int MENTION_LIMIT = 4;   // FR-DSB-010: 최대 4개
+    private static final int MENTION_LIMIT = 10;
 
     private final CountryRepository countryRepository;
     private final CountryFinder countryFinder;

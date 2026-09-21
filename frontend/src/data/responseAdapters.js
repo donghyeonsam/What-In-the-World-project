@@ -34,7 +34,7 @@ export function themeCard(theme) {
 export function mentionRows(mentions = []) {
   return mentions.map((row) => {
     const percent = Math.max(0, Math.min(100, row.mentionRatio * 100));
-    return [flagOf(row.countryCode), row.countryName, `${percent.toFixed(1)}%`, percent, ''];
+    return [flagOf(row.countryCode), row.countryName, `${percent.toFixed(1)}%`, percent, '', row.countryCode];
   });
 }
 export function globeTones(rows = [], countryCode) {

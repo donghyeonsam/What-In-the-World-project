@@ -37,7 +37,7 @@ public class GlobalIssueController {
     @GetMapping("/{issueId}")
     @Operation(summary = "글로벌 이슈 상세 조회", description = "이슈 상세 정보와 국가별 논조를 반환합니다.")
     public ResponseEntity<BaseResponse<GlobalIssueDetailResponse>> getGlobalIssueDetail(
-            @Parameter(description = "이슈 ID", example = "1") @PathVariable @Positive long issueId,
+            @Parameter(description = "이슈 ID", example = "1") @PathVariable("issueId") @Positive long issueId,
             @RequestParam(name = "asOf", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS, issueService.getGlobalIssueDetail(issueId, QueryTime.resolve(asOf)));
     }
