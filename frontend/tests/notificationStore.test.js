@@ -52,11 +52,11 @@ function fixture(t, initialItems = [item(2), item(1)]) {
     },
     read: async (id) => {
       calls.push({ method: 'read', id });
-      data.items = data.items.filter((row) => row.id !== id);
+      data.items = data.items.map((row) => row.id === id ? { ...row, readAt: '2026-09-21T10:00:00' } : row);
     },
     readAll: async () => {
       calls.push({ method: 'readAll' });
-      data.items = [];
+      data.items = data.items.map((row) => ({ ...row, readAt: '2026-09-21T10:00:00' }));
     },
     remove: async (id) => {
       calls.push({ method: 'remove', id });

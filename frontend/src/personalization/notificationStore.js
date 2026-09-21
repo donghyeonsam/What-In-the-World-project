@@ -61,7 +61,12 @@ export function createNotificationStore({ api, connect, onExpired }) {
     const [list, count, settings] = results;
     if (list.status === 'fulfilled') {
       const unique = new Map();
-      for (const part of list.value) for (const item of part.notifications) unique.set(String(item.id), item);
+      // 읽은 알림을 서버가 아직 목록에 포함해도 알림함에는 다시 노출하지 않는다.
+      for (const part of list.value) {
+        for (const item of part.notifications) {
+          if (!item.readAt) unique.set(String(item.id), item);
+        }
+      }
       patch.items = [...unique.values()];
       patch.page = page;
       patch.hasNext = list.value.at(-1).hasNext;
@@ -135,8 +140,11 @@ export function createNotificationStore({ api, connect, onExpired }) {
     },
     refresh: () => refresh(),
     more: () => !state.loading && !state.busy && state.hasNext ? refresh(state.page + 1) : Promise.resolve(),
-    read: (id) => mutate(`read:${id}`, () => api.read(id)),
-    readAll: () => mutate('read-all', () => api.readAll()),
+    read: (id) => mutate(`read:${id}`, () => api.read(id), (old) => ({
+      items: old.items.filter((item) => String(item.id) !== String(id)),
+      unreadCount: Number.isSafeInteger(old.unreadCount) ? Math.max(0, old.unreadCount - 1) : old.unreadCount,
+    })),
+    readAll: () => mutate('read-all', () => api.readAll(), () => ({ items: [], unreadCount: 0 })),
     remove: (id) => mutate(`delete:${id}`, () => api.remove(id)),
     updateSettings: (enabled) => mutate('settings', () => api.updateSettings(enabled), () => ({ enabled })),
     updateThemeSettings: (id, enabled) => mutate(`theme:${id}`, () => api.updateThemeSettings(id, enabled),

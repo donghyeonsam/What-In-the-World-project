@@ -15,14 +15,15 @@ import java.util.List;
 public interface NotificationRepository extends JpaRepository<Notification, Long> {
 
     @EntityGraph(attributePaths = {"theme", "theme.field"})
-    Slice<Notification> findByUserIdAndDeletedAtIsNull(Long userId, Pageable pageable);
+    Slice<Notification> findByUserIdAndReadAtIsNullAndDeletedAtIsNull(Long userId, Pageable pageable);
 
     long countByUserIdAndReadAtIsNullAndDeletedAtIsNull(Long userId);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
         UPDATE Notification n
-        SET n.readAt = COALESCE(n.readAt, :readAt)
+        SET n.readAt = COALESCE(n.readAt, :readAt),
+            n.deletedAt = :readAt
         WHERE n.id = :notificationId
           AND n.userId = :userId
           AND n.deletedAt IS NULL
@@ -36,9 +37,9 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
         UPDATE Notification n
-        SET n.readAt = :readAt
+        SET n.readAt = :readAt,
+            n.deletedAt = :readAt
         WHERE n.userId = :userId
-          AND n.readAt IS NULL
           AND n.deletedAt IS NULL
     """)
     int markAllAsRead(
