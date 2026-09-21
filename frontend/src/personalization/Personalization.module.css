@@ -144,10 +144,10 @@
 .notificationSwitch > span { width: 14px; height: 14px; border-radius: 50%; background: var(--wtw-muted); }
 .notificationSwitch[aria-checked=true] { border-color: var(--wtw-accent); color: var(--wtw-accent); background: var(--wtw-accent-soft); }
 .notificationSwitch[aria-checked=true] > span { background: var(--wtw-accent); }
-.themeSettingActions { display: flex; gap: 4px; flex-shrink: 0; }
-.themeSettingActions button { border: 1px solid var(--wtw-line); border-radius: 6px; padding: 8px 10px; font-size: 12px; color: var(--wtw-text-2); white-space: nowrap; }
-.themeSettingActions button[aria-pressed=true] { color: var(--wtw-accent); background: var(--wtw-accent-soft); border-color: var(--wtw-accent); opacity: 1; }
-.notificationList button:focus-visible, .themeSettingActions button:focus-visible, .notificationSwitch:focus-visible { outline: 2px solid var(--wtw-accent); outline-offset: 3px; }
+.notificationThemeList { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.notificationThemeList > span { display: inline-flex; align-items: center; gap: 7px; padding: 8px 11px; border: 1px solid var(--wtw-line); border-radius: 8px; color: var(--wtw-text-2); background: var(--wtw-surface); font-size: 12px; }
+.notificationThemeList i { color: var(--wtw-accent); font-style: normal; }
+.notificationList button:focus-visible, .notificationSwitch:focus-visible { outline: 2px solid var(--wtw-accent); outline-offset: 3px; }
 @media (max-width: 600px) {
   .notificationToolbar { align-items: start; flex-wrap: wrap; }
   .notificationItem { padding: 14px; }
@@ -157,5 +157,4 @@
   .themePickerHeading { display: grid; }
   .themeCatalog { max-height: 300px; }
   .settingRow { align-items: start; }
-  .themeSettingActions { display: grid; }
 }
