@@ -14,6 +14,7 @@ from issue_clustering import (
     UnclassifiedArticle,
     build_issue_events,
     cluster_articles,
+    filter_cluster_articles,
     merge_generated_issue_candidates,
     parse_unclassified_message,
 )
@@ -282,7 +283,7 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
                 )
                 for cluster in clusters:
                     try:
-                        generated = generate_issue(GMS_CONFIG, theme_name, cluster)
+                        decision = generate_issue(GMS_CONFIG, theme_name, cluster)
                     except GmsIssueGenerationError as exc:
                         print(
                             f"Skipped issue generation: "
@@ -294,9 +295,32 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
                         )
                         continue
 
-                    generated_candidates.append((cluster, generated))
+                    filtered_cluster = filter_cluster_articles(
+                        cluster,
+                        decision.included_article_ids,
+                        min_cluster_size=ISSUE_CLUSTER_MIN_SIZE,
+                        representative_count=ISSUE_CLUSTER_REPRESENTATIVE_COUNT,
+                        min_centroid_similarity=(
+                            ISSUE_CLUSTER_MIN_CENTROID_SIMILARITY
+                        ),
+                    )
+                    if filtered_cluster is None:
+                        print(
+                            "Skipped issue after event membership validation: "
+                            f"batch_id={batch_id} "
+                            f"theme_id={theme_id} "
+                            f"candidate_count={len(cluster.articles)} "
+                            f"included_count={len(decision.included_article_ids)} "
+                            f"minimum={ISSUE_CLUSTER_MIN_SIZE}",
+                            flush=True,
+                        )
+                        continue
+
+                    generated_candidates.append(
+                        (filtered_cluster, decision.issue)
+                    )
                     assigned_article_ids.update(
-                        article.article_id for article in cluster.articles
+                        article.article_id for article in filtered_cluster.articles
                     )
 
         for cluster, generated in merge_generated_issue_candidates(

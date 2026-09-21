@@ -17,6 +17,7 @@ from issue_clustering import (  # noqa: E402
     build_issue_events,
     cluster_articles,
     cluster_event_key,
+    filter_cluster_articles,
     merge_generated_issue_candidates,
     parse_unclassified_message,
 )
@@ -168,6 +169,77 @@ class IssueEventTest(unittest.TestCase):
         )
 
         self.assertEqual(len(merged), 2)
+
+    def test_filters_llm_exclusions_and_rebuilds_cluster_geometry(self):
+        candidate = ClusterCandidate(
+            theme_id=12,
+            articles=(
+                article("a-1", (1.0, 0.0)),
+                article("a-2", (0.8, 0.6)),
+                article("different-event", (0.0, 1.0)),
+            ),
+            centroid=(2 ** -0.5, 2 ** -0.5),
+            representatives=(article("different-event", (0.0, 1.0)),),
+            membership_confidence=0.91,
+        )
+
+        filtered = filter_cluster_articles(
+            candidate,
+            ("a-1", "a-2"),
+            min_cluster_size=2,
+            representative_count=1,
+            min_centroid_similarity=0.9,
+        )
+
+        self.assertIsNotNone(filtered)
+        self.assertEqual(
+            [item.article_id for item in filtered.articles],
+            ["a-1", "a-2"],
+        )
+        self.assertNotEqual(filtered.centroid, candidate.centroid)
+        self.assertEqual(len(filtered.representatives), 1)
+        self.assertNotEqual(
+            filtered.representatives[0].article_id,
+            "different-event",
+        )
+
+    def test_discards_llm_subset_below_minimum_cluster_size(self):
+        candidate = ClusterCandidate(
+            theme_id=12,
+            articles=(article("a-1"), article("a-2"), article("a-3")),
+            centroid=(1.0, 0.0),
+            representatives=(article("a-1"),),
+            membership_confidence=0.91,
+        )
+
+        filtered = filter_cluster_articles(
+            candidate,
+            ("a-1",),
+            min_cluster_size=2,
+        )
+
+        self.assertIsNone(filtered)
+
+    def test_reapplies_centroid_boundary_after_llm_filtering(self):
+        candidate = ClusterCandidate(
+            theme_id=12,
+            articles=(
+                article("a-1", (1.0, 0.0)),
+                article("a-2", (0.0, 1.0)),
+            ),
+            centroid=(2 ** -0.5, 2 ** -0.5),
+            representatives=(article("a-1"),),
+            membership_confidence=0.91,
+        )
+
+        filtered = filter_cluster_articles(
+            candidate,
+            ("a-1", "a-2"),
+            min_cluster_size=2,
+            min_centroid_similarity=0.92,
+        )
+
+        self.assertIsNone(filtered)
 
 
 class HdbscanTransformationTest(unittest.TestCase):
