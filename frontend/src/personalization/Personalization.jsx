@@ -9,6 +9,7 @@ import { readSsafyCallback } from './ssafyOAuth.js';
 import { AuthForm, PasswordForm, WithdrawForm } from './AccountForms.jsx';
 import NotificationPanel from './NotificationPanel.jsx';
 import { useNotifications } from './useNotifications.js';
+import { navigateToNotificationNews } from './notificationNavigation.js';
 import { accountStorageKey, emptyInterests, parseInterests, loadPersonalNews } from './model.js';
 import s from './Personalization.module.css';
 
@@ -140,12 +141,36 @@ export function PersonalizationProvider({ children }) {
     setNotice('회원 탈퇴가 완료되었습니다.'); setPanel('profile');
   };
   const context = { user, interests, toggle, pending, panel, setPanel: openPanel, checking, logout, unreadCount: notifications.unreadCount };
-  return <Context.Provider value={context}>{children}{panel && <Modal title={checking ? '계정 확인' : !user ? '로그인 / 회원가입' : panel === 'notifications' ? '알림' : panel === 'inbox' ? '뉴스 구독함' : '마이페이지'} close={() => setPanel(null)} inbox={!!user && (panel === 'inbox' || panel === 'notifications')}>
+  return <Context.Provider value={context}>{children}{user && <NotificationToast notification={notifications.arrival} store={notifications.store} />}{panel && <Modal title={checking ? '계정 확인' : !user ? '로그인 / 회원가입' : panel === 'notifications' ? '알림' : panel === 'inbox' ? '뉴스 구독함' : '마이페이지'} close={() => setPanel(null)} inbox={!!user && (panel === 'inbox' || panel === 'notifications')}>
     {checking ? <p role="status">로그인 상태를 확인하고 있습니다…</p> : !user ? <>
       {sessionError && <p className={s.error} role="alert">{sessionError} <button type="button" onClick={() => refreshSession()}>다시 확인</button></p>}
       <AuthForm notice={notice} onLogin={async () => { const current = await refreshSession(); if (!current) { setSessionError('로그인 세션을 확인하지 못했습니다. 연결 상태를 확인해 주세요.'); return; } setPanel('profile'); setNotice(''); }} />
     </> : panel === 'notifications' ? <NotificationPanel key={user.id} notifications={notifications} interests={interests} onClose={() => setPanel(null)} onProfile={() => setPanel('profile')} /> : panel === 'inbox' ? <Inbox key={user.id} interests={interests} onProfile={() => setPanel('profile')} /> : <Profile key={user.id} user={user} interests={interests} toggle={toggle} pending={pending} interestError={interestError} onInbox={() => setPanel('inbox')} onNotifications={() => { setPanel('notifications'); notifications.store.refresh(); }} onExpired={expire} onLogout={logout} onWithdraw={completeWithdrawal} />}
   </Modal>}</Context.Provider>;
+}
+
+function NotificationToast({ notification, store }) {
+  const [dismissed, setDismissed] = useState(null);
+  useEffect(() => {
+    if (!notification) return undefined;
+    const timer = window.setTimeout(() => setDismissed(notification.token), 8_000);
+    return () => window.clearTimeout(timer);
+  }, [notification]);
+  if (!notification || dismissed === notification.token) return null;
+  const open = async () => {
+    setDismissed(notification.token);
+    if (!notification.readAt) await store.read(notification.id);
+    navigateToNotificationNews(notification);
+  };
+  return <aside className={s.notificationToast} aria-live="polite" aria-atomic="true">
+    <button type="button" className={s.notificationToastContent} onClick={open}>
+      <span className={s.notificationToastIcon} aria-hidden="true">!</span>
+      <span><small>{notification.fieldName} · {notification.themeName}</small><strong>{notification.title}</strong><em>{notification.message}</em></span>
+      <span className={s.notificationToastArrow} aria-hidden="true">→</span>
+    </button>
+    <button type="button" className={s.notificationToastClose} aria-label="알림 닫기" onClick={() => setDismissed(notification.token)}>×</button>
+    <i className={s.notificationToastTimer} aria-hidden="true" />
+  </aside>;
 }
 
 export function CloseIcon() { return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>; }

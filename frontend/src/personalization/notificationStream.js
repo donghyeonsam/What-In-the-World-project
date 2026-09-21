@@ -72,10 +72,10 @@ export function connectNotificationStream({
         watchHeartbeat();
         setState('connected');
       };
-      const refresh = () => {
+      const refresh = (event) => {
         if (!active()) return;
         connected();
-        emit(onRefresh, undefined, true);
+        emit(onRefresh, event?.type, true);
       };
       const heartbeat = () => {
         if (!active()) return;

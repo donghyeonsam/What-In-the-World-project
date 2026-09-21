@@ -147,6 +147,20 @@
 .notificationThemeList { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .notificationThemeList > span { display: inline-flex; align-items: center; gap: 7px; padding: 8px 11px; border: 1px solid var(--wtw-line); border-radius: 8px; color: var(--wtw-text-2); background: var(--wtw-surface); font-size: 12px; }
 .notificationThemeList i { color: var(--wtw-accent); font-style: normal; }
+.notificationToast { position: fixed; top: 84px; right: 24px; z-index: 70; width: min(390px, calc(100vw - 32px)); overflow: hidden; border: 1px solid var(--wtw-line-strong); border-radius: 13px; background: color-mix(in srgb, var(--wtw-bg) 94%, transparent); box-shadow: 0 18px 50px #0008; backdrop-filter: blur(14px); animation: notificationToastIn .28s ease-out; }
+.notificationToastContent { box-sizing: border-box; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 11px; width: 100%; padding: 14px 42px 15px 14px; text-align: left; color: var(--wtw-text); }
+.notificationToastContent:hover { background: var(--wtw-accent-soft); }
+.notificationToastContent > span:nth-child(2) { min-width: 0; display: grid; gap: 3px; }
+.notificationToastContent small { color: var(--wtw-accent); font-size: 10px; }
+.notificationToastContent strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.notificationToastContent em { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--wtw-muted); font-size: 11px; font-style: normal; }
+.notificationToastIcon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; color: var(--wtw-on-accent); background: var(--wtw-accent); font-size: 15px; font-weight: 700; }
+.notificationToastArrow { color: var(--wtw-accent); font-size: 18px; }
+.notificationToastClose { position: absolute; top: 7px; right: 8px; display: grid; place-items: center; width: 27px; height: 27px; border-radius: 7px; color: var(--wtw-muted); font-size: 18px; }
+.notificationToastClose:hover { color: var(--wtw-text); background: var(--wtw-surface); }
+.notificationToastTimer { position: absolute; right: 0; bottom: 0; left: 0; height: 3px; background: var(--wtw-accent); transform-origin: left; animation: notificationToastTimer 8s linear forwards; }
+@keyframes notificationToastIn { from { opacity: 0; transform: translate3d(20px, -8px, 0); } to { opacity: 1; transform: none; } }
+@keyframes notificationToastTimer { to { transform: scaleX(0); } }
 .notificationList button:focus-visible, .notificationSwitch:focus-visible { outline: 2px solid var(--wtw-accent); outline-offset: 3px; }
 @media (max-width: 600px) {
   .notificationToolbar { align-items: start; flex-wrap: wrap; }
@@ -157,4 +171,6 @@
   .themePickerHeading { display: grid; }
   .themeCatalog { max-height: 300px; }
   .settingRow { align-items: start; }
+  .notificationToast { top: 72px; right: 12px; width: calc(100vw - 24px); }
 }
+@media (prefers-reduced-motion: reduce) { .notificationToast, .notificationToastTimer { animation: none; } }
