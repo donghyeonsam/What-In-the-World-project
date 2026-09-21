@@ -116,12 +116,14 @@ const handleNotificationFixture = async (req, res, url, route, token) => {
     jsonResponse(res);
   } else if (route === '/notifications/read-all' && req.method === 'PATCH') {
     const now = seoulDateTime();
-    currentNotifications().forEach((item) => { item.readAt ??= now; });
+    currentNotifications().forEach((item) => { item.readAt ??= now; item.deletedAt = now; });
     jsonResponse(res);
   } else if (/^\/notifications\/\d+\/read$/.test(route) && req.method === 'PATCH') {
     const item = currentNotifications().find((entry) => entry.id === Number(route.split('/')[2]));
     if (!item) return notFound();
-    item.readAt ??= seoulDateTime();
+    const now = seoulDateTime();
+    item.readAt ??= now;
+    item.deletedAt = now;
     jsonResponse(res);
   } else if (/^\/notifications\/\d+$/.test(route) && req.method === 'DELETE') {
     const item = currentNotifications().find((entry) => entry.id === Number(route.split('/')[2]));
