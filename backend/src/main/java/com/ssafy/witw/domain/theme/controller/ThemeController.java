@@ -35,7 +35,7 @@ public class ThemeController {
 
     @GetMapping("/by-field")
     @Operation(summary = "분야별 테마 목록 조회", description = "전체 국가의 최근 24시간 발행 기사 수를 집계합니다. 삭제 기사는 제외하며, 기사 없는 테마는 0건으로 반환합니다.")
-    public ResponseEntity<BaseResponse<List<FieldThemesResponse>>> getThemesByField(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
+    public ResponseEntity<BaseResponse<List<FieldThemesResponse>>> getThemesByField(@RequestParam(name = "asOf", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS, themeService.getThemesByField(QueryTime.resolve(asOf)));
     }
 
@@ -46,7 +46,7 @@ public class ThemeController {
             @Parameter(description = "주요 이슈 개수 (1~10)") @RequestParam(defaultValue = "3") @Min(1) @Max(10) int issueLimit,
             @Parameter(description = "대표 기사 개수 (1~10)") @RequestParam(defaultValue = "10") @Min(1) @Max(10) int articleLimit,
             @Parameter(description = "대표 기사 발행 국가 코드") @RequestParam(required = false) @Pattern(regexp = "[a-zA-Z]{2}") String countryCode,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
+            @RequestParam(name = "asOf", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS,
                 themeService.getThemeOverview(themeId, issueLimit, articleLimit,
                         countryCode == null ? null : countryCode.toUpperCase(Locale.ROOT), QueryTime.resolve(asOf)));

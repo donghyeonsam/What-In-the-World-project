@@ -28,14 +28,19 @@
   min-height: 0;
   padding: 0; /* 확대된 지구본이 지도 스테이지 가장자리까지 채워지도록 한다. */
   border-bottom: 1px solid #17233d;
+}
+
+/* Keep space fixed across the whole screen while the globe stage moves. */
+.dashboard {
   background:
     radial-gradient(circle at 48% 46%, rgba(23, 67, 135, 0.1) 0%, rgba(7, 19, 69, 0.04) 32%, transparent 58%),
     radial-gradient(circle at 12% 18%, rgba(29, 78, 216, 0.04), transparent 30%),
     linear-gradient(145deg, #071225 0%, #020712 55%, #050b18 100%);
 }
-.stage::before {
+.dashboard::before {
   content: '';
   position: absolute;
+  z-index: -1;
   inset: 0;
   pointer-events: none;
   opacity: 0.95;
@@ -70,33 +75,6 @@
   scrollbar-width: thin;
   color: var(--wtw-text);
   font-family: var(--wtw-body);
-}
-
-.timeTravel .panel { overflow: hidden; }
-.timeTravel .panelBody {
-  pointer-events: none;
-  will-change: transform, filter;
-  animation: rewindData 650ms linear infinite;
-}
-.timeTravel .panel::after {
-  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 2;
-  background: linear-gradient(180deg, var(--wtw-panel) 0%, transparent 22%, transparent 72%, var(--wtw-panel) 100%),
-    repeating-linear-gradient(0deg, transparent 0 10px, #467d7520 11px, transparent 12px);
-}
-.rewindLabel {
-  position: absolute; top: 22px; left: 28px; right: 28px; z-index: 3;
-  padding: 12px 16px; border: 1px solid #41978344; border-radius: 8px;
-  background: var(--wtw-panel); color: var(--wtw-accent); font-size: 12px;
-  letter-spacing: .06em; box-shadow: 0 8px 40px #061c1920;
-}
-@keyframes rewindData {
-  0% { transform: translateY(100px); opacity: 0; filter: blur(3px); }
-  18% { opacity: .75; filter: blur(.6px); }
-  75% { opacity: .65; filter: blur(1.5px); }
-  100% { transform: translateY(-220px); opacity: 0; filter: blur(4px); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .timeTravel .panelBody { animation: none; opacity: .45; }
 }
 
 @media (min-width: 700px) {
@@ -167,21 +145,59 @@
 .hologram .panel { flex: 1; min-height: 0; background: transparent; scrollbar-color: #416d7c transparent; }
 .projection { display: none; pointer-events: none; }
 @media (min-width: 1000px) {
-  .dashboard { --stage-width: 52%; background: #030a14; }
+  .dashboard { --stage-width: 52%; --relay-light: 142, 190, 210; }
   .stage { border-right: 0; }
-  .hologram { margin: 20px 20px 20px 14px; }
+  .hologram { margin: 20px 20px 20px 48px; }
   .projection {
     display: block; position: absolute; z-index: 2;
-    left: calc(var(--stage-width) - 78px); top: 24px; bottom: 24px; width: 96px;
-    clip-path: polygon(0 100px, 100% 0, 100% 100%);
-    background: linear-gradient(90deg, #acf2ff33, #79deff08 65%, #86e8ff24);
+    /* Tail nozzle: 76% x / 74% y of the 180px craft at right:12px, top:12px. */
+    --projection-origin-y: 125px;
+    left: calc(var(--stage-width) - 55px); top: 20px; bottom: 20px; width: 104px;
+    clip-path: polygon(0 var(--projection-origin-y), 100% 0, 100% 100%);
+    background: linear-gradient(90deg, rgba(var(--relay-light), .28), rgba(var(--relay-light), .06) 45%, rgba(var(--relay-light), .12));
     animation: projectorGlow 7s ease-in-out infinite;
   }
-  .projection i { position: absolute; inset: 0; background: #9ee9ff12; clip-path: polygon(0 100px, 100% 24%, 100% 24.3%); }
-  .projection i:nth-child(2) { clip-path: polygon(0 100px, 100% 56%, 100% 56.3%); }
-  .projection i:nth-child(3) { clip-path: polygon(0 100px, 100% 88%, 100% 88.3%); }
+  .projection::after {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(var(--relay-light), .22), transparent) 0 0 / 32px 100% no-repeat;
+    animation: relayTransfer 2.8s linear infinite;
+  }
+  .projection i { position: absolute; inset: 0; background: rgba(var(--relay-light), .18); clip-path: polygon(0 var(--projection-origin-y), 100% 0, 100% 1px); }
+  .projection i:nth-child(2) { clip-path: polygon(0 var(--projection-origin-y), 100% 50%, 100% calc(50% + 1px)); }
+  .projection i:nth-child(3) { clip-path: polygon(0 var(--projection-origin-y), 100% calc(100% - 1px), 100% 100%); }
+  .hologram {
+    border-color: rgba(var(--relay-light), .18); border-left-color: rgba(var(--relay-light), .28);
+    border-radius: 3px 12px 12px 3px;
+    background: linear-gradient(90deg, rgba(var(--relay-light), .10), transparent 140px), #07121e;
+    box-shadow: -12px 0 32px rgba(var(--relay-light), .05), inset 0 0 36px rgba(var(--relay-light), .025);
+  }
+  .hologram::after { opacity: .3; }
+  .hologram::before { opacity: .55; }
 }
+@keyframes relayTransfer { from { background-position: -18px 0; } to { background-position: 110px 0; } }
+.timeTravel .projection::after { animation: none; opacity: 0; }
 @media (min-width: 1280px) { .dashboard { --stage-width: max(660px, 56%); } }
 @keyframes projectorGlow { 0%, 100% { opacity: .55; } 50% { opacity: .9; } }
 .timeTravel .projection { animation: none; opacity: .25; }
-@media (prefers-reduced-motion: reduce) { .projection { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .projection, .projection::after { animation: none; } .projection::after { display: none; } }
+
+
+.dashboard { overflow: clip; }
+.stage { transition: transform 800ms cubic-bezier(.22, 1, .36, 1); }
+.hologram { transition: transform 500ms cubic-bezier(.55, 0, .8, .3), opacity 400ms ease; }
+.projection { transition: transform 450ms ease, opacity 250ms ease; }
+.timeTravel .hologram { transform: translateX(110%); opacity: 0; pointer-events: none; }
+.timeTravel .projection { transform: translateX(50vw); opacity: 0; }
+@media (min-width: 1000px) {
+  .timeTravel .stage { transform: translateX(calc((100vw - 100%) / 2)); }
+}
+.arrivalFlash { position: absolute; inset: 0; z-index: 30; pointer-events: none; background: #fff; animation: arrivalFlash 1000ms ease-out both; }
+@keyframes arrivalFlash {
+  0% { opacity: 0; }
+  14%, 25% { opacity: .96; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage, .hologram, .projection { transition: none; }
+  .arrivalFlash { animation: none; opacity: .12; }
+}
