@@ -19,7 +19,9 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
-      - "127.0.0.1:5433:5432"
+      # 기본은 로컬 전용이다. 원격 BigData 개발 서버가 접근해야 할 때만
+      # DEV_DB_BIND_HOST를 Backend EC2의 사설 IP로 지정한다.
+      - "${DEV_DB_BIND_HOST:-127.0.0.1}:5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
