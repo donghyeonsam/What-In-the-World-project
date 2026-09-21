@@ -53,7 +53,7 @@ class TimeMachineRepositoryTest extends TestContainerSupport {
         assertThat(issues.findIssueById(ID, AS_OF).articleCount()).isEqualTo(4);
         assertThat(articles.getRepresentArticlesByIssueId(ID, 10, AS_OF))
                 .extracting(ArticleRepository.RepresentArticleProjection::getArticleId)
-                .containsExactlyInAnyOrder("visible", "deleted-later", "lower-bound", "older");
+                .containsExactlyInAnyOrder("visible", "deleted-later", "lower-bound");
         assertThat(news.findVisibleById("late-storage", AS_OF)).isEmpty();
         assertThat(news.findVisibleById("deleted-later", AS_OF)).isPresent();
         assertThat(news.search("KR", null, null, AS_OF.minusHours(2), AS_OF.plusDays(1), 1, 10, AS_OF)

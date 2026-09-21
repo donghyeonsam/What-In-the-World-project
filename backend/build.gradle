@@ -13,6 +13,10 @@ java {
 	}
 }
 
+tasks.withType(JavaCompile).configureEach {
+	options.compilerArgs.add('-parameters')
+}
+
 repositories {
 	mavenCentral()
 }
@@ -33,6 +37,7 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-kafka'
 	implementation 'org.springframework.boot:spring-boot-starter-mail'
+	implementation 'org.springframework.boot:spring-boot-starter-session-data-redis'
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'
 	runtimeOnly 'org.postgresql:postgresql'

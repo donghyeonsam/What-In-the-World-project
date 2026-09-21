@@ -52,6 +52,7 @@ public interface ArticleRepository extends JpaRepository<Article, String> {
             WHERE a.theme_id = :themeId AND (a.deleted_at IS NULL OR a.deleted_at > :asOf)
                   AND a.created_at <= :asOf
                   AND a.published_at < :asOf
+                  AND a.published_at >= CAST(:asOf AS timestamp) - INTERVAL '24 hours'
             ORDER BY a.theme_relevance_score DESC, a.id ASC
             LIMIT :limit
             """, nativeQuery = true)
@@ -71,6 +72,7 @@ public interface ArticleRepository extends JpaRepository<Article, String> {
               AND (a.deleted_at IS NULL OR a.deleted_at > :asOf)
                   AND a.created_at <= :asOf
                   AND a.published_at < :asOf
+                  AND a.published_at >= CAST(:asOf AS timestamp) - INTERVAL '24 hours'
             ORDER BY a.theme_relevance_score DESC, a.id ASC
             LIMIT :limit
             """, nativeQuery = true)
@@ -101,6 +103,7 @@ public interface ArticleRepository extends JpaRepository<Article, String> {
                   AND a.issue_assigned_at <= :asOf
                   AND a.created_at <= :asOf
                   AND a.published_at < :asOf
+                  AND a.published_at >= CAST(:asOf AS timestamp) - INTERVAL '24 hours'
             ORDER BY a.issue_similarity DESC NULLS LAST, a.id ASC
             LIMIT :limit
             """, nativeQuery = true)
@@ -121,6 +124,7 @@ public interface ArticleRepository extends JpaRepository<Article, String> {
                   AND a.issue_assigned_at <= :asOf
                   AND a.created_at <= :asOf
                   AND a.published_at < :asOf
+                  AND a.published_at >= CAST(:asOf AS timestamp) - INTERVAL '24 hours'
             ORDER BY a.issue_similarity DESC NULLS LAST, a.id ASC
             LIMIT :limit
             """, nativeQuery = true)

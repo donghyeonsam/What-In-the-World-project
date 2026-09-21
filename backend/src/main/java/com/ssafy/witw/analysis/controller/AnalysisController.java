@@ -34,7 +34,7 @@ public class AnalysisController {
     @GetMapping
     @Operation(summary = "이슈의 국가별 분석 목록 조회", description = "국가별로 조회 시점 이전의 최신 분석 제목과 요약을 반환합니다.")
     public ResponseEntity<BaseResponse<IssueCountryAnalysisListResponse>> getCountryAnalyses(
-            @Parameter(description = "이슈 ID", example = "1") @PathVariable @Positive long issueId,
+            @Parameter(description = "이슈 ID", example = "1") @PathVariable("issueId") @Positive long issueId,
             @RequestParam(name = "asOf", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS,
                 analysisService.getCountryAnalyses(issueId, QueryTime.resolve(asOf)));
@@ -43,9 +43,9 @@ public class AnalysisController {
     @GetMapping("/{countryCode}")
     @Operation(summary = "이슈의 국가별 분석 상세 조회", description = "조회 시점 이전의 최신 분석을 반환합니다. 분석 결과가 없으면 analysis가 null입니다.")
     public ResponseEntity<BaseResponse<IssueCountryAnalysisDetailResponse>> getCountryAnalysis(
-            @Parameter(description = "이슈 ID", example = "1") @PathVariable @Positive long issueId,
+            @Parameter(description = "이슈 ID", example = "1") @PathVariable("issueId") @Positive long issueId,
             @Parameter(description = "영문 두 자리 국가 코드 (대소문자 무관)", example = "KR")
-            @PathVariable @Pattern(regexp = "[a-zA-Z]{2}") String countryCode,
+            @PathVariable("countryCode") @Pattern(regexp = "[a-zA-Z]{2}") String countryCode,
             @RequestParam(name = "asOf", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS,
                 analysisService.getCountryAnalysis(issueId, countryCode.toUpperCase(Locale.ROOT), QueryTime.resolve(asOf)));

@@ -37,20 +37,20 @@ public class ArticleController {
 
     @GetMapping
     public ResponseEntity<BaseResponse<ArticlePageResponse>> articles(
-            @RequestParam(required = false) @Pattern(regexp = "[a-zA-Z]{2}") String countryCode,
-            @RequestParam(required = false) @Positive Long fieldId,
-            @RequestParam(required = false) @Positive Long themeId,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
-            @RequestParam(defaultValue = "1") @Min(1) int page,
-            @RequestParam(defaultValue = "12") @Min(1) @Max(100) int size,
+            @RequestParam(name = "countryCode", required = false) @Pattern(regexp = "[a-zA-Z]{2}") String countryCode,
+            @RequestParam(name = "fieldId", required = false) @Positive Long fieldId,
+            @RequestParam(name = "themeId", required = false) @Positive Long themeId,
+            @RequestParam(name = "from", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(name = "to", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(name = "page", defaultValue = "1") @Min(1) int page,
+            @RequestParam(name = "size", defaultValue = "12") @Min(1) @Max(100) int size,
             @RequestParam(name = "asOf", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS,
                 articleNewsService.getArticles(countryCode, fieldId, themeId, from, to, page, size, QueryTime.resolve(asOf)));
     }
 
     @GetMapping("/{articleId}")
-    public ResponseEntity<BaseResponse<ArticleDetailResponse>> article(@PathVariable String articleId,
+    public ResponseEntity<BaseResponse<ArticleDetailResponse>> article(@PathVariable("articleId") String articleId,
             @RequestParam(name = "asOf", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS, articleNewsService.getArticle(articleId, QueryTime.resolve(asOf)));
     }

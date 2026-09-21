@@ -79,7 +79,7 @@ public class ThemeService {
                 .orElseThrow(() -> new GlobalException(ErrorCode.THEME_NOT_FOUND));
 
         List<ThemeOverviewResponse.PrimaryIssue> primaryIssues = issueRepository
-                .getPrimaryIssuesByThemeId(themeId, issueLimit, asOf)
+                .getPrimaryIssuesByThemeId(themeId, issueLimit, asOf, countryCode)
                 .stream()
                 .map(issue -> new ThemeOverviewResponse.PrimaryIssue(
                         issue.getIssueId(), issue.getIssueTitle()))

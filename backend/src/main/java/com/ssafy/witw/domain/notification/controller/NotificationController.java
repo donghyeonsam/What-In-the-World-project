@@ -41,8 +41,8 @@ public class NotificationController {
     @Operation(summary = "내 알림 목록 조회")
     public ResponseEntity<BaseResponse<NotificationListResponse>> getNotifications(
             HttpServletRequest request,
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "20") int size
+            @RequestParam(name = "page", defaultValue = "1") int page,
+            @RequestParam(name = "size", defaultValue = "20") int size
     ) {
 
         HttpSession session = request.getSession(false);
@@ -63,7 +63,7 @@ public class NotificationController {
     @PatchMapping("/{notificationId}/read")
     @Operation(summary = "개별 알림 읽음 처리")
     public ResponseEntity<BaseResponse<Void>> markAsRead(
-            @PathVariable Long notificationId, HttpServletRequest request
+            @PathVariable("notificationId") Long notificationId, HttpServletRequest request
     ) {
         HttpSession session = request.getSession(false);
 
@@ -100,7 +100,7 @@ public class NotificationController {
     @DeleteMapping("/{notificationId}")
     @Operation(summary = "개별 알림 삭제")
     public ResponseEntity<BaseResponse<Void>> deleteNotification(
-            @PathVariable Long notificationId, HttpServletRequest request
+            @PathVariable("notificationId") Long notificationId, HttpServletRequest request
     ) {
         HttpSession session = request.getSession(false);
 
@@ -180,7 +180,7 @@ public class NotificationController {
     @PatchMapping("/themes/{themeId}/settings")
     @Operation(summary = "관심 테마별 알림 설정")
     public ResponseEntity<BaseResponse<Void>> updateThemeNotificationSetting(
-            @PathVariable Long themeId,
+            @PathVariable("themeId") Long themeId,
             @Valid @RequestBody NotificationSettingRequest body,
             HttpServletRequest request
     ) {

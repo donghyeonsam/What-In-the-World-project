@@ -6,7 +6,7 @@ const extraLocations = {
   RU: { lat: 61, lon: 100 }, CA: { lat: 56, lon: -106 },
 };
 
-export function mentionLinks(data, direction, countries, limit = 3) {
+export function mentionLinks(data, direction, countries, limit = 10) {
   if (!data) return [];
   const locations = { ...extraLocations, ...Object.fromEntries(countries.map((c) => [c.code, c])) };
   const selected = locations[data.countryCode?.toUpperCase()];

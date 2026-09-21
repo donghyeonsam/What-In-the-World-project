@@ -7,10 +7,9 @@ import { issueMetrics, issueCountryPerspectives, issueToneDeviation } from '../.
 import { P, toneLabel3, sg } from '../../lib/tone.js';
 import { SectionTitle, SubHeading } from './PanelChrome.jsx';
 import ArticleFeed from './ArticleFeed.jsx';
-import { InterestButton } from '../../personalization/Personalization.jsx';
 import s from './issuePerspectives.module.css';
 
-export default function IssuePerspectives({ data, issueId, asOf, countryAnalyses, analysis, spot, onSelectCountry }) {
+export default function IssuePerspectives({ data, issueId, asOf, countryAnalyses, spot, onSelectCountry }) {
   const [expandedIssueId, setExpandedIssueId] = useState(null);
   const showAllCountries = expandedIssueId === issueId;
   const ranked = issueCountryPerspectives(data, countryAnalyses.data?.countryAnalyses);
@@ -29,10 +28,8 @@ export default function IssuePerspectives({ data, issueId, asOf, countryAnalyses
   const articles = useResource(selected ? `issue-evidence:${asOf}:${issueId}:${spot}` : null,
     (signal) => api.overview(issueId, selected.country.countryCode, signal, asOf));
   return <section className={s.screen}>
-    <div className={s.eyebrow}><span>주요 이슈</span><span>{asOf ? '선택 시점' : '현재 시점'}</span></div>
     <div className={s.headingRow}>
       <SubHeading title={data.issuePreview.issueTitle} desc={data.issuePreview.themeTitle} />
-      <InterestButton kind="issues" id={issueId} name={data.issuePreview.issueTitle} />
     </div>
     <div className={s.metrics}>
       <div className={s.metricCard}><span className={s.metricLabel}>관련 기사</span><strong>{fmt(metrics.articleCount)}<em>건</em></strong></div>
@@ -105,23 +102,9 @@ export default function IssuePerspectives({ data, issueId, asOf, countryAnalyses
       onClick={() => setExpandedIssueId(showAllCountries ? null : issueId)} aria-expanded={showAllCountries}>
       {showAllCountries ? '접기' : `더보기 · ${ranked.length - 10}개국`}
     </button>}
-    {!selected && <p className={s.hint}>{spot ? '선택한 국가의 최근 24시간 관련 기사가 없습니다.' : '국가를 선택하면 보도 관점의 상세 요약과 대표 기사를 확인할 수 있습니다.'}</p>}
+    {!selected && <p className={s.hint}>{spot ? '선택한 국가의 최근 24시간 관련 기사가 없습니다.' : '국가를 선택하면 대표 기사를 확인할 수 있습니다.'}</p>}
     {selected && <section className={s.evidence}>
-      <SectionTitle title={`${selected.country.countryName} 언론의 보도 관점`} />
-      {analysis.loading && !analysis.data ? <p role="status">보도 관점을 불러오고 있습니다…</p>
-        : analysis.error ? <div role="alert"><p>분석 결과를 불러오지 못했습니다.</p>
-          <button type="button" onClick={analysis.retry}>분석 상세 다시 시도</button></div>
-          : analysis.data ? <div className={s.analysis}>
-            <h3>{analysis.data.title}</h3>
-            <p>{analysis.data.summary}</p>
-            {analysis.data.details?.length > 0 && <ul>{analysis.data.details.map((detail, index) => <li key={index}>{detail}</li>)}</ul>}
-            <small>분석에 사용한 기사 {fmt(analysis.data.articleCount)}건
-              {analysis.data.windowEnd && <> · 분석 기준 시각 <time dateTime={analysis.data.windowEnd}>
-                {new Date(analysis.data.windowEnd).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
-              </time> (한국 시간)</>}</small>
-          </div> : <p className={s.hint} role="status">조회 시점까지 등록된 국가별 분석이 없습니다.</p>}
-      <SectionTitle title={`${selected.country.countryName} 대표 기사`} note="조회 시점까지 전체 기간 · 관련도순 최대 10건" />
-      <p className={s.hint}>관련도순 대표 기사이며, 요약 분석에 사용한 기사 목록과는 다를 수 있습니다.</p>
+      <SectionTitle title={`${selected.country.countryName} 대표 기사`} note="최근 24시간 · 이슈 유사도순 최대 10건" />
       {articles.loading && !articles.data ? <p role="status">기사를 불러오고 있습니다…</p>
         : articles.error ? <div role="alert"><p>{articles.error.message}</p><button type="button" onClick={articles.retry}>다시 시도</button></div>
           : articles.data?.representArticles?.length ? <ArticleFeed articles={articles.data.representArticles.map(articleCard)} />

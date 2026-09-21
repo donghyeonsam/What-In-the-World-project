@@ -108,25 +108,25 @@ class IssueOverviewRepositoryTest extends TestContainerSupport {
         // given
         기사추가("rep-low", ISSUE_ID, "ZQ", 20, 0.1, now.minusHours(1), false);
         기사추가("rep-b", ISSUE_ID, "ZQ", 66, 0.9, now.minusHours(1), false);
-        기사추가("rep-a", ISSUE_ID, "ZR", 33, 0.9, now.minusDays(2), false);
+        기사추가("rep-a", ISSUE_ID, "ZR", 33, 0.9, now.minusHours(2), false);
         기사추가("rep-deleted", ISSUE_ID, "ZQ", 99, 1, now.minusHours(1), true);
         기사추가("rep-other", OTHER_ISSUE_ID, "ZQ", 99, 1, now.minusHours(1), false);
         // 테마 유사도와 이슈 유사도가 반대 순서가 되도록 설정
         jdbcTemplate.update("UPDATE article SET theme_relevance_score = 1 WHERE id = 'rep-low'");
 
         // when
-        var articles = articleRepository.getRepresentArticlesByIssueId(ISSUE_ID, 2);
+        var articles = articleRepository.getRepresentArticlesByIssueId(ISSUE_ID, 2, now);
 
         // then
         assertThat(articles).as("삭제·다른 이슈 제외, 이슈 유사도 내림차순 및 동점 ID 순, limit 적용")
                 .extracting(ArticleRepository.RepresentArticleProjection::getArticleId)
                 .containsExactly("rep-a", "rep-b");
-        assertThat(articles).as("기사 제목, 언론사, URL, 발행일 projection 매핑 및 기간 제한 없는 대표 기사")
+        assertThat(articles).as("최근 24시간 대표 기사의 제목, 언론사, URL, 발행일 projection 매핑")
                 .extracting(ArticleRepository.RepresentArticleProjection::getArticleTitle,
                         ArticleRepository.RepresentArticleProjection::getArticlePublisher,
                         ArticleRepository.RepresentArticleProjection::getUrl,
                         ArticleRepository.RepresentArticleProjection::getPublishedAt)
-                .containsExactly(tuple("제목 rep-a", "언론사", "https://example.com/rep-a", now.minusDays(2)),
+                .containsExactly(tuple("제목 rep-a", "언론사", "https://example.com/rep-a", now.minusHours(2)),
                         tuple("제목 rep-b", "언론사", "https://example.com/rep-b", now.minusHours(1)));
         assertThat(articles.getFirst().getArticleToneScore()).as("톤 점수 BigDecimal 매핑")
                 .isEqualByComparingTo(new BigDecimal("33"));

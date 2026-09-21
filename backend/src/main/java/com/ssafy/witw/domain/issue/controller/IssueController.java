@@ -34,9 +34,9 @@ public class IssueController {
     @GetMapping("/{issueId}/overview")
     @Operation(summary = "이슈 미리보기 조회", description = "이슈·테마 제목, 기사 수, 국가별 논조, 대표 기사를 반환합니다.")
     public ResponseEntity<BaseResponse<IssueOverviewResponse>> getIssueOverview(
-            @Parameter(description = "이슈 ID", example = "1") @PathVariable @Positive long issueId,
-            @Parameter(description = "대표 기사 개수 (1~10)") @RequestParam(defaultValue = "3") @Min(1) @Max(10) int articleLimit,
-            @Parameter(description = "대표 기사 발행 국가 코드") @RequestParam(required = false) @Pattern(regexp = "[a-zA-Z]{2}") String countryCode,
+            @Parameter(description = "이슈 ID", example = "1") @PathVariable("issueId") @Positive long issueId,
+            @Parameter(description = "대표 기사 개수 (1~10)") @RequestParam(name = "articleLimit", defaultValue = "3") @Min(1) @Max(10) int articleLimit,
+            @Parameter(description = "대표 기사 발행 국가 코드") @RequestParam(name = "countryCode", required = false) @Pattern(regexp = "[a-zA-Z]{2}") String countryCode,
             @RequestParam(name = "asOf", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS, issueService.getIssueOverview(issueId, articleLimit,
                 countryCode == null ? null : countryCode.toUpperCase(Locale.ROOT), QueryTime.resolve(asOf)));

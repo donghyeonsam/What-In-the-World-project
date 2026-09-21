@@ -46,15 +46,22 @@ public interface IssueRepository extends JpaRepository<Issue, Long> {
             FROM issue i
             JOIN article a ON a.issue_id = i.id
             WHERE i.theme_id = :themeId AND i.created_at <= :asOf
+                AND (CAST(:countryCode AS text) IS NULL OR a.publisher_country_code = :countryCode)
                 AND (a.deleted_at IS NULL OR a.deleted_at > :asOf)
                   AND a.issue_assigned_at <= :asOf
                   AND a.created_at <= :asOf
                   AND a.published_at < :asOf
+                  AND a.published_at >= CAST(:asOf AS timestamp) - INTERVAL '24 hours'
             GROUP BY i.id, i.name
             ORDER BY count(*) DESC, i.id ASC
             LIMIT :limit
 """, nativeQuery = true)
-    List<PrimaryIssue> getPrimaryIssuesByThemeId(@Param("themeId") Long themeId,@Param("limit") int limit, @Param("asOf") LocalDateTime asOf);
+    List<PrimaryIssue> getPrimaryIssuesByThemeId(@Param("themeId") Long themeId, @Param("limit") int limit,
+            @Param("asOf") LocalDateTime asOf, @Param("countryCode") String countryCode);
+
+    default List<PrimaryIssue> getPrimaryIssuesByThemeId(Long themeId, int limit, LocalDateTime asOf) {
+        return getPrimaryIssuesByThemeId(themeId, limit, asOf, null);
+    }
 
     default List<PrimaryIssue> getPrimaryIssuesByThemeId(Long themeId,int limit) {
         return getPrimaryIssuesByThemeId(themeId, limit, QueryTime.now());
