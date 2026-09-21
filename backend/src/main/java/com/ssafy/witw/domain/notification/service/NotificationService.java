@@ -52,7 +52,7 @@ public class NotificationService {
                 )
         );
 
-        Slice<Notification> result = notificationRepository.findByUserIdAndDeletedAtIsNull(userId, pageable);
+        Slice<Notification> result = notificationRepository.findByUserIdAndReadAtIsNullAndDeletedAtIsNull(userId, pageable);
 
         return new NotificationListResponse(
                 result.getContent().stream()
