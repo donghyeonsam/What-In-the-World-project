@@ -179,7 +179,7 @@ test('more and SSE invalidation reload all visible pages as offsets shift', asyn
   assert.equal(f.store.getSnapshot().arrival.id, 23);
 });
 
-test('connection and manual refreshes never announce old notifications as new', async (t) => {
+test('connection refresh stays quiet but a later refresh announces a genuinely new notification', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const f = fixture(t);
   f.store.start();
@@ -190,7 +190,7 @@ test('connection and manual refreshes never announce old notifications as new', 
   assert.equal(f.store.getSnapshot().arrival, null);
   f.data.items.unshift(item(3));
   await f.store.refresh();
-  assert.equal(f.store.getSnapshot().arrival, null);
+  assert.equal(f.store.getSnapshot().arrival.id, 3);
 });
 
 test('overlapping pagination results deduplicate notifications by ID', async (t) => {

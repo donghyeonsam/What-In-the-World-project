@@ -28,7 +28,7 @@ export function createNotificationStore({ api, connect, onExpired }) {
     onExpired?.();
     return true;
   };
-  async function refresh(page = state.page, announce = false) {
+  async function refresh(page = state.page) {
     if (!active || writing) return;
     const previousItems = state.items;
     const previousUnreadCount = state.unreadCount;
@@ -68,7 +68,9 @@ export function createNotificationStore({ api, connect, onExpired }) {
     } else patch.error = list.reason.message || '알림을 불러오지 못했습니다.';
     if (count.status === 'fulfilled' && Number.isSafeInteger(count.value?.unreadCount) && count.value.unreadCount >= 0) patch.unreadCount = count.value.unreadCount;
     else patch.error = patch.error || count.reason?.message || '미읽음 개수를 확인하지 못했습니다.';
-    if (announce && Array.isArray(patch.items) && Number.isSafeInteger(previousUnreadCount) && patch.unreadCount > previousUnreadCount) {
+    // 최초 로딩(previousUnreadCount === null)은 조용히 처리한다. 이후에는 갱신 경로와
+    // 무관하게 실제 새 ID와 미읽음 증가가 함께 확인되면 토스트 대상으로 전달한다.
+    if (Array.isArray(patch.items) && Number.isSafeInteger(previousUnreadCount) && patch.unreadCount > previousUnreadCount) {
       const knownIds = new Set(previousItems.map((item) => String(item.id)));
       const arrived = patch.items.find((item) => !item.readAt && !knownIds.has(String(item.id)));
       if (arrived) patch.arrival = { ...arrived, token: ++arrivalSequence };
@@ -77,10 +79,10 @@ export function createNotificationStore({ api, connect, onExpired }) {
     else patch.settingsError = settings.reason?.message || '알림 설정을 불러오지 못했습니다.';
     update(patch);
   }
-  function scheduleRefresh(announce = false) {
+  function scheduleRefresh() {
     if (!active) return;
     clearTimeout(timer);
-    timer = setTimeout(() => { void refresh(state.page, announce); }, 150);
+    timer = setTimeout(() => { void refresh(state.page); }, 150);
   }
   async function mutate(key, action, patch) {
     if (!active || writing) return false;
@@ -118,7 +120,7 @@ export function createNotificationStore({ api, connect, onExpired }) {
       const version = generation;
       void refresh();
       closeStream = connect({
-        onRefresh: (eventType) => { if (current(version)) scheduleRefresh(eventType === 'notifications-changed'); },
+        onRefresh: () => { if (current(version)) scheduleRefresh(); },
         onState: (streamState) => { if (current(version)) update({ streamState }); },
         // REST exposes a 401; EventSource errors don't expose HTTP response codes.
         onError: () => { if (current(version)) scheduleRefresh(); },

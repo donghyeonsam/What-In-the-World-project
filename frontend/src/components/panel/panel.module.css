@@ -112,8 +112,6 @@
 }
 .globalDashboard .issueCard:focus-visible { outline: 2px solid var(--wtw-accent); outline-offset: 3px; }
 .globalDashboard .issueRank { font-size: 19px; line-height: 1.2; color: var(--wtw-muted); padding-top: 0; font-variant-numeric: tabular-nums; }
-.globalDashboard .issueCard:first-child { border-color: var(--wtw-line-strong); background: var(--wtw-accent-soft); }
-.globalDashboard .issueCard:first-child .issueRank { color: var(--wtw-accent); }
 .globalDashboard .taxonomyMini { font-size: 11px; line-height: 1.5; margin-bottom: 6px; }
 .globalDashboard .issueMain strong { font-size: 14px; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; margin-bottom: 9px; letter-spacing: -0.02em; }
 .globalDashboard .issueMeta { font-size: 12px; line-height: 1.4; font-variant-numeric: tabular-nums; }
