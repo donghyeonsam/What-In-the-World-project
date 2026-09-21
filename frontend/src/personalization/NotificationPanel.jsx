@@ -66,30 +66,22 @@ export default function NotificationPanel({ notifications, interests, onClose, o
 }
 
 function NotificationSettings({ notifications, themes, onProfile, change }) {
-  const { enabled, busy, loading, settingsError, themeSettings, store } = notifications;
+  const { enabled, busy, loading, settingsError, store } = notifications;
   return <>
     <div className={s.settingRow}>
-      <div><h3>전체 알림</h3><p className={s.hint}>테마별 설정은 유지하고 새 알림 수신만 켜거나 꺼요.</p></div>
+      <div><h3>전체 알림</h3><p className={s.hint}>관심 테마는 그대로 두고 모든 새 알림 수신을 한 번에 켜거나 꺼요.</p></div>
       <button type="button" role="switch" aria-checked={enabled === true} aria-label="전체 알림 수신" disabled={enabled === null || !!busy || loading} className={s.notificationSwitch} onClick={() => change(() => store.updateSettings(!enabled), enabled ? '전체 알림을 껐습니다.' : '전체 알림을 켰습니다.')}><span aria-hidden="true" />{enabled === null ? '확인 중' : enabled ? 'ON' : 'OFF'}</button>
     </div>
     {settingsError && <p className={s.error} role="alert">{settingsError} <button type="button" disabled={!!busy || loading} onClick={() => store.refresh()}>다시 시도</button></p>}
-    {enabled === false && <p className={s.notificationFeedback}>전체 알림이 꺼져 있어요. 아래 테마를 켜도 전체 알림을 켜기 전까지 새 알림이 생성되지 않아요.</p>}
+    {enabled === false && <p className={s.notificationFeedback}>전체 알림이 꺼져 있어요. 관심 테마는 유지되지만 다시 켜기 전까지 새 알림이 생성되지 않아요.</p>}
     <section className={s.section}>
       <div className={s.notificationToolbar}><h3>관심 테마 알림</h3><button type="button" className={s.textButton} onClick={onProfile}>테마 선택하기 →</button></div>
-      <p className={s.description}>관심 테마에 새 기사가 올라오면 알림을 보내요. 테마를 삭제하지 않고 알림만 따로 끌 수 있어요.</p>
+      <p className={s.description}>관심 테마로 등록하면 해당 테마의 새 기사 알림을 자동으로 받아요.</p>
       {!themes.length && <div className={s.empty}><h3>먼저 관심 테마를 선택해 주세요</h3><p>68개 테마 중 원하는 테마를 고르면 새 기사 알림을 받을 수 있어요.</p><button type="button" className={s.secondary} onClick={onProfile}>관심 테마 선택</button></div>}
-      {themes.map((theme) => {
-        const value = Object.hasOwn(themeSettings, theme.id) ? themeSettings[theme.id] : theme.notificationEnabled;
-        const known = typeof value === 'boolean';
-        return <div className={s.settingRow} key={theme.id}>
-          <div><strong>{theme.name}</strong><p className={s.hint}>{known ? (value ? '새 기사 알림을 받고 있어요' : '새 기사 알림을 받지 않아요') : '원하는 수신 방법을 선택해 주세요'}</p></div>
-          <div className={s.themeSettingActions}>
-            <button type="button" aria-pressed={known ? value : undefined} disabled={!!busy || known && value} onClick={() => change(() => store.updateThemeSettings(theme.id, true), `${theme.name} 새 기사 알림을 받습니다.`)}>알림 받기</button>
-            <button type="button" aria-pressed={known ? !value : undefined} disabled={!!busy || known && !value} onClick={() => change(() => store.updateThemeSettings(theme.id, false), `${theme.name} 새 기사 알림을 받지 않습니다.`)}>받지 않기</button>
-          </div>
-        </div>;
-      })}
-      {themes.some((theme) => typeof theme.notificationEnabled !== 'boolean') && <p className={s.footnote}>설정을 처음 여는 경우 수신 상태를 바로 확인할 수 없어요. 한 번 선택하면 현재 화면에 저장 결과가 표시됩니다.</p>}
+      {themes.length > 0 && <div className={s.notificationThemeList} aria-label="알림 받는 관심 테마">
+        {themes.map((theme) => <span key={theme.id}><i aria-hidden="true">✓</i>{theme.name}</span>)}
+      </div>}
+      {themes.length > 0 && <p className={s.footnote}>테마 알림을 그만 받으려면 관심 테마에서 해제해 주세요.</p>}
     </section>
   </>;
 }
