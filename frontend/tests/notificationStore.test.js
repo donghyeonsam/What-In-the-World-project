@@ -52,11 +52,11 @@ function fixture(t, initialItems = [item(2), item(1)]) {
     },
     read: async (id) => {
       calls.push({ method: 'read', id });
-      data.items = data.items.map((row) => row.id === id ? { ...row, readAt: '2026-09-21T10:00:00' } : row);
+      data.items = data.items.filter((row) => row.id !== id);
     },
     readAll: async () => {
       calls.push({ method: 'readAll' });
-      data.items = data.items.map((row) => ({ ...row, readAt: '2026-09-21T10:00:00' }));
+      data.items = [];
     },
     remove: async (id) => {
       calls.push({ method: 'remove', id });
@@ -108,11 +108,11 @@ test('read, delete, read-all and setting mutations reconcile badge and visible r
   f.store.start();
   await settle();
   assert.equal(await f.store.read(2), true);
-  assert.ok(f.store.getSnapshot().items[0].readAt);
-  assert.equal(f.store.getSnapshot().unreadCount, 1);
-  assert.equal(await f.store.remove(2), true);
   assert.deepEqual(f.store.getSnapshot().items.map(({ id }) => id), [1]);
   assert.equal(f.store.getSnapshot().unreadCount, 1);
+  assert.equal(await f.store.remove(1), true);
+  assert.deepEqual(f.store.getSnapshot().items, []);
+  assert.equal(f.store.getSnapshot().unreadCount, 0);
   assert.equal(await f.store.readAll(), true);
   assert.equal(f.store.getSnapshot().unreadCount, 0);
   assert.equal(await f.store.updateSettings(false), true);

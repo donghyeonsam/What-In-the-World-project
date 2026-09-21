@@ -38,7 +38,7 @@ export default function NotificationPanel({ notifications, interests, onClose, o
         <p className={s.description}>관심 테마의 새로운 소식을 모았어요.</p>
         <div>
           <button type="button" className={s.textButton} disabled={disabled || loading} onClick={() => store.refresh()}>새로고침</button>
-          <button type="button" className={s.textButton} disabled={disabled || loading || !unreadCount} onClick={() => change(() => store.readAll(), '모든 알림을 읽음 처리했습니다.')}>전체 읽음</button>
+          <button type="button" className={s.textButton} disabled={disabled || loading || !unreadCount} onClick={() => change(() => store.readAll(), '모든 알림을 확인했습니다.')}>전체 확인</button>
         </div>
       </div>
       {streamState !== 'connected' && <p className={s.hint}>연결을 복구하고 있습니다. 새로고침으로 최신 알림을 확인할 수 있어요.</p>}
@@ -53,7 +53,7 @@ export default function NotificationPanel({ notifications, interests, onClose, o
             <div className={s.notificationFooter}>
               <span><time dateTime={item.createdAt}>{dateLabel(item.createdAt)}</time><span>기사 {item.articleCount}건</span></span>
               <div>
-                {!item.readAt && <button type="button" disabled={disabled} onClick={() => change(() => store.read(item.id), '알림을 읽음 처리했습니다.')} aria-label={`${item.title} 읽음 처리`}>읽음</button>}
+                {!item.readAt && <button type="button" disabled={disabled} onClick={() => change(() => store.read(item.id), '알림을 확인했습니다.')} aria-label={`${item.title} 확인`}>확인</button>}
                 <button type="button" disabled={disabled} onClick={() => change(() => store.remove(item.id), '알림을 삭제했습니다.')} aria-label={`${item.title} 삭제`}>삭제</button>
               </div>
             </div>
