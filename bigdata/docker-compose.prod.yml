@@ -484,10 +484,11 @@ services:
       KAFKA_ENRICHED_TOPIC: news.enriched.v1
       KAFKA_EVENT_TOPIC: news.event.v1
       KAFKA_UNCLASSIFIED_TOPIC: news.unclassified.v1
-      # 운영 값은 /opt/news-bigdata/.env에서 읽으며 Spark는 Issue 조회 권한만 필요하다.
-      POSTGRESQL_URL: ${POSTGRESQL_URL:?POSTGRESQL_URL must be set}
-      POSTGRESQL_USER: ${POSTGRESQL_USER:?POSTGRESQL_USER must be set}
-      POSTGRESQL_PASSWORD: ${POSTGRESQL_PASSWORD:?POSTGRESQL_PASSWORD must be set}
+      # 현재 BigData 배포는 개발 DB만 사용한다. DEV_ 접두사로 분리해 과거에
+      # 남은 운영 POSTGRESQL_URL이 실수로 재사용되지 않도록 한다.
+      POSTGRESQL_URL: jdbc:postgresql://${DEV_POSTGRESQL_HOST:?DEV_POSTGRESQL_HOST must be set}:5433/witw_dev
+      POSTGRESQL_USER: witw_dev
+      POSTGRESQL_PASSWORD: ${DEV_POSTGRES_PASSWORD:?DEV_POSTGRES_PASSWORD must be set}
       ISSUE_MATCH_THRESHOLD: ${ISSUE_MATCH_THRESHOLD:-0.93}
       SPARK_CHECKPOINT_LOCATION: ${SPARK_CHECKPOINT_LOCATION:-hdfs://namenode:9000/checkpoints/enriched-article-events-v1}
       SPARK_STARTING_OFFSETS: ${SPARK_STARTING_OFFSETS:-earliest}
@@ -557,9 +558,9 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       KAFKA_UNCLASSIFIED_TOPIC: news.unclassified.v1
       KAFKA_EVENT_TOPIC: news.event.v1
-      POSTGRESQL_URL: ${POSTGRESQL_URL:?POSTGRESQL_URL must be set}
-      POSTGRESQL_USER: ${POSTGRESQL_USER:?POSTGRESQL_USER must be set}
-      POSTGRESQL_PASSWORD: ${POSTGRESQL_PASSWORD:?POSTGRESQL_PASSWORD must be set}
+      POSTGRESQL_URL: jdbc:postgresql://${DEV_POSTGRESQL_HOST:?DEV_POSTGRESQL_HOST must be set}:5433/witw_dev
+      POSTGRESQL_USER: witw_dev
+      POSTGRESQL_PASSWORD: ${DEV_POSTGRES_PASSWORD:?DEV_POSTGRES_PASSWORD must be set}
       GMS_API_KEY: ${GMS_API_KEY:?GMS_API_KEY must be set}
       ISSUE_CLUSTER_MAX_ARTICLES_PER_THEME: ${ISSUE_CLUSTER_MAX_ARTICLES_PER_THEME:-2000}
       ISSUE_CLUSTER_CHECKPOINT_LOCATION: ${ISSUE_CLUSTER_CHECKPOINT_LOCATION:-hdfs://namenode:9000/checkpoints/unclassified-issue-stream-v1}
