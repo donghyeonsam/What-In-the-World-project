@@ -48,6 +48,8 @@
 .iconButton svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .iconButton:hover, .iconButton[aria-expanded=true] { color: var(--wtw-accent); border-color: var(--wtw-accent); background: var(--wtw-accent-soft); }
 .iconButton:focus-visible { outline: 2px solid var(--wtw-accent); outline-offset: 3px; }
+.notificationButton { position: relative; }
+.notificationBadge { position: absolute; right: -6px; top: -6px; display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 10px; border: 2px solid var(--wtw-panel); color: var(--wtw-bg); background: var(--wtw-accent); font-size: 9px; font-weight: 700; box-sizing: border-box; }
 .menuRoot { position: relative; }
 .menu { position: absolute; top: calc(100% + 8px); right: 0; min-width: 190px; padding: 6px; display: grid; gap: 2px; background: var(--wtw-bg); border: 1px solid var(--wtw-line-strong); border-radius: 12px; box-shadow: 0 16px 48px #0006; z-index: 30; }
 .menuEmail { margin: 0 0 4px; padding: 8px 10px 8px; font-size: 11px; color: var(--wtw-muted); overflow-wrap: anywhere; border-bottom: 1px solid var(--wtw-line); }

@@ -7,6 +7,8 @@ import { httpNewsSource } from '../news/newsSource.js';
 import { accountApi } from './accountApi.js';
 import { readSsafyCallback } from './ssafyOAuth.js';
 import { AuthForm, PasswordForm, WithdrawForm } from './AccountForms.jsx';
+import NotificationPanel from './NotificationPanel.jsx';
+import { useNotifications } from './useNotifications.js';
 import { accountStorageKey, emptyInterests, parseInterests, loadPersonalNews } from './model.js';
 import s from './Personalization.module.css';
 
@@ -24,6 +26,7 @@ export function PersonalizationProvider({ children }) {
   const revision = useRef(0);
   const user = session?.user || null;
   const interests = session?.interests || emptyInterests();
+  const notifications = useNotifications(user?.id, () => expire());
   async function refreshSession(signal) {
     const version = ++revision.current;
     setChecking(true); setSessionError('');
@@ -33,7 +36,7 @@ export function PersonalizationProvider({ children }) {
       // 관심 테마는 서버가 원본이다. 목록 조회가 실패해도 로그인 자체는 유지한다.
       let themes = null;
       let themeError = '';
-      try { themes = (await accountApi.interestThemes(signal)).map((row) => ({ id: row.themeId, name: row.themeName })); }
+      try { themes = (await accountApi.interestThemes(signal)).map((row) => ({ id: row.themeId, name: row.themeName, ...(typeof row.notificationEnabled === 'boolean' ? { notificationEnabled: row.notificationEnabled } : {}) })); }
       catch (error) { if (error.status === 401) throw error; themeError = `관심 테마를 불러오지 못했습니다. ${error.message}`; }
       if (version !== revision.current) return null;
       setInterestError(themeError);
@@ -86,6 +89,7 @@ export function PersonalizationProvider({ children }) {
     catch { /* Storage is optional. */ }
   }, [session]);
   function expire(message = '로그인이 만료되었습니다. 다시 로그인해 주세요.') {
+    notifications.store.stop();
     revision.current++; setSession(null); setChecking(false); setNotice(message); setPanel('profile');
   }
   const toggle = async (kind, item) => {
@@ -114,6 +118,7 @@ export function PersonalizationProvider({ children }) {
       else failure = error.message;
     } finally { setPending((old) => old.filter((id) => id !== item.id)); }
     if (failure) { setInterestError(failure); return failure; }
+    notifications.store.forgetTheme(item.id);
     setSession((old) => {
       if (!old) return old;
       const list = old.interests.themes.filter((entry) => entry.id !== item.id);
@@ -121,19 +126,25 @@ export function PersonalizationProvider({ children }) {
     });
     return '';
   };
-  const openPanel = (next) => { setNotice(''); setPanel(next); if (user) refreshSession(); };
-  const logout = async () => { await accountApi.logout(); revision.current++; setSession(null); setPanel(null); };
+  const openPanel = (next) => { setNotice(''); setPanel(next); if (user) { refreshSession(); if (next === 'notifications') notifications.store.refresh(); } };
+  const logout = async () => {
+    notifications.store.stop();
+    try { await accountApi.logout(); }
+    catch (error) { if (error.status !== 401) { notifications.store.start(); throw error; } }
+    revision.current++; setSession(null); setPanel(null);
+  };
   const completeWithdrawal = async () => {
+    notifications.store.stop();
     if (user) try { localStorage.removeItem(accountStorageKey(user.id)); } catch { /* Storage is optional. */ }
     revision.current++; setSession(null); setChecking(false);
     setNotice('회원 탈퇴가 완료되었습니다.'); setPanel('profile');
   };
-  const context = { user, interests, toggle, pending, panel, setPanel: openPanel, checking, logout };
-  return <Context.Provider value={context}>{children}{panel && <Modal title={checking ? '계정 확인' : !user ? '로그인 / 회원가입' : panel === 'inbox' ? '뉴스 구독함' : '마이페이지'} close={() => setPanel(null)} inbox={!!user && panel === 'inbox'}>
+  const context = { user, interests, toggle, pending, panel, setPanel: openPanel, checking, logout, unreadCount: notifications.unreadCount };
+  return <Context.Provider value={context}>{children}{panel && <Modal title={checking ? '계정 확인' : !user ? '로그인 / 회원가입' : panel === 'notifications' ? '알림' : panel === 'inbox' ? '뉴스 구독함' : '마이페이지'} close={() => setPanel(null)} inbox={!!user && (panel === 'inbox' || panel === 'notifications')}>
     {checking ? <p role="status">로그인 상태를 확인하고 있습니다…</p> : !user ? <>
       {sessionError && <p className={s.error} role="alert">{sessionError} <button type="button" onClick={() => refreshSession()}>다시 확인</button></p>}
       <AuthForm notice={notice} onLogin={async () => { const current = await refreshSession(); if (!current) { setSessionError('로그인 세션을 확인하지 못했습니다. 연결 상태를 확인해 주세요.'); return; } setPanel('profile'); setNotice(''); }} />
-    </> : panel === 'inbox' ? <Inbox key={user.id} interests={interests} onProfile={() => setPanel('profile')} /> : <Profile key={user.id} user={user} interests={interests} toggle={toggle} pending={pending} interestError={interestError} onInbox={() => setPanel('inbox')} onExpired={expire} onLogout={logout} onWithdraw={completeWithdrawal} />}
+    </> : panel === 'notifications' ? <NotificationPanel key={user.id} notifications={notifications} interests={interests} onClose={() => setPanel(null)} onProfile={() => setPanel('profile')} /> : panel === 'inbox' ? <Inbox key={user.id} interests={interests} onProfile={() => setPanel('profile')} /> : <Profile key={user.id} user={user} interests={interests} toggle={toggle} pending={pending} interestError={interestError} onInbox={() => setPanel('inbox')} onNotifications={() => { setPanel('notifications'); notifications.store.refresh(); }} onExpired={expire} onLogout={logout} onWithdraw={completeWithdrawal} />}
   </Modal>}</Context.Provider>;
 }
 
@@ -173,10 +184,45 @@ export function InterestButton({ kind, id, name }) {
 function Chips({ items, remove, pending = [] }) {
   return <div className={s.chips}>{items.map((item) => <span className={s.chip} key={item.id}>{item.name}<button type="button" disabled={pending.includes(item.id)} onClick={() => remove(item)} aria-label={`${item.name} 관심 해제`}><CloseIcon /></button></span>)}</div>;
 }
-function Profile({ user, interests, toggle, pending, interestError, onInbox, onExpired, onLogout, onWithdraw }) {
+
+export function ThemePicker({ fields, selected, pending, query, setQuery, toggle, disabled }) {
+  const normalized = query.trim().toLocaleLowerCase('ko-KR');
+  const total = fields.reduce((count, field) => count + field.themes.length, 0);
+  const visible = fields.map((field) => ({
+    ...field,
+    themes: field.themes.filter((theme) => !normalized || theme.themeName.toLocaleLowerCase('ko-KR').includes(normalized)),
+  })).filter((field) => field.themes.length);
+  const isSelected = (id) => selected.some((item) => String(item.id) === String(id));
+  return <section className={`${s.section} ${s.themePicker}`}>
+    <div className={s.themePickerHeading}>
+      <div><h3>관심 테마 선택</h3><p className={s.hint}>선택한 테마의 뉴스와 새 기사 알림을 받아볼 수 있어요.</p></div>
+      <strong>{selected.length}<small> / {total}개 선택</small></strong>
+    </div>
+    {selected.length > 0 && <div className={s.selectedThemes}><span>선택됨</span><Chips items={selected} remove={toggle} pending={pending} /></div>}
+    <label className={s.themeSearch} htmlFor="interest-theme-search">
+      <span aria-hidden="true">⌕</span>
+      <input id="interest-theme-search" type="search" value={query} disabled={disabled} placeholder="테마 이름 검색" onChange={(event) => setQuery(event.target.value)} />
+      {query && <button type="button" onClick={() => setQuery('')} aria-label="테마 검색어 지우기">×</button>}
+    </label>
+    <div className={s.themeCatalog} aria-label={`전체 테마 ${total}개`} aria-busy={disabled}>
+      {visible.map((field) => <section key={field.fieldId} className={s.themeGroup}>
+        <h4>{field.fieldName}<small>{field.themes.length}개</small></h4>
+        <div>{field.themes.map((theme) => {
+          const chosen = isSelected(theme.themeId);
+          return <button key={theme.themeId} type="button" aria-pressed={chosen} disabled={disabled || pending.includes(theme.themeId)} onClick={() => toggle({ id: theme.themeId, name: theme.themeName })}>
+            <span aria-hidden="true">{chosen ? '✓' : '+'}</span>{theme.themeName}
+          </button>;
+        })}</div>
+      </section>)}
+      {!disabled && visible.length === 0 && <p className={s.themeEmpty}>검색 결과가 없어요. 다른 단어로 찾아보세요.</p>}
+    </div>
+  </section>;
+}
+function Profile({ user, interests, toggle, pending, interestError, onInbox, onNotifications, onExpired, onLogout, onWithdraw }) {
   const [tab, setTab] = useState('interests');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [themeQuery, setThemeQuery] = useState('');
   const filters = useResource('subscription-filters', (signal) => httpNewsSource.filters({ signal }));
   return <>
     <div className={s.account}><span className={s.avatar}>{user.email.slice(0, 1).toUpperCase()}</span><div><strong>{user.email}</strong></div><button className={s.textButton} type="button" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { await onLogout(); } catch (err) { if (err.status === 401) onExpired(); else setError(err.message); } finally { setBusy(false); } }}>로그아웃</button></div>
@@ -187,12 +233,10 @@ function Profile({ user, interests, toggle, pending, interestError, onInbox, onE
       {interestError && <p role="alert" className={s.error}>{interestError}</p>}
       {filters.loading && <p role="status">선택 목록을 불러오는 중…</p>}
       {filters.error && <p role="alert" className={s.error}>{filters.error.message} <button type="button" onClick={filters.retry}>다시 시도</button></p>}
-      <section className={s.section}><label className={s.label} htmlFor="interest-theme">테마 키워드 <small>{interests.themes.length}개</small></label><p className={s.hint}>뉴스를 구독할 테마를 선택하세요. 여러 개를 추가할 수 있습니다.</p>
-        <select id="interest-theme" value="" disabled={filters.loading || !filters.data || pending.length > 0} onChange={(e) => { const item = filters.data.fields.flatMap((f) => f.themes).find((t) => String(t.themeId) === e.target.value); if (item) toggle('themes', { id: item.themeId, name: item.themeName }); }}><option value="" disabled>테마 키워드 선택</option>{(filters.data?.fields || []).map((field) => <optgroup key={field.fieldId} label={field.fieldName}>{field.themes.filter((t) => !interests.themes.some((v) => v.id === t.themeId)).map((t) => <option key={t.themeId} value={t.themeId}>{t.themeName}</option>)}</optgroup>)}</select>
-        <Chips items={interests.themes} remove={(item) => toggle('themes', item)} pending={pending} />
-      </section>
+      <ThemePicker fields={filters.data?.fields || []} selected={interests.themes} pending={pending} query={themeQuery} setQuery={setThemeQuery} toggle={(item) => toggle('themes', item)} disabled={filters.loading || !filters.data} />
       {interests.issues.length > 0 && <section className={s.section}><h3>관심 이슈</h3><p className={s.hint}>이슈 상세에서 등록한 항목입니다.</p><Chips items={interests.issues} remove={(item) => toggle('issues', item)} /></section>}
       <button type="button" className={`${s.primary} ${s.inboxLink}`} onClick={onInbox}>뉴스 구독함 보기 →</button>
+      <button type="button" className={`${s.secondary} ${s.inboxLink}`} onClick={onNotifications}>알림 및 수신 설정 →</button>
     </>}
   </>;
 }

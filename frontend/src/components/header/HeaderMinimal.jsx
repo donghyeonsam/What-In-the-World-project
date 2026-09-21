@@ -92,6 +92,10 @@ export default function HeaderMinimal({
           <kbd className={s.kbd}>{shortcut}</kbd>
         </button>}
         {personal && <>
+          {personal.user && <button type="button" className={`${s.iconButton} ${s.notificationButton}`} aria-label={`알림${personal.unreadCount === null ? '' : `, 미읽음 ${personal.unreadCount}개`}`} title="알림" aria-haspopup="dialog" aria-expanded={personal.panel === 'notifications'} onClick={() => personal.setPanel('notifications')}>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>
+            {personal.unreadCount > 0 && <span className={s.notificationBadge} aria-hidden="true">{personal.unreadCount > 99 ? '99+' : personal.unreadCount}</span>}
+          </button>}
           {personal.user && <button type="button" className={s.iconButton} aria-label="뉴스 구독함" title="뉴스 구독함" aria-haspopup="dialog" aria-expanded={personal.panel === 'inbox'} onClick={() => personal.setPanel('inbox')}>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16l2 10v5H2v-5L4 5Z" /><path d="M2 15h6l2 3h4l2-3h6M8 9h8M9 12h6" /></svg>
           </button>}

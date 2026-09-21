@@ -67,11 +67,12 @@ export default function App() {
 
 function AppContent() {
   const [search, setSearch] = useState(() => typeof window === 'undefined' ? '' : window.location.search);
+  const [navigationRevision, setNavigationRevision] = useState(0);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [trip, setTrip] = useState(null);
   const asOf = readAsOf(search);
   useEffect(() => {
-    const sync = () => { setSearch(window.location.search); setTrip(null); setPickerOpen(false); };
+    const sync = () => { setSearch(window.location.search); setNavigationRevision((value) => value + 1); setTrip(null); setPickerOpen(false); };
     window.addEventListener('popstate', sync);
     return () => window.removeEventListener('popstate', sync);
   }, []);
@@ -104,7 +105,7 @@ function AppContent() {
     <HeaderMinimal {...timeProps} route="news" showSearch={false} onRoute={(next) => {
       if (next !== 'news') navigate(next === 'country' ? '?view=country' : '');
     }} />
-    <NewsPage key={asOf || 'live'} asOf={asOf} search={search} navigate={navigate} />
+    <NewsPage key={`${asOf || 'live'}:${navigationRevision}`} asOf={asOf} search={search} navigate={navigate} />
   </> : <DashboardApp trip={trip} onArrive={arrive} timeProps={timeProps} asOf={asOf} onNews={() => navigate('?view=news&page=1')} initialCountry={route === 'country'} />;
   return <><PageTransition screenKey={route === 'news' ? 'news' : 'dashboard'}>{page}</PageTransition>
     {pickerOpen && <TimeMachinePicker asOf={asOf} onClose={() => setPickerOpen(false)} onTravel={travel} />}
