@@ -33,6 +33,31 @@
 .chip button { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 4px; }
 .chip button:hover { background: var(--wtw-surface-2); }
 .chip svg { width: 14px; height: 14px; }
+.themePicker { padding: 18px; border: 1px solid var(--wtw-line); border-radius: 12px; background: color-mix(in srgb, var(--wtw-surface) 72%, transparent); }
+.themePickerHeading { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+.themePickerHeading h3 { margin: 0; font-size: 16px; }
+.themePickerHeading .hint { margin-bottom: 0; }
+.themePickerHeading > strong { flex-shrink: 0; color: var(--wtw-accent); font-size: 18px; }
+.themePickerHeading > strong small { color: var(--wtw-muted); font-size: 11px; font-weight: 400; }
+.selectedThemes { padding: 12px; margin-top: 16px; border-radius: 9px; background: var(--wtw-accent-soft); }
+.selectedThemes > span { display: block; margin-bottom: 8px; color: var(--wtw-muted); font-size: 10px; font-weight: 600; letter-spacing: .06em; }
+.selectedThemes .chips { margin-top: 0; }
+.themeSearch { position: relative; display: flex; align-items: center; margin-top: 16px; }
+.themeSearch > span { position: absolute; left: 13px; color: var(--wtw-muted); font-size: 19px; pointer-events: none; }
+.themeSearch input { box-sizing: border-box; width: 100%; height: 44px; padding: 0 42px 0 38px; border: 1px solid var(--wtw-line-strong); border-radius: 9px; background: var(--wtw-bg-2); color: var(--wtw-text); font-size: 13px; }
+.themeSearch input:focus { border-color: var(--wtw-accent); outline: 2px solid color-mix(in srgb, var(--wtw-accent) 28%, transparent); outline-offset: 1px; }
+.themeSearch input::-webkit-search-cancel-button { display: none; }
+.themeSearch button { position: absolute; right: 8px; width: 30px; height: 30px; border-radius: 6px; color: var(--wtw-muted); font-size: 18px; }
+.themeCatalog { display: grid; gap: 18px; max-height: 340px; overflow-y: auto; margin-top: 16px; padding-right: 5px; scrollbar-width: thin; scrollbar-color: var(--wtw-line-strong) transparent; }
+.themeGroup { margin: 0; }
+.themeGroup h4 { display: flex; align-items: center; gap: 6px; margin-bottom: 9px; color: var(--wtw-text-2); font-size: 12px; }
+.themeGroup h4 small { color: var(--wtw-muted); font-weight: 400; }
+.themeGroup > div { display: flex; flex-wrap: wrap; gap: 7px; }
+.themeGroup button { display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 7px 10px; border: 1px solid var(--wtw-line); border-radius: 8px; color: var(--wtw-text-2); background: var(--wtw-bg-2); font-size: 12px; }
+.themeGroup button:hover:not(:disabled) { border-color: var(--wtw-accent); color: var(--wtw-text); }
+.themeGroup button[aria-pressed=true] { border-color: var(--wtw-accent); color: var(--wtw-accent); background: var(--wtw-accent-soft); }
+.themeGroup button > span { width: 13px; color: var(--wtw-accent); text-align: center; }
+.themeEmpty { padding: 28px 0; text-align: center; color: var(--wtw-muted); font-size: 12px; }
 .primary, .secondary, .follow { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 10px 14px; border-radius: 8px; font-size: 13px; text-align: center; }
 .primary { width: 100%; background: var(--wtw-accent); color: var(--wtw-on-accent); font-weight: 600; }
 .ssafyLogin { width: 100%; min-height: 48px; margin-top: 18px; padding: 0 16px; display: flex; align-items: center; justify-content: center; gap: 11px; border: 1px solid #5ab7c3; border-radius: 9px; background: linear-gradient(135deg, #69d0d8, #80c8cf); color: #071a22; }
@@ -82,3 +107,55 @@
 .reader > p:not(.hint) { line-height: 1.9; font-size: 14px; margin: 20px 0; white-space: pre-line; }
 .reader a { color: var(--wtw-accent); }
 @media (max-width: 600px) { .heading { padding: 18px 20px; } .body { padding: 20px; } }
+.notificationSummary { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.notificationSummary > div { display: grid; }
+.notificationSummary strong { font-size: 32px; color: var(--wtw-text); line-height: 1.25; }
+.notificationSummary strong small { font-size: 13px; margin-left: 6px; color: var(--wtw-muted); font-weight: 400; }
+.connectionState { display: inline-flex; align-items: center; gap: 6px; color: var(--wtw-muted); font-size: 11px; }
+.connectionState i { width: 6px; height: 6px; background: var(--wtw-muted); border-radius: 50%; }
+.connected { color: var(--wtw-accent); }
+.connected i { background: var(--wtw-accent); }
+.notificationToolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.notificationToolbar > div { display: flex; gap: 14px; flex-shrink: 0; }
+.notificationToolbar h3 { margin: 0; }
+.notificationFeedback { font-size: 12px; line-height: 1.7; color: var(--wtw-accent); background: var(--wtw-accent-soft); padding: 10px 12px; border-radius: 8px; margin: 8px 0 16px; }
+.notificationList { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.notificationItem { position: relative; padding: 16px 18px; background: var(--wtw-surface); border: 1px solid var(--wtw-line); border-radius: 12px; }
+.unreadItem { border-color: var(--wtw-line-strong); background: var(--wtw-accent-soft); }
+.unreadItem::before { content: ''; position: absolute; top: 20px; left: 0; width: 3px; height: 24px; border-radius: 0 3px 3px 0; background: var(--wtw-accent); }
+.notificationMeta { display: flex; align-items: start; justify-content: space-between; gap: 10px; font-size: 11px; color: var(--wtw-muted); margin-bottom: 10px; }
+.readState { white-space: nowrap; }
+.unreadItem .readState { color: var(--wtw-accent); }
+.notificationTitle { display: flex; align-items: start; justify-content: space-between; gap: 12px; width: 100%; text-align: left; line-height: 1.6; font-size: 15px; font-weight: 600; color: var(--wtw-text); overflow-wrap: anywhere; }
+.notificationTitle > span { color: var(--wtw-accent); }
+.notificationTitle:hover { color: var(--wtw-accent); }
+.notificationMessage { margin: 6px 0 14px; font-size: 12px; line-height: 1.7; color: var(--wtw-muted); overflow-wrap: anywhere; }
+.notificationFooter { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--wtw-muted); font-size: 11px; }
+.notificationFooter > span { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.notificationFooter > div { display: flex; gap: 12px; flex-shrink: 0; }
+.notificationFooter button { color: var(--wtw-text-2); padding: 5px 0; }
+.notificationFooter button:hover { color: var(--wtw-accent); }
+.notificationMore { width: 100%; margin-top: 18px; }
+.settingRow { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--wtw-line); }
+.settingRow > div:first-child { min-width: 0; }
+.settingRow strong, .settingRow h3 { font-size: 14px; overflow-wrap: anywhere; }
+.settingRow .hint { margin: 6px 0 0; }
+.notificationSwitch { flex-shrink: 0; display: flex; align-items: center; gap: 8px; border: 1px solid var(--wtw-line-strong); border-radius: 20px; padding: 7px 10px; min-width: 78px; font-size: 11px; color: var(--wtw-muted); }
+.notificationSwitch > span { width: 14px; height: 14px; border-radius: 50%; background: var(--wtw-muted); }
+.notificationSwitch[aria-checked=true] { border-color: var(--wtw-accent); color: var(--wtw-accent); background: var(--wtw-accent-soft); }
+.notificationSwitch[aria-checked=true] > span { background: var(--wtw-accent); }
+.themeSettingActions { display: flex; gap: 4px; flex-shrink: 0; }
+.themeSettingActions button { border: 1px solid var(--wtw-line); border-radius: 6px; padding: 8px 10px; font-size: 12px; color: var(--wtw-text-2); white-space: nowrap; }
+.themeSettingActions button[aria-pressed=true] { color: var(--wtw-accent); background: var(--wtw-accent-soft); border-color: var(--wtw-accent); opacity: 1; }
+.notificationList button:focus-visible, .themeSettingActions button:focus-visible, .notificationSwitch:focus-visible { outline: 2px solid var(--wtw-accent); outline-offset: 3px; }
+@media (max-width: 600px) {
+  .notificationToolbar { align-items: start; flex-wrap: wrap; }
+  .notificationItem { padding: 14px; }
+  .notificationTitle { font-size: 14px; }
+  .notificationFooter { align-items: end; }
+  .themePicker { padding: 14px; }
+  .themePickerHeading { display: grid; }
+  .themeCatalog { max-height: 300px; }
+  .settingRow { align-items: start; }
+  .themeSettingActions { display: grid; }
+}
