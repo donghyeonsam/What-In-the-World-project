@@ -38,7 +38,7 @@ public class CountryController {
     public ResponseEntity<BaseResponse<CountryMainResponse>> getCountryMain(
             @Parameter(description = "영문 두 자리 국가 코드 (대소문자 무관)", example = "KR")
             @PathVariable @Pattern(regexp = "[a-zA-Z]{2}") String countryCode,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
+            @RequestParam(name = "asOf", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS,
                 countryService.getCountryMain(countryCode.toUpperCase(Locale.ROOT), QueryTime.resolve(asOf)));
     }
@@ -49,7 +49,7 @@ public class CountryController {
             @Parameter(description = "영문 두 자리 국가 코드 (대소문자 무관)", example = "KR")
             @PathVariable @Pattern(regexp = "[a-zA-Z]{2}") String countryCode,
             @Parameter(description = "인기 테마 개수 (1~10)") @RequestParam(defaultValue = "3") @Min(1) @Max(10) int limit,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
+            @RequestParam(name = "asOf", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS,
                 themeService.getPopularThemes(countryCode.toUpperCase(Locale.ROOT), limit, QueryTime.resolve(asOf)));
     }

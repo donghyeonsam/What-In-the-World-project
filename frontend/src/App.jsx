@@ -70,9 +70,16 @@ function AppContent() {
   const [navigationRevision, setNavigationRevision] = useState(0);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [trip, setTrip] = useState(null);
+  const [arrival, setArrival] = useState(null);
   const asOf = readAsOf(search);
   useEffect(() => {
-    const sync = () => { setSearch(window.location.search); setNavigationRevision((value) => value + 1); setTrip(null); setPickerOpen(false); };
+    const sync = () => {
+      setSearch(window.location.search);
+      setNavigationRevision((value) => value + 1);
+      setTrip(null);
+      setPickerOpen(false);
+      setArrival(null);
+    };
     window.addEventListener('popstate', sync);
     return () => window.removeEventListener('popstate', sync);
   }, []);
@@ -85,35 +92,41 @@ function AppContent() {
     setSearch(next);
   };
   const travel = (target) => {
-    if (trip) return;
+    if (trip || arrival) return;
     setPickerOpen(false);
     if (new URLSearchParams(search).get('view') === 'news') navigate('');
     setTrip({ target, origin: asOf, departed: Date.now() });
   };
-  const arrive = () => {
-    if (!trip) return;
-    const params = new URLSearchParams();
-    if (trip.target) params.set('asOf', trip.target);
-    const next = params.size ? `?${params}` : '';
-    window.history.pushState(null, '', `${window.location.pathname}${next}`);
-    setSearch(next);
-    setTrip(null);
-  };
-  const timeProps = { asOf, timeMachineOpen: pickerOpen, onTimeMachine: () => setPickerOpen(true), onLive: () => travel(null) };
+  const arrive = () => { if (trip && !arrival) setArrival(trip); };
+  useEffect(() => {
+    if (!arrival) return undefined;
+    const reveal = setTimeout(() => {
+      const params = new URLSearchParams();
+      if (arrival.target) params.set('asOf', arrival.target);
+      const next = params.size ? `?${params}` : '';
+      window.history.pushState(null, '', `${window.location.pathname}${next}`);
+      setSearch(next);
+      setTrip(null);
+    }, 140);
+    const finish = setTimeout(() => setArrival(null), 1000);
+    return () => { clearTimeout(reveal); clearTimeout(finish); };
+  }, [arrival]);
+  const leaveTimeMachine = () => { setPickerOpen(false); setTrip(null); setArrival(null); };
+  const timeProps = { asOf, onLeaveTimeMachine: leaveTimeMachine, timeMachineOpen: pickerOpen || Boolean(trip), onTimeMachine: () => { if (new URLSearchParams(search).get('view') === 'news') navigate(''); if (!trip && !arrival) setPickerOpen(true); }, onLive: () => travel(null) };
   const route = new URLSearchParams(search).get('view');
   const page = route === 'news' ? <>
     <HeaderMinimal {...timeProps} route="news" showSearch={false} onRoute={(next) => {
       if (next !== 'news') navigate(next === 'country' ? '?view=country' : '');
     }} />
     <NewsPage key={`${asOf || 'live'}:${navigationRevision}`} asOf={asOf} search={search} navigate={navigate} />
-  </> : <DashboardApp trip={trip} onArrive={arrive} timeProps={timeProps} asOf={asOf} onNews={() => navigate('?view=news&page=1')} initialCountry={route === 'country'} />;
+  </> : <DashboardApp picker={pickerOpen ? <TimeMachinePicker asOf={asOf} onTravel={travel} /> : null} arrival={Boolean(arrival)} trip={trip} onArrive={arrive} timeProps={timeProps} asOf={asOf} onNews={() => navigate('?view=news&page=1')} initialCountry={route === 'country'} />;
   return <><PageTransition screenKey={route === 'news' ? 'news' : 'dashboard'}>{page}</PageTransition>
-    {pickerOpen && <TimeMachinePicker asOf={asOf} onClose={() => setPickerOpen(false)} onTravel={travel} />}
   </>;
 }
 
-function DashboardApp({ onNews, initialCountry, asOf, timeProps, trip, onArrive }) {
+function DashboardApp({ picker, arrival, onNews, initialCountry, asOf, timeProps, trip, onArrive }) {
   const journey = useTimeTravel(trip, onArrive);
+  const timeMachineActive = timeProps.timeMachineOpen || Boolean(trip);
   const [history, setHistory] = useState(() => initialCountry
     ? [HOME, { type: 'country', countryCode: 'KR', title: '대한민국' }] : [HOME]);
   const view = history[history.length - 1];
@@ -249,23 +262,24 @@ function DashboardApp({ onNews, initialCountry, asOf, timeProps, trip, onArrive 
   else if (view.type === 'articles') body = <ArticlesScreen key={`${view.countryCode || ''}:${view.themeId || ''}:${view.issueId || ''}`}
     view={view} catalog={catalog} fieldsResource={fields} countryResource={country} themeResource={theme} issueResource={issue} go={go} />;
 
-  return <><DashboardLayout panelRef={panelRef} timeTravel={Boolean(trip)}
-    header={<HeaderMinimal {...timeProps} route={view.countryCode ? 'country' : 'global'} onRoute={(route) => route === 'news' ? onNews() : route === 'global' ? go(HOME) : goCountry(view.countryCode?.toLowerCase() || 'kr')} onSearch={openPalette} />}
+  return <><DashboardLayout panelRef={panelRef} timeTravel={timeMachineActive} arrival={arrival} overlay={<>{picker}{trip && <TimeTravelEffects trip={trip} {...journey} onArrive={onArrive} />}</>}
+    header={<HeaderMinimal {...timeProps} route={view.countryCode ? 'country' : 'global'} onRoute={(route) => { timeProps.onLeaveTimeMachine(); if (route === 'news') onNews(); else if (route === 'global') go(HOME); else goCountry(view.countryCode?.toLowerCase() || 'kr'); }} onSearch={openPalette} />}
     stage={<GlobeSlot><GlobeThree countries={countryMetadata} iso3={iso3} tone={mapTone} minSample={null} focus={spot || view.countryCode?.toLowerCase() || issueCards[0]?.country.countryCode.toLowerCase()}
-      issueCards={issueCards} selectedIssueCountry={spot}
+      issueCards={timeMachineActive ? [] : issueCards} selectedIssueCountry={spot}
       onSelectIssueCountry={selectIssueCountry}
       analysisListLoading={countryAnalyses.loading} analysisListError={Boolean(countryAnalyses.error)}
       globalIssueView={globalIssue}
-      satelliteDemo={!asOf && !trip}
+      satelliteDemo={!asOf && !timeMachineActive}
+      timeMachineActive={timeMachineActive}
       timeTravel={trip ? (journey.reduced ? 0 : journey.progress) : null}
-      calloutCountry={selectedCountry?.id || null}
+      timeTravelDirection={trip && trip.target === null ? 1 : -1}
+      calloutCountry={timeMachineActive ? null : selectedCountry?.id || null}
       callout={selectedCountry ? <IssueCountryAnalysis countryName={selectedCountry.name}
         toneColor={analysisToneColor} resource={analysis} onClose={() => setSpot(null)} /> : null}
       countryClickHint="클릭하면 국가 분석 보기"
       onGlobeMove={view.type === 'issue' && spot ? () => setSpot(null) : undefined}
-      mentionRelations={relations} spinControl={!trip} onOpenCountry={view.type === 'issue' ? selectIssueCountry : goCountry} />
-      <StageClock asOf={asOf} travelDate={journey.date} />
-      {trip && <TimeTravelEffects trip={trip} {...journey} onArrive={onArrive} />}
+      mentionRelations={timeMachineActive ? [] : relations} spinControl={!timeMachineActive} onOpenCountry={view.type === 'issue' ? selectIssueCountry : goCountry} />
+      {!picker && <StageClock asOf={asOf} travelDate={journey.date} centered={Boolean(trip)} />}
       </GlobeSlot>}
     panel={<div className={s.panelContent}>{history.length > 1 && <div className={s.panelNav}>
       <BackLink onClick={() => setHistory((old) => old.slice(0, -1))}>← 이전 화면</BackLink>

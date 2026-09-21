@@ -30,7 +30,7 @@ public class GlobalIssueController {
 
     @GetMapping
     @Operation(summary = "글로벌 이슈 TOP 5 조회", description = "전체 수집 기사 수, 최근 24시간 수집 기사 수, 최신 계층형 점수 스냅샷의 이슈 TOP 5를 반환합니다.")
-    public ResponseEntity<BaseResponse<GlobalIssueRankResponse>> getGlobalIssueRank(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
+    public ResponseEntity<BaseResponse<GlobalIssueRankResponse>> getGlobalIssueRank(@RequestParam(name = "asOf", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS, issueService.getGlobalIssueRank(QueryTime.resolve(asOf)));
     }
 
@@ -38,7 +38,7 @@ public class GlobalIssueController {
     @Operation(summary = "글로벌 이슈 상세 조회", description = "이슈 상세 정보와 국가별 논조를 반환합니다.")
     public ResponseEntity<BaseResponse<GlobalIssueDetailResponse>> getGlobalIssueDetail(
             @Parameter(description = "이슈 ID", example = "1") @PathVariable @Positive long issueId,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
+            @RequestParam(name = "asOf", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS, issueService.getGlobalIssueDetail(issueId, QueryTime.resolve(asOf)));
     }
 }
