@@ -74,14 +74,14 @@ export default function HeaderMinimal({
           <button
             key={r.id}
             type="button"
-            className={`${s.navItem} ${route === r.id ? s.active : ''}`}
-            aria-current={route === r.id ? 'page' : undefined}
+            className={`${s.navItem} ${!timeMachineOpen && route === r.id ? s.active : ''}`}
+            aria-current={!timeMachineOpen && route === r.id ? 'page' : undefined}
             onClick={() => onRoute?.(r.id)}
           >
             {r.label}
           </button>
         ))}
-        {onTimeMachine && <button type="button" className={`${s.navItem} ${timeMachineOpen ? s.active : ''}`} onClick={onTimeMachine} aria-haspopup="dialog" aria-expanded={timeMachineOpen}>타임머신</button>}
+        {onTimeMachine && <button type="button" className={`${s.navItem} ${timeMachineOpen ? s.active : ''}`} onClick={onTimeMachine} aria-current={timeMachineOpen ? 'page' : undefined}>타임머신</button>}
       </nav>
 
       <div className={s.actions}>

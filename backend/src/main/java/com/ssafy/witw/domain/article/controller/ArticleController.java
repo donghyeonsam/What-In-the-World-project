@@ -31,7 +31,7 @@ public class ArticleController {
     private final ArticleNewsService articleNewsService;
 
     @GetMapping("/filters")
-    public ResponseEntity<BaseResponse<ArticleFiltersResponse>> filters(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
+    public ResponseEntity<BaseResponse<ArticleFiltersResponse>> filters(@RequestParam(name = "asOf", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS, articleNewsService.getFilters(QueryTime.resolve(asOf)));
     }
 
@@ -44,14 +44,14 @@ public class ArticleController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(defaultValue = "1") @Min(1) int page,
             @RequestParam(defaultValue = "12") @Min(1) @Max(100) int size,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
+            @RequestParam(name = "asOf", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS,
                 articleNewsService.getArticles(countryCode, fieldId, themeId, from, to, page, size, QueryTime.resolve(asOf)));
     }
 
     @GetMapping("/{articleId}")
     public ResponseEntity<BaseResponse<ArticleDetailResponse>> article(@PathVariable String articleId,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
+            @RequestParam(name = "asOf", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS, articleNewsService.getArticle(articleId, QueryTime.resolve(asOf)));
     }
 }

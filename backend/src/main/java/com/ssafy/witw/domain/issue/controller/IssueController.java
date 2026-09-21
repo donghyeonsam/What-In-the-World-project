@@ -37,7 +37,7 @@ public class IssueController {
             @Parameter(description = "이슈 ID", example = "1") @PathVariable @Positive long issueId,
             @Parameter(description = "대표 기사 개수 (1~10)") @RequestParam(defaultValue = "3") @Min(1) @Max(10) int articleLimit,
             @Parameter(description = "대표 기사 발행 국가 코드") @RequestParam(required = false) @Pattern(regexp = "[a-zA-Z]{2}") String countryCode,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
+            @RequestParam(name = "asOf", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime asOf) {
         return BaseResponse.success(SuccessCode.REQUEST_SUCCESS, issueService.getIssueOverview(issueId, articleLimit,
                 countryCode == null ? null : countryCode.toUpperCase(Locale.ROOT), QueryTime.resolve(asOf)));
     }

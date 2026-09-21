@@ -134,6 +134,8 @@ function disposeObj(o) {
 export default function GlobeThree({
   countries,
   timeTravel = null,
+  timeTravelDirection = -1,
+  timeMachineActive = false,
   texture,
   iso3 = { kr: ['KOR'], us: ['USA'], uk: ['GBR'], au: ['AUS'], me: ['ARE', 'QAT'], af: ['ZAF', 'KEN'], br: ['BRA'] },
   tone = null,
@@ -177,6 +179,10 @@ export default function GlobeThree({
   const hoveredIssueCardRef = useRef(null);
   const travelRef = useRef(timeTravel);
   travelRef.current = timeTravel;
+  const travelDirectionRef = useRef(timeTravelDirection);
+  travelDirectionRef.current = timeTravelDirection;
+  const timeMachineRef = useRef(timeMachineActive);
+  timeMachineRef.current = timeMachineActive;
   const wrapRef = useRef(null);
   const apiRef = useRef(null);
   const tipRef = useRef(null);
@@ -892,6 +898,7 @@ export default function GlobeThree({
     };
 
     const onDown = (e) => {
+      if (timeMachineRef.current) return;
       if (e.target !== renderer.domElement) return;
       if (!firstFrameRendered || e.button !== 0 || e.isPrimary === false || activePointer !== null) return;
       activePointer = e.pointerId;
@@ -984,6 +991,7 @@ export default function GlobeThree({
       }
     };
     const onWheel = (e) => {
+      if (timeMachineRef.current) return;
       if (!firstFrameRendered) return;
       // Ctrl+휠은 브라우저 확대/축소에 맡기고, 지구본 위의 일반 휠만 처리한다.
       if (e.ctrlKey || !Number.isFinite(e.deltaY) || e.deltaY === 0) return;
@@ -1050,6 +1058,8 @@ export default function GlobeThree({
       }
     };
     addEventListener('resize', resize);
+    const sizeObserver = new ResizeObserver(resize);
+    sizeObserver.observe(wrap);
     resize();
 
     let t = 0;
@@ -1095,7 +1105,7 @@ export default function GlobeThree({
         }
         nextTransmission = now + 2400;
       }
-      const end = { x: satellite.offsetLeft + satellite.offsetWidth * .39, y: satellite.offsetTop + satellite.offsetWidth * .21 };
+      const end = { x: satellite.offsetLeft + satellite.offsetWidth * .28, y: satellite.offsetTop + satellite.offsetHeight * .41 };
       packets.forEach((packet, index) => {
         const node = signalRefs.current[index];
         if (!node) return;
@@ -1246,11 +1256,27 @@ export default function GlobeThree({
       if (!textureReady) return;
       t += 0.016;
       const travel = travelRef.current;
-      if (travel != null) {
+      const machine = timeMachineRef.current;
+      if (machine && travel == null) {
         vx = 0;
         vy = 0;
-        const speed = Math.sin(Math.PI * Math.min(1, travel));
-        if (!reduced) globe.rotation.y -= Math.min(elapsedMs, 50) * (0.0003 + 0.009 * speed * speed);
+        const pacific = orientTo(0, -160);
+        const follow = reduced ? 1 : 1 - Math.exp(-Math.min(elapsedMs, 50) / 160);
+        globe.rotation.x += (pacific.pitch - globe.rotation.x) * follow;
+        globe.rotation.y += shortestAngle(globe.rotation.y, pacific.yaw) * follow;
+        globe.rotation.z += (0 - globe.rotation.z) * follow;
+        if (Math.abs(globe.rotation.x - pacific.pitch) < 0.001
+            && Math.abs(shortestAngle(globe.rotation.y, pacific.yaw)) < 0.001) {
+          globe.rotation.set(pacific.pitch, pacific.yaw, 0);
+        }
+      }
+      else if (travel != null) {
+        vx = 0;
+        vy = 0;
+        const progress = Math.max(0, Math.min(1, travel));
+        // Keep accelerating through arrival, with a stronger surge in the final stretch.
+        const speed = 0.0003 + 0.012 * progress * progress + 0.028 * Math.pow(progress, 5);
+        if (!reduced) globe.rotation.y += travelDirectionRef.current * Math.min(elapsedMs, 50) * speed;
       }
       else if (spin) globe.rotation.y += 0.0016;
       else if (!dragging && !focusRotation && !reduced && (vx || vy)) {
@@ -1266,7 +1292,7 @@ export default function GlobeThree({
           vy = next.pitchSpeed;
         }
       }
-      if (focusRotation && travel == null) {
+      if (focusRotation && travel == null && !machine) {
         globe.rotation.x += (focusRotation.pitch - globe.rotation.x) * COUNTRY_FOCUS_LERP;
         globe.rotation.y += (focusRotation.yaw - globe.rotation.y) * COUNTRY_FOCUS_LERP;
         globe.rotation.z += (0 - globe.rotation.z) * COUNTRY_FOCUS_LERP;
@@ -1279,7 +1305,7 @@ export default function GlobeThree({
         }
       }
       const zoomLerp = focusedId && !userZoomed && !userRotated ? COUNTRY_FOCUS_LERP : CAMERA_LERP;
-      cam.position.z += ((travel != null ? IDLE_CAMERA_Z : targetZ) - cam.position.z) * zoomLerp;
+      cam.position.z += ((machine ? IDLE_CAMERA_Z : targetZ) - cam.position.z) * zoomLerp;
       if (!reduced) {
         rings.forEach((r) => {
           const sc = 1 + 0.55 * (Math.sin(t * 2.2 + r.userData.t) * 0.5 + 0.5);
@@ -1405,6 +1431,7 @@ export default function GlobeThree({
       disposeEarthTexture();
       delete wrap.dataset.earthTexture;
       removeEventListener('resize', resize);
+      sizeObserver.disconnect();
       removeEventListener('pointerup', onUp);
       removeEventListener('pointercancel', onUp);
       removeEventListener('pointermove', onMove);
@@ -1478,7 +1505,7 @@ export default function GlobeThree({
         </div> : <p role="status">지구를 불러오는 중…</p>}
       </div>}
       <div className={s.tip} ref={tipRef} />
-      {earthStatus === 'ready' && <SatelliteRelay satelliteRef={satelliteRef} signalRefs={signalRefs} />}
+      {earthStatus === 'ready' && <SatelliteRelay departing={timeMachineActive} satelliteRef={satelliteRef} signalRefs={signalRefs} />}
       {earthStatus === 'ready' && calloutCountry && callout && <>
         <svg className={s.analysisLink} aria-hidden="true"><line ref={calloutLineRef} /></svg>
         <span className={s.analysisAnchor} ref={calloutAnchorRef} aria-hidden="true" />

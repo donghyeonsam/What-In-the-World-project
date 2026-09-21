@@ -44,6 +44,13 @@ class GeneratedIssue:
     summary: str
 
 
+@dataclass(frozen=True)
+class GeneratedIssueDecision:
+    issue: GeneratedIssue
+    included_article_ids: tuple[str, ...]
+    excluded_article_ids: tuple[str, ...]
+
+
 def normalize_issue_name(name: str) -> str:
     """Normalize harmless Unicode and whitespace differences before deduplication."""
 
@@ -263,6 +270,77 @@ def cluster_articles(
 
     # HDBSCAN label values themselves are not a durable ordering contract.
     return tuple(sorted(clusters, key=lambda item: item.articles[0].article_id))
+
+
+def filter_cluster_articles(
+    cluster: ClusterCandidate,
+    included_article_ids: Iterable[str],
+    min_cluster_size: int,
+    representative_count: int = 8,
+    min_centroid_similarity: float = -1.0,
+) -> ClusterCandidate | None:
+    """Keep an LLM-approved event subset and rebuild its derived geometry."""
+
+    if min_cluster_size < 2:
+        raise ValueError("min_cluster_size must be at least 2")
+    if representative_count < 1:
+        raise ValueError("representative_count must be positive")
+    if not -1.0 <= min_centroid_similarity <= 1.0:
+        raise ValueError("min_centroid_similarity must be between -1 and 1")
+
+    included_ids = tuple(included_article_ids)
+    included_id_set = set(included_ids)
+    if len(included_id_set) != len(included_ids):
+        raise ValueError("included_article_ids must not contain duplicates")
+
+    articles_by_id = {article.article_id: article for article in cluster.articles}
+    unknown_ids = included_id_set - set(articles_by_id)
+    if unknown_ids:
+        raise ValueError(
+            "included_article_ids contains articles outside the cluster: "
+            + ", ".join(sorted(unknown_ids))
+        )
+
+    members = tuple(
+        article for article in cluster.articles if article.article_id in included_id_set
+    )
+    if len(members) < min_cluster_size:
+        return None
+
+    # LLM 제외 후 중심이 이동하므로 기존과 같은 응집도 경계를 다시 적용한다.
+    while True:
+        centroid = _normalized_centroid([article.embedding for article in members])
+        cohesive_members = tuple(
+            article
+            for article in members
+            if (
+                (similarity := cosine_similarity(article.embedding, centroid))
+                is not None
+                and similarity >= min_centroid_similarity
+            )
+        )
+        if len(cohesive_members) < min_cluster_size:
+            return None
+        if cohesive_members == members:
+            break
+        members = cohesive_members
+
+    def representative_key(article: UnclassifiedArticle) -> tuple[float, str]:
+        similarity = cosine_similarity(article.embedding, centroid)
+        return (-(similarity if similarity is not None else -1.0), article.article_id)
+
+    representatives = tuple(
+        sorted(members, key=representative_key)[:representative_count]
+    )
+    return ClusterCandidate(
+        theme_id=cluster.theme_id,
+        articles=members,
+        centroid=centroid,
+        representatives=representatives,
+        # HDBSCAN의 기사별 확률은 ClusterCandidate에 보존하지 않으므로 원래
+        # 후보 군집의 평균을 유지한다. 이 값은 이벤트 저장에는 사용되지 않는다.
+        membership_confidence=cluster.membership_confidence,
+    )
 
 
 def merge_generated_issue_candidates(
