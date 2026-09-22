@@ -1,8 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { destinationTime, koreaDate, readAsOf, stageTimeLabel } from '../src/timeMachine/timeMachine.js';
+import { destinationTime, koreaDate, readAsOf, stageTimeLabel, travelDirection } from '../src/timeMachine/timeMachine.js';
 import { api } from '../src/data/api.js';
 import { httpNewsSource } from '../src/news/newsSource.js';
+
+test('time travel spins toward newer dates and reverses toward older dates', () => {
+  const departed = Date.parse('2026-09-22T00:00:00Z');
+  assert.equal(travelDirection({ origin: null, target: '2026-09-15T00:00:00Z', departed }), -1);
+  assert.equal(travelDirection({ origin: '2026-09-15T00:00:00Z', target: '2026-09-10T00:00:00Z', departed }), -1);
+  assert.equal(travelDirection({ origin: '2026-09-10T00:00:00Z', target: '2026-09-15T00:00:00Z', departed }), 1);
+  assert.equal(travelDirection({ origin: '2026-09-10T00:00:00Z', target: null, departed }), 1);
+});
 
 test('date selection preserves the current Korean clock, independent of browser timezone', () => {
   const now = new Date('2026-09-17T01:50:23.456Z');

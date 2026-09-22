@@ -45,13 +45,12 @@ export function SectionTitle({ title, note, action, help }) {
           <span className={s.helpTooltip} role="tooltip">{help}</span>
         </span>}
       </div>
-      {action ? (
+      {action && (
         <button type="button" onClick={action.onClick}>
           {action.label}
         </button>
-      ) : (
-        note && <span>{note}</span>
       )}
+      {note && <span className={s.sectionNote}>{note}</span>}
     </div>
   );
 }

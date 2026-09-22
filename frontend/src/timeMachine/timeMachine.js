@@ -2,6 +2,13 @@ export const FIRST_DATE = '2026-09-06';
 export const TRAVEL_DURATION = 5200;
 const KST = 9 * 60 * 60 * 1000;
 
+export function travelDirection(trip) {
+  if (!trip) return -1;
+  const start = trip.origin ? new Date(trip.origin).getTime() : trip.departed;
+  const target = trip.target ? new Date(trip.target).getTime() : trip.departed;
+  return target >= start ? 1 : -1;
+}
+
 export function koreaDate(now = new Date()) {
   return new Date(now.getTime() + KST).toISOString().slice(0, 10);
 }

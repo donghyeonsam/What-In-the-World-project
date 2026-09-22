@@ -10,6 +10,7 @@ import { layoutGlobeCallout, resolveGlobeCalloutSide } from '../../lib/globeCall
 import s from './GlobeThree.module.css';
 import { flagOf, scoreOf } from '../../data/responseAdapters.js';
 import { displayCountryCode } from '../../data/countries.js';
+import smallCountryBoundaries from '../../data/smallCountryBoundaries.json';
 import SatelliteRelay from './SatelliteRelay.jsx';
 import { issueCardSlots, placeIssueCards } from '../../lib/issueCardLayout.js';
 
@@ -374,6 +375,7 @@ export default function GlobeThree({
 
     const TONE = { active: false, topic: null, minN: minSample };
     let GEO = null;
+    let geoPickOrder = [];
     let geoTried = false;
 
     const toneColorOf = (id) => {
@@ -539,13 +541,13 @@ export default function GlobeThree({
       const local = globe.worldToLocal(surface.clone()).normalize();
       const lat = THREE.MathUtils.radToDeg(Math.asin(Math.max(-1, Math.min(1, local.y))));
       const lon = ((THREE.MathUtils.radToDeg(Math.atan2(local.z, -local.x)) - 180 + 540) % 360) - 180;
-      const id = Object.keys(GEO).find((code) => GEO[code].some((geometry) => {
+      const id = geoPickOrder.find((code) => GEO[code].some((geometry) => {
         const polygons = geometry.type === 'Polygon' ? [geometry.coordinates]
           : geometry.type === 'MultiPolygon' ? geometry.coordinates : [];
         return polygons.some(([outer, ...holes]) => ringContains(outer, lon, lat)
           && !holes.some((hole) => ringContains(hole, lon, lat)));
       }));
-      return id ? { id } : null;
+      return id ? countries.find((country) => country.id === id) || { id, unsupported: true } : null;
     };
 
     const buildCountryLabels = () => {
@@ -631,6 +633,11 @@ export default function GlobeThree({
     const loadGeo = () => {
       if (geoTried) return;
       geoTried = true;
+      GEO = Object.fromEntries(Object.entries(smallCountryBoundaries)
+        .map(([id, geometry]) => [id, [geometry]]));
+      geoPickOrder = Object.keys(GEO);
+      buildCountryOutlines();
+      paintTone();
       fetch(GEO_URL)
         .then((r) => r.json())
         .then((gj) => {
@@ -652,6 +659,10 @@ export default function GlobeThree({
               }
             });
           });
+          // Natural Earth 1:10m map units: https://github.com/nvkelso/natural-earth-vector/blob/master/geojson/ne_10m_admin_0_map_units.geojson
+          Object.entries(smallCountryBoundaries).forEach(([id, geometry]) => { GEO[id] = [geometry]; });
+          geoPickOrder = [...Object.keys(smallCountryBoundaries),
+            ...Object.keys(GEO).filter((id) => !(id in smallCountryBoundaries))];
           buildCountryOutlines();
           setCountryOutlineActive(activeId());
           if (focusedId && !userZoomed && !userRotated) {
@@ -897,6 +908,13 @@ export default function GlobeThree({
       const surfaceDistance = surface ? surface.distanceTo(ray.ray.origin) : Infinity;
       return ray.intersectObjects(hitTargets()).find((hit) => hit.distance <= surfaceDistance + 0.015);
     };
+    const pickTarget = () => {
+      const hit = pickHit()?.object.userData;
+      if (hit?.type === 'pin' || hit?.type === 'mention') return hit;
+      const country = countryAtSurface();
+      if (country?.unsupported) return null;
+      return country ? { ...country, type: 'country' } : hit || null;
+    };
 
     const onDown = (e) => {
       if (timeMachineRef.current) return;
@@ -962,13 +980,13 @@ export default function GlobeThree({
       mouse.x = ((e.clientX - r.left) / r.width) * 2 - 1;
       mouse.y = -((e.clientY - r.top) / r.height) * 2 + 1;
       ray.setFromCamera(mouse, cam);
-      const hit = pickHit();
+      const target = pickTarget();
       const tip = tipRef.current;
-      if (hit && e.target === renderer.domElement) {
+      if (target && e.target === renderer.domElement) {
         tip.classList.add(s.show);
         tip.style.left = `${e.clientX - r.left}px`;
         tip.style.top = `${e.clientY - r.top}px`;
-        const u = hit.object.userData;
+        const u = target;
         setCountryOutlineActive(u.type === 'mention' ? activeId() : u.cid || u.id);
         let tt;
         if (u.type === 'mention') {
@@ -1022,13 +1040,8 @@ export default function GlobeThree({
       mouse.set(((e.clientX - bounds.left) / bounds.width) * 2 - 1,
         -((e.clientY - bounds.top) / bounds.height) * 2 + 1);
       ray.setFromCamera(mouse, cam);
-      const hit = pickHit();
-      if (!hit) {
-        const country = countryAtSurface();
-        if (country) cb.current.onOpenCountry?.(country.id);
-        return;
-      }
-      const u = hit.object.userData;
+      const u = pickTarget();
+      if (!u) return;
       if (u.type === 'mention') return;
       if (u.type === 'pin') {
         cb.current.onSelectPin?.(u);
@@ -1045,12 +1058,16 @@ export default function GlobeThree({
     renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
 
     /* ── 루프 ── */
+    const stageWidth = () => wrap.closest('section')?.clientWidth || wrap.clientWidth;
     const resize = () => {
       const w = wrap.clientWidth;
       const h = wrap.clientHeight;
       if (!w || !h) return;
       renderer.setSize(w, h);
-      cam.aspect = w / h;
+      const viewWidth = stageWidth();
+      cam.aspect = viewWidth / h;
+      if (w > viewWidth) cam.setViewOffset(viewWidth, h, 0, 0, w, h);
+      else cam.clearViewOffset();
       cam.updateProjectionMatrix();
       if (userZoomed) targetZ = clampCameraZ(targetZ);
       else if (focusedId && !userRotated) {
@@ -1131,11 +1148,14 @@ export default function GlobeThree({
       });
     };
     let lastCardMotionAt = 0;
+    let cardLayoutKey = null;
+    let cardLayoutNode = null;
     const positionIssueCards = (now) => {
       const moving = spin || dragging || focusRotation || vx || vy
         || Math.abs(cam.position.z - targetZ) > 0.015;
       if (moving) lastCardMotionAt = now;
       if (moving || now - lastCardMotionAt < 160) {
+        cardLayoutKey = null;
         issueCardRefs.current.forEach((card) => { card.style.visibility = 'hidden'; });
         return;
       }
@@ -1143,8 +1163,16 @@ export default function GlobeThree({
       if (hoveredIssueCardRef.current && issueCardRefs.current.has(hoveredIssueCardRef.current)) return;
       const satellite = satelliteRef.current;
       const firstCard = issueCardRefs.current.values().next().value;
-      if (!firstCard) return;
-      const slots = issueCardSlots({ width: wrap.clientWidth, height: wrap.clientHeight,
+      if (!firstCard) { cardLayoutKey = null; cardLayoutNode = null; return; }
+      if (cardLayoutNode !== firstCard) { cardLayoutKey = null; cardLayoutNode = firstCard; }
+      const layoutKey = [
+        issueCardsRef.current.map((row) => row.country.countryCode).join(','),
+        selectedIssueCountryRef.current, stageWidth(), wrap.clientHeight,
+        firstCard.offsetWidth, firstCard.offsetHeight,
+        satellite?.offsetTop, satellite?.offsetHeight,
+      ].join('|');
+      if (layoutKey === cardLayoutKey) return;
+      const slots = issueCardSlots({ width: stageWidth(), height: wrap.clientHeight,
         cardWidth: firstCard.offsetWidth, cardHeight: firstCard.offsetHeight,
         satelliteBottom: satellite ? satellite.offsetTop + satellite.offsetHeight : 0 });
       const projected = [];
@@ -1163,7 +1191,7 @@ export default function GlobeThree({
           y: (1 - projectedAnchor.y) * wrap.clientHeight / 2 });
       }
       const placements = placeIssueCards({ rows: projected, slots, selectedId: selectedIssueCountryRef.current,
-        width: wrap.clientWidth, height: wrap.clientHeight, cardWidth: firstCard.offsetWidth, cardHeight: firstCard.offsetHeight,
+        width: stageWidth(), height: wrap.clientHeight, cardWidth: firstCard.offsetWidth, cardHeight: firstCard.offsetHeight,
         obstacles: satellite ? [{ x: satellite.offsetLeft, y: satellite.offsetTop, width: satellite.offsetWidth, height: satellite.offsetHeight }] : [] });
       const byId = new Map(placements.map((placement) => [placement.id, placement]));
       for (const [id, card] of issueCardRefs.current) {
@@ -1174,6 +1202,7 @@ export default function GlobeThree({
           card.style.transform = `translate3d(${placement.x}px, ${placement.y}px, 0)`;
         }
       }
+      cardLayoutKey = layoutKey;
     };
     const positionCallout = (now, elapsedMs) => {
       const card = calloutRef.current;
@@ -1216,7 +1245,7 @@ export default function GlobeThree({
         calloutMotion.change = null;
       }
       const desiredSide = resolveGlobeCalloutSide({
-        x, width, stageWidth: wrap.clientWidth,
+        x, width, stageWidth: stageWidth(),
         preferRight: country.lon >= 0, currentSide: calloutMotion.side,
       });
       if (!calloutMotion.side || reduced) calloutMotion.side = desiredSide;
@@ -1239,7 +1268,7 @@ export default function GlobeThree({
         }
       }
       const placement = layoutGlobeCallout({
-        x, y, width, height, stageWidth: wrap.clientWidth, stageHeight: wrap.clientHeight,
+        x, y, width, height, stageWidth: stageWidth(), stageHeight: wrap.clientHeight,
         preferRight: country.lon >= 0, latitude: country.lat,
         side: calloutMotion.side, verticalBelow: country.lat < 45,
       });
@@ -1464,12 +1493,13 @@ export default function GlobeThree({
   }, [tone, minSample]);
 
   useEffect(() => {
+    if (timeMachineActive) return;
     if (userClearedFocusRef.current) {
       userClearedFocusRef.current = false;
       apiRef.current?.releaseFocus();
     } else if (focus) apiRef.current?.focusCountry(focus);
     else apiRef.current?.reset();
-  }, [focus, calloutCountry, globalIssueView]);
+  }, [focus, calloutCountry, globalIssueView, timeMachineActive]);
 
   useEffect(() => {
     apiRef.current?.setMentions(mentionRelations);
