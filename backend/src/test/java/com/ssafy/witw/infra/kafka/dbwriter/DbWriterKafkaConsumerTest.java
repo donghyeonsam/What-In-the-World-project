@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DbWriterKafkaConsumerTest {
 
     @Test
-    void registersConsumerOnlyForDevelopmentDeployment() {
+    void registersConsumerOnlyForProductionDeployment() {
         for (String profile : new String[]{"dev", "prod", "dev-prod"}) {
             try (var context = new AnnotationConfigApplicationContext()) {
                 context.getEnvironment().setActiveProfiles(profile);
@@ -24,7 +24,7 @@ class DbWriterKafkaConsumerTest {
 
                 assertThat(context.getBeansOfType(DbWriterKafkaConsumer.class))
                         .as("Kafka consumer beans for profile %s", profile)
-                        .hasSize(profile.equals("dev-prod") ? 1 : 0);
+                        .hasSize(profile.equals("prod") ? 1 : 0);
             }
         }
     }

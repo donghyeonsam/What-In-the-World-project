@@ -28,7 +28,7 @@ import org.springframework.util.backoff.ExponentialBackOff;
  */
 @Slf4j
 @Configuration
-@Profile("dev-prod")
+@Profile("prod")
 public class KafkaErrorHandlerConfig {
 
     private static final String SOURCE_TOPIC = "news.event.v1";

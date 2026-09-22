@@ -21,13 +21,13 @@ class KafkaErrorHandlerConfigTest {
             .withConfiguration(AutoConfigurations.of(KafkaAutoConfiguration.class))
             .withUserConfiguration(KafkaErrorHandlerConfig.class)
             .withPropertyValues(
-                    "spring.profiles.active=dev-prod",
+                    "spring.profiles.active=prod",
                     "spring.kafka.bootstrap-servers=localhost:9092",
                     "spring.kafka.admin.auto-create=false"
             );
 
     @Test
-    @DisplayName("dev-prod 프로파일에서 에러 핸들러와 DLT 토픽 빈이 생성된다")
+    @DisplayName("prod 프로파일에서 에러 핸들러와 DLT 토픽 빈이 생성된다")
     void createsErrorHandlerAndDltTopic() {
         runner.run(context -> {
             assertThat(context).hasNotFailed();
@@ -42,12 +42,12 @@ class KafkaErrorHandlerConfigTest {
     }
 
     @Test
-    @DisplayName("dev-prod가 아닌 프로파일에서는 빈이 생성되지 않는다")
+    @DisplayName("dev-prod 프로파일에서는 빈이 생성되지 않는다")
     void notCreatedOnOtherProfiles() {
         new ApplicationContextRunner()
                 .withConfiguration(AutoConfigurations.of(KafkaAutoConfiguration.class))
                 .withUserConfiguration(KafkaErrorHandlerConfig.class)
-                .withPropertyValues("spring.profiles.active=prod",
+                .withPropertyValues("spring.profiles.active=dev-prod",
                         "spring.kafka.bootstrap-servers=localhost:9092")
                 .run(context -> {
                     assertThat(context).hasNotFailed();

@@ -11,7 +11,7 @@ import tools.jackson.databind.ObjectMapper;
 
 @Slf4j
 @Component
-@Profile("dev-prod")
+@Profile("prod")
 @RequiredArgsConstructor
 public class DbWriterKafkaConsumer {
 

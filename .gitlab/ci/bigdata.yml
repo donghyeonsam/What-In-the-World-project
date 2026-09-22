@@ -20,8 +20,9 @@ validate-bigdata:
   timeout: 15m
 
   variables:
-    DEV_POSTGRESQL_HOST: validation.invalid
-    DEV_POSTGRES_PASSWORD: validation
+    POSTGRESQL_URL: jdbc:postgresql://validation.invalid:5432/witw
+    POSTGRESQL_USER: validation
+    POSTGRESQL_PASSWORD: validation
     GMS_API_KEY: validation
     LOKI_URL: http://validation.invalid/loki/api/v1/push
 
@@ -90,9 +91,9 @@ deploy-bigdata:
 
   needs:
     - job: validate-bigdata
-    # Spark는 개발 PostgreSQL 스키마를 조회하므로 개발 Backend의 Flyway와
+    # Spark는 운영 PostgreSQL 스키마를 조회하므로 운영 Backend의 Flyway와
     # DB 포트 설정이 먼저 반영되어야 한다.
-    - job: deploy-backend-dev
+    - job: deploy-backend
       optional: true
 
   resource_group: bigdata-production
