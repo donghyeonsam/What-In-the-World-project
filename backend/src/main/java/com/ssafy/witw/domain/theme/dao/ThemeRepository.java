@@ -1,5 +1,6 @@
 package com.ssafy.witw.domain.theme.dao;
 
+import com.ssafy.witw.common.time.QueryTime;
 import com.ssafy.witw.domain.theme.entity.Theme;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -12,22 +13,32 @@ public interface ThemeRepository extends JpaRepository<Theme, Long> {
 
     @Query(value = """
             WITH bounds AS (
-                SELECT CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul' AS end_at
+                SELECT CAST(:asOf AS timestamp) AS end_at
+            ),
+            counts AS (
+                SELECT a.theme_id, COUNT(*) AS article_count
+                FROM article a
+                CROSS JOIN bounds b
+                WHERE (a.deleted_at IS NULL OR a.deleted_at > :asOf)
+                  AND a.created_at <= :asOf
+                  AND a.published_at < :asOf
+                  AND a.published_at >= b.end_at - INTERVAL '24 hours'
+                  AND a.published_at <  b.end_at
+                GROUP BY a.theme_id
             )
             SELECT f.id AS "fieldId", f.name AS "fieldName",
                    t.id AS "themeId", t.name AS "themeName",
-                   COUNT(a.id) AS "articleCount24"
+                   COALESCE(c.article_count, 0) AS "articleCount24"
             FROM field f
-            CROSS JOIN bounds b
-            LEFT JOIN theme t ON t.field_id = f.id
-            LEFT JOIN article a ON a.theme_id = t.id
-                               AND a.deleted_at IS NULL
-                               AND a.published_at >= b.end_at - INTERVAL '24 hours'
-                               AND a.published_at < b.end_at
-            GROUP BY f.id, f.name, t.id, t.name
-            ORDER BY f.id, COUNT(a.id) DESC, t.id
+            LEFT JOIN theme t  ON t.field_id = f.id
+            LEFT JOIN counts c ON c.theme_id = t.id
+            ORDER BY f.id, COALESCE(c.article_count, 0) DESC, t.id
             """, nativeQuery = true)
-    List<FieldThemeRow> findThemesByField();
+    List<FieldThemeRow> findThemesByField(@Param("asOf") LocalDateTime asOf);
+
+    default List<FieldThemeRow> findThemesByField() {
+        return findThemesByField(QueryTime.now());
+    }
 
     interface FieldThemeRow {
         Long getFieldId();
@@ -40,7 +51,7 @@ public interface ThemeRepository extends JpaRepository<Theme, Long> {
     // TODO: article (country, published_at, theme_id) 복합 인덱스 검토
     @Query(value = """
             WITH bounds AS (
-                SELECT date_trunc('hour', CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul')
+                SELECT date_trunc('hour', CAST(:asOf AS timestamp))
                        + INTERVAL '1 hour' AS end_at
             ),
             theme_counts AS (
@@ -56,7 +67,9 @@ public interface ThemeRepository extends JpaRepository<Theme, Long> {
                 WHERE a.publisher_country_code = :countryCode
                   AND a.published_at >= b.end_at - INTERVAL '24 hours'
                   AND a.published_at < b.end_at
-                  AND a.deleted_at IS NULL
+                  AND (a.deleted_at IS NULL OR a.deleted_at > :asOf)
+                  AND a.created_at <= :asOf
+                  AND a.published_at < :asOf
                 GROUP BY t.id, f.name, t.name, date_trunc('hour', a.published_at)
             ),
             popular_themes AS (
@@ -88,15 +101,18 @@ public interface ThemeRepository extends JpaRepository<Theme, Long> {
                   AND tc.bucket_start = b.bucket_start
             ORDER BY p.article_count_24 DESC, p.theme_id, b.bucket_start
             """, nativeQuery = true)
-    List<PopularThemeTrendRow> findPopularThemesWithHourlyTrend(
-            @Param("countryCode") String countryCode,
-            @Param("limit") int limit
-    );
+    List<PopularThemeTrendRow> findPopularThemesWithHourlyTrend(@Param("countryCode") String countryCode,
+            @Param("limit") int limit, @Param("asOf") LocalDateTime asOf);
+
+    default List<PopularThemeTrendRow> findPopularThemesWithHourlyTrend(String countryCode,
+            int limit) {
+        return findPopularThemesWithHourlyTrend(countryCode, limit, QueryTime.now());
+    }
 
     // 시간 버킷 정렬이 필요 없으므로 다른 24시간 쿼리들과 같은 기준 시각을 사용
     @Query(value = """
         WITH bounds AS (
-            SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul') AS end_at
+            SELECT CAST(:asOf AS timestamp) AS end_at
         )
         SELECT t.id     AS "themeId",
                f.name   AS "fieldName",
@@ -109,13 +125,18 @@ public interface ThemeRepository extends JpaRepository<Theme, Long> {
         WHERE a.publisher_country_code = :countryCode
           AND a.published_at >= b.end_at - INTERVAL '24 hours'
           AND a.published_at <  b.end_at
-          AND a.deleted_at IS NULL
+          AND (a.deleted_at IS NULL OR a.deleted_at > :asOf)
+                  AND a.created_at <= :asOf
+                  AND a.published_at < :asOf
         GROUP BY t.id, f.name, t.name
         ORDER BY COUNT(*) DESC, t.id
         LIMIT :limit
         """, nativeQuery = true)
-    List<PopularThemeRow> findPopularThemes(
-            @Param("countryCode") String countryCode, @Param("limit") int limit);
+    List<PopularThemeRow> findPopularThemes(@Param("countryCode") String countryCode, @Param("limit") int limit, @Param("asOf") LocalDateTime asOf);
+
+    default List<PopularThemeRow> findPopularThemes(String countryCode, int limit) {
+        return findPopularThemes(countryCode, limit, QueryTime.now());
+    }
 
     interface PopularThemeRow {
         long getThemeId();

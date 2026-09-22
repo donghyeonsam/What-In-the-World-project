@@ -1,0 +1,42 @@
+discovery.docker "bigdata" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+
+  filter {
+    name   = "label"
+    values = ["logging=enabled"]
+  }
+}
+
+discovery.relabel "bigdata" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_label_service"]
+    target_label  = "service_name"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_env"]
+    target_label  = "env"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+loki.source.docker "bigdata" {
+  host             = "unix:///var/run/docker.sock"
+  targets          = discovery.docker.bigdata.targets
+  refresh_interval = "5s"
+  labels           = { "host" = sys.env("LOG_HOST") }
+  relabel_rules    = discovery.relabel.bigdata.rules
+  forward_to       = [loki.write.central.receiver]
+}
+
+loki.write "central" {
+  endpoint {
+    url = sys.env("LOKI_URL")
+  }
+}

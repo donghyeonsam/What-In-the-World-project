@@ -42,6 +42,30 @@
 
 BEGIN;
 
+
+-- ############################################################################
+-- 연결 대상 가드 — TRUNCATE 전에 반드시 확인합니다.
+--
+-- 이 스크립트는 article, issue, theme, field, country 를 TRUNCATE 합니다.
+-- 실데이터 DB 에서 실행하면 전부 사라집니다.
+--
+-- 통과 조건: article 이 비어 있거나, 모든 행이 'perf-' 접두어를 가질 것.
+-- 즉 "빈 DB" 또는 "이미 perf 데이터가 들어 있는 DB" 에서만 돕니다.
+-- ############################################################################
+
+DO $guard$
+DECLARE
+    foreign_rows bigint;
+BEGIN
+    SELECT count(*) INTO foreign_rows FROM article WHERE id NOT LIKE 'perf-%';
+    IF foreign_rows > 0 THEN
+        RAISE EXCEPTION
+            'perf 데이터가 아닌 기사가 %건 있습니다. 실데이터 DB 로 보입니다 - TRUNCATE 를 중단합니다. 연결 대상을 확인하십시오 (perf 컨테이너는 포트 15432).', foreign_rows;
+    END IF;
+END
+$guard$;
+
+
 -- 결정성 보장: 병렬 실행을 끕니다. 생성 자체는 조금 느려지지만
 -- 어떤 환경에서도 동일한 결과가 나옵니다.
 SET LOCAL max_parallel_workers_per_gather = 0;

@@ -11,7 +11,30 @@ spring:
       host: ${VALKEY_HOST:localhost}
       port: ${VALKEY_HOST_PORT:6379}
       password: ${VALKEY_PASSWORD:}
-
+  kafka:
+    bootstrap-servers: 172.26.11.46:19092
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP_ID:db-writer-prod-v1}
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    listener:
+      ack-mode: record
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_APP_PASSWORD}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
 server:
   servlet:
     session:

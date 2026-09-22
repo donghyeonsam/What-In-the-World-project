@@ -94,9 +94,7 @@ Kafka는 각 처리 컴포넌트 사이에서 메시지를 전달하는 역할�
 ```text
 news.raw.v1
  │
- ├──► NLP Worker
- │
- └──► HDFS 저장 처리(bronze)
+ └──► NLP Worker
 ```
 
 ### 2-1. Topic 정보<hr>
@@ -104,7 +102,7 @@ news.raw.v1
 | --- | --- |
 | Topic | `news.raw.v1` |
 | Producer | 뉴스 수집기 |
-| Consumer | NLP Worker, HDFS 저장 처리 |
+| Consumer | NLP Worker |
 | Partition | 6 |
 
 `news.raw`에는 기사 원문과 수집 단계에서 생성된 메타데이터가 저장된다.
@@ -154,6 +152,7 @@ NLP Worker에서는 다음 작업을 수행한다.
     "language_code": "ko",
     "domain_id": 3,
     "theme_id": 27,
+    "theme_relevance_score": 0.8123,
 
     "mentioned_countries": [
       {
@@ -271,6 +270,7 @@ Spark가 생성하는 최초 기사 저장 이벤트는 다음 계약을 사용�
     "article_id": "87fa2c9...",
     "publisher_country_code": "KR",
     "theme_id": 27,
+    "theme_relevance_score": 0.8123,
     "publisher": "Hankook Ilbo - South Korea (Korean)",
     "url": "https://www.hankooki.com/news/articleView.html?idxno=342372",
     "original_title": "국가철도공단, 정진혁 신임 이사장 취임…CEO 공백 종료",
@@ -283,8 +283,10 @@ Spark가 생성하는 최초 기사 저장 이벤트는 다음 계약을 사용�
 }
 ```
 
-Spark는 NLP 계약에 없는 값을 임의로 생성하지 않는다. `published_at`을 포함한
-필수 필드가 없거나 형식이 잘못된 메시지는 정합성 검사 실패로 처리한다.
+`theme_relevance_score`는 NLP Worker가 선택한 Top-1 Theme와 기사 Embedding의
+cosine similarity이며 범위는 -1부터 1이다. Spark는 NLP 계약에 없는 값을 임의로
+생성하지 않는다. `published_at`을 포함한 필수 필드가 없거나 형식이 잘못된
+메시지는 정합성 검사 실패로 처리한다.
 
 ### 5-2. 이슈 매칭 단계로 전달<hr>
 동시에 Spark에서 처리된 기사는 6. 이슈 매칭 단계로 전달된다.
@@ -386,6 +388,7 @@ NLP 처리가 완료된 기사의 `nlp_worker_data`에는 이슈 매칭에 필�
   "theme_id": 12,
   "embedding": [0.031, -0.114, 0.072],
   "title": "미국, 대중국 AI 반도체 수출 규제 확대",
+  "summary": "미국 정부가 중국 대상 AI 반도체 수출 규제를 확대했다.",
   "published_at": "2026-09-03T03:35:24Z"
 }
 ```
@@ -516,14 +519,14 @@ article a-123
 
 최고 similarity를 기준으로 기존 Issue와의 매칭 여부를 판단한다.
 
-유사도가 기본 임계값 `0.90` 이상인지 판단해서 분기 처리한다. 운영 환경에서는
-`ISSUE_MATCH_THRESHOLD`로 임계값을 조정할 수 있다.
+유사도가 기본 임계값 `0.93` 이상인지 판단해서 분기 처리한다. 운영 환경에서는
+`ISSUE_MATCH_THRESHOLD`로 임계값을 조정할 수 있으며 기본값은 `0.93`이다.
 
 ```
-similarity >= 0.90
+similarity >= 0.93
     → 기존 Issue 매칭
 
-similarity < 0.90
+similarity < 0.93
     → 미분류 기사
 ```
 
@@ -576,6 +579,7 @@ key = theme_id
   "theme_id": 12,
   "embedding": [0.031, -0.114, 0.072],
   "title": "미국, 대중국 AI 반도체 수출 규제 확대",
+  "summary": "미국 정부가 중국 대상 AI 반도체 수출 규제를 확대했다.",
   "published_at": "2026-09-03T03:35:24Z",
   "unclassified_at": "2026-09-03T04:10:01Z"
 }
@@ -587,7 +591,8 @@ key = theme_id
 
 # 미분류 기사 클러스터링 Trigger
 
-`news.unclassified.v1`에 저장된 이벤트들을 집계해서 테마별로 개수를 확인했을 때, 50개 이상이면 클러스터링을 진행한다.
+`news.unclassified.v1`에 저장된 이벤트 중 발행 시각이 현재로부터 72시간 이내인
+기사만 집계해서 테마별 개수가 50개 이상이면 클러스터링을 진행한다.
 
 Spark 마이크로 배치가 50건보다 작더라도 메시지가 사라지지 않도록 검증된 미분류
 기사는 `ISSUE_CLUSTER_STATE_LOCATION`의 Parquet 상태에 누적한다. `article_id`로
@@ -597,17 +602,29 @@ Spark 마이크로 배치가 50건보다 작더라도 메시지가 사라지지 
 ### 6-2. Spark(이슈 클러스터링용)
 # 6-2. HDBSCAN 클러스터링
 
-`news.unclassified.v1`에 저장된 이벤트들을 집계해서 동일한 테마에 해당하는 기사끼리, embedding을 대상으로 HDBSCAN을 실행한다.
+`news.unclassified.v1`에 저장된 이벤트 중 발행 시각이 현재로부터 72시간 이내인
+기사만 집계해서 동일한 테마에 해당하는 기사끼리, embedding을 대상으로
+HDBSCAN을 실행한다. 72시간이 지난 pending 기사는 trigger 집계와 상태 저장에서
+제외한다.
 
-MVP 고정값은 최소 군집 크기 5, `min_samples` 3, 평균 membership probability
-0.60 이상이다. 한 번에 Driver로 가져오는 기사 수는 테마별 2,000건으로 제한하고,
-초과분은 상태에 남겨 다음 실행에서 처리한다.
+MVP 고정값은 최소 군집 크기 4, `min_samples` 4이다. 테마 전체가 하나의 사건으로
+강제 수렴하지 않도록 HDBSCAN의 단일 군집 허용 옵션은 끈다. HDBSCAN 군집 안에서도
+개별 membership probability가 0.80 미만인 기사와 군집 centroid cosine similarity가
+0.92 미만인 기사를 반복 제거한다. 제거 후 4건 미만인 군집은 생성하지 않는다.
+한 번에 Driver로 가져오는 기사 수는 테마별 2,000건으로 제한하고, 초과분은 상태에
+남겨 다음 실행에서 처리한다.
 
 ---
 
 # Cluster 형성 실패
 
-형성에 실패한 노이즈 기사들은 상태에서 제거한다.
+형성에 실패한 noise 기사와 개별 membership·centroid 응집도 기준을 통과하지 못한
+기사는 발행 후 72시간까지 pending 상태에 남긴다. 후속 기사가 들어오면 같은 테마의
+pending 기사와 다시 HDBSCAN을 실행한다. 새 기사가 들어오지 않은 테마를 매
+마이크로 배치마다 반복 계산하지 않도록, 이번 배치에 새 기사가 들어온 테마만
+재군집화한다. 실제 이슈 군집에 포함되어
+`ISSUE_CREATE` 대상으로 확정된 기사만 pending 상태에서 제거하며, 72시간이 지난
+미분류 기사는 만료 처리한다.
 
 ---
 
@@ -615,7 +632,7 @@ MVP 고정값은 최소 군집 크기 5, `min_samples` 3, 평균 membership prob
 
 신규 Issue의 이름과 설명을 생성하기 위해 Cluster 전체 기사를 LLM에 전달하지 않는다.
 
-Cluster centroid와 가장 가까운 대표 기사 3건을 선택한다. (3건 미만일시 전체)
+Cluster centroid와 가장 가까운 대표 기사 4건을 선택한다. (4건 미만일시 전체)
 
 이렇게 하면 LLM 입력량을 줄이면서도 Cluster를 가장 잘 대표하는 기사들을 전달할 수 있다.
 
@@ -631,30 +648,43 @@ Cluster centroid와 가장 가까운 대표 기사 3건을 선택한다. (3건 �
   "cluster": {
     "article_count": 8,
     "hdbscan_membership_confidence": 0.87,
-    "article_titles": [
-      "미국, 중국 대상 AI 반도체 수출 규제 확대",
-      "Washington tightens semiconductor export controls",
-      "New US rules target AI accelerators exported to China"
+    "representative_articles": [
+      {
+        "title": "미국, 중국 대상 AI 반도체 수출 규제 확대",
+        "summary": "미국 정부가 중국 대상 AI 반도체 수출 규제를 확대했다."
+      },
+      {
+        "title": "워싱턴, 대중국 반도체 수출 통제 강화",
+        "summary": "미국 정부가 AI 가속기와 관련 장비의 중국 수출 통제를 강화했다."
+      }
     ]
   }
 }
 ```
 
 `article_id`는 LLM의 메타데이터 생성에 필요하지 않으므로 외부 요청에 포함하지 않는다.
-Issue에 연결할 전체 `article_ids`는 Cluster 결과로부터 별도로 `ISSUE_CREATE` 이벤트에 넣는다.
+Issue에 연결할 전체 `article_ids`와 최종 centroid 기준 기사별 cosine similarity는
+Cluster 결과로부터 별도로 `ISSUE_CREATE` 이벤트에 넣는다.
 
 ### LLM 출력
 
 ```json
 {
   "name": "미국의 대중국 AI 반도체 수출 규제 확대",
-  "summary": "미국 정부가 중국에 대한 첨단 AI 반도체 및 관련 장비의 수출 규제를 확대하면서 미중 기술 경쟁과 글로벌 반도체 시장에 영향을 주고 있는 이슈이다."
+  "summary": "미국 정부가 중국에 대한 첨단 AI 반도체 및 관련 장비의 수출 규제를 확대했다."
 }
 ```
 
-대표 기사와 클러스터 정보를 바탕으로 이슈명을 생성하고, Spark는 클러스터
-centroid를 Issue의 `embedding`으로 사용한다. LLM이 생성한 summary는 현재 Issue
-테이블에 저장하지 않는다.
+`name`은 8~50자이며 구체적인 주체, 정책·사건·대상, 행동이나 결과가 드러나야
+한다. `관련 이슈`, `최근 뉴스`, `동향`, `현황`, `전망`, `미래`, `발전`, `변화`,
+`문제`, `논의`, `경쟁`처럼 구체적 사건을 식별할 수 없는 이름은 검증에서 거부하고
+재시도한다. 대표 기사와 클러스터 정보를 바탕으로 이슈명을 생성하고, Spark는
+클러스터 centroid를 Issue의 `embedding`으로 사용한다. LLM이 생성한 summary는
+현재 Issue 테이블에 저장하지 않는다.
+
+같은 Micro Batch에서 생성된 후보 중 정규화된 `name`과 `theme_id`가 모두 같은
+후보는 하나로 병합한다. 이때 `article_ids`는 합집합으로 만들고, 병합된 전체 기사
+embedding으로 centroid를 다시 계산한 뒤 `ISSUE_CREATE` 이벤트 하나만 발행한다.
 
 ## 7. Kafka(news.event.v1)
 # 7. 신규 Issue 생성 이벤트 발행
@@ -678,12 +708,18 @@ LLM을 통해 신규 Issue의 이름이 생성되면 카프카의 `news.event.v1
       "31cd921...",
       "aac8210..."
     ],
+    "article_similarities": {
+      "87fa2c9...": 0.94,
+      "31cd921...": 0.91,
+      "aac8210...": 0.89
+    },
     "first_seen_at": "2026-09-03T03:35:24Z"
   }
 }
 ```
 
-DB Writer는 해당 이벤트를 소비하여 신규 Issue를 생성하고 Cluster에 포함된 기사와 신규 Issue의 관계를 저장한다.
+DB Writer는 해당 이벤트를 소비하여 신규 Issue를 생성하고 Cluster에 포함된 기사와
+신규 Issue의 관계 및 centroid similarity를 저장한다.
 
 ## 8. Database 저장
 
@@ -773,6 +809,11 @@ MVP에서는 하나의 기사가 하나의 Issue에만 속하므로 `article.iss
       "a-102",
       "a-103"
     ],
+    "article_similarities": {
+      "a-101": 0.94,
+      "a-102": 0.91,
+      "a-103": 0.89
+    },
     "first_seen_at": "2026-09-03T03:35:24Z"
   }
 }
@@ -815,6 +856,11 @@ RETURNING id;
 UPDATE article
 SET
     issue_id = 205,
+    issue_similarity = CASE id
+        WHEN 'a-101' THEN 0.94
+        WHEN 'a-102' THEN 0.91
+        WHEN 'a-103' THEN 0.89
+    END,
     issue_assigned_at = NOW()
 WHERE id IN (
     'a-101',

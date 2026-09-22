@@ -6,3 +6,5 @@ include:
   - local: /.gitlab/ci/bigdata.yml
   - local: /.gitlab/ci/be.yml
   - local: /.gitlab/ci/front.yml
+  - local: /.gitlab/ci/infra.yml
+  - local: /.gitlab/ci/ml.yml

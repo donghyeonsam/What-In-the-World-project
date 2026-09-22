@@ -1,0 +1,196 @@
+import { useState } from 'react';
+import { accountApi } from './accountApi.js';
+import { beginSsafyLogin } from './ssafyOAuth.js';
+import { useVerificationTimer } from './useVerificationTimer.js';
+import ssafyLogo from '../assets/ssafy-logo.svg';
+import s from './Personalization.module.css';
+
+export function AuthForm({ onLogin, notice }) {
+  const [mode, setMode] = useState('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [code, setCode] = useState('');
+  const [sent, setSent] = useState(false);
+  const [verified, setVerified] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState(notice || '');
+  const signup = mode === 'signup';
+  const timer = useVerificationTimer();
+  async function run(action) {
+    setError(''); setMessage(''); setBusy(true);
+    try { await action(); } catch (err) { setError(err.message); } finally { setBusy(false); }
+  }
+  const submit = (event) => {
+    event.preventDefault();
+    if (signup && !verified) { setError('먼저 이메일 인증을 완료해 주세요.'); return; }
+    if (signup && password !== confirm) { setError('비밀번호 확인이 일치하지 않습니다.'); return; }
+    run(async () => {
+      if (signup) {
+        await accountApi.signup(email.trim(), password);
+        setMode('login'); setPassword(''); setConfirm(''); setVerified(false); setSent(false);
+        setMessage('회원가입이 완료되었습니다. 로그인해 주세요.');
+      } else {
+        await accountApi.login(email.trim(), password);
+        setPassword('');
+        await onLogin();
+      }
+    });
+  };
+  if (mode === 'reset') {
+    return <PasswordResetForm initialEmail={email} onBack={() => setMode('login')} onComplete={(resetEmail) => {
+      setEmail(resetEmail); setPassword(''); setConfirm(''); setCode('');
+      setVerified(false); setSent(false); setError(''); setMode('login');
+      setMessage('비밀번호가 재설정되었습니다. 새 비밀번호로 로그인해 주세요.');
+    }} />;
+  }
+  return <>
+    <p className={s.description}>로그인하고 관심 있는 테마의 뉴스를 구독하세요.</p>
+    <button type="button" className={s.ssafyLogin} disabled={busy} onClick={() => run(() => beginSsafyLogin())}>
+      <img src={ssafyLogo} alt="" className={s.ssafyLogo} /><b>SSAFY 계정으로 계속하기</b>
+    </button>
+    <div className={s.divider}><span>또는 이메일로 계속</span></div>
+    <div className={s.tabs}>{[['login', '로그인'], ['signup', '회원가입']].map(([value, label]) => <button type="button" disabled={busy} key={value} aria-pressed={mode === value} onClick={() => { setMode(value); setError(''); setMessage(''); setPassword(''); setConfirm(''); }}>{label}</button>)}</div>
+    <form className={s.form} onSubmit={submit}>
+      <fieldset disabled={busy}>
+        <label>이메일<input type="email" required maxLength={255} autoComplete="email" value={email} onChange={(event) => { setEmail(event.target.value); setVerified(false); setSent(false); setCode(''); timer.clear(); }} /></label>
+        {signup && <>
+          <button type="button" className={s.secondary} disabled={!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) || verified} onClick={() => run(async () => { const requestedAt = Date.now(); const data = await accountApi.sendCode(email.trim()); timer.start(data?.timeLimit, requestedAt); setCode(''); setSent(true); setMessage('인증번호를 전송했습니다.'); })}>{verified ? '이메일 인증 완료' : sent ? '인증번호 다시 보내기' : '인증번호 보내기'}</button>
+          {sent && !verified && <>
+            <div className={s.inline}><label>인증번호<input value={code} disabled={timer.expired} maxLength={7} autoComplete="one-time-code" onChange={(event) => setCode(event.target.value)} placeholder="영문·숫자 7자리" /></label><button type="button" className={s.secondary} disabled={timer.expired || !/^[A-Za-z0-9]{7}$/.test(code)} onClick={() => run(async () => { await accountApi.verifyCode(email.trim(), code); setVerified(true); timer.clear(); setMessage('이메일 인증이 완료되었습니다.'); })}>인증하기</button></div>
+            <VerificationTime timer={timer} />
+          </>}
+        </>}
+        <label>비밀번호<input type="password" required minLength={8} maxLength={72} autoComplete={signup ? 'new-password' : 'current-password'} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="8~72자" /></label>
+        {signup && <label>비밀번호 확인<input type="password" required minLength={8} maxLength={72} autoComplete="new-password" value={confirm} onChange={(event) => setConfirm(event.target.value)} /></label>}
+        <button className={s.primary} type="submit" disabled={signup && !verified}>{busy ? '처리 중…' : signup ? '회원가입' : '로그인'}</button>
+      </fieldset>
+      {!signup && <button type="button" className={s.textButton} disabled={busy} onClick={() => {
+        setPassword(''); setConfirm(''); setError(''); setMessage(''); setMode('reset');
+      }}>비밀번호를 잊으셨나요?</button>}
+      {error && <p role="alert" className={s.error}>{error}</p>}
+      {message && <p role="status" className={s.message}>{message}</p>}
+    </form>
+  </>;
+}
+
+function PasswordResetForm({ initialEmail, onBack, onComplete }) {
+  const timer = useVerificationTimer();
+  const [step, setStep] = useState('email');
+  const [email, setEmail] = useState(initialEmail);
+  const [code, setCode] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+
+  async function run(action) {
+    setBusy(true); setError(''); setMessage('');
+    try { await action(); }
+    catch (err) { setError(err.message); }
+    finally { setBusy(false); }
+  }
+  async function sendCode() {
+    const requestedAt = Date.now();
+    const data = await accountApi.sendPasswordResetCode(email.trim());
+    timer.start(data?.timeLimit, requestedAt);
+    setCode(''); setStep('code');
+    setMessage('가입된 이메일 계정이면 인증번호가 전송됩니다.');
+  }
+  function restart() {
+    timer.clear();
+    setStep('email'); setCode(''); setPassword(''); setConfirm(''); setError(''); setMessage('');
+  }
+  function submit(event) {
+    event.preventDefault();
+    if (step === 'email') { run(sendCode); return; }
+    if (step === 'code') {
+      if (timer.expired) { setError('인증번호가 만료되었습니다. 다시 보내 주세요.'); return; }
+      run(async () => {
+        await accountApi.verifyPasswordResetCode(email.trim(), code.trim().toUpperCase());
+        setStep('password'); setCode(''); timer.clear();
+        setMessage('이메일 인증이 완료되었습니다. 새 비밀번호를 입력해 주세요.');
+      });
+      return;
+    }
+    if (password !== confirm) { setError('새 비밀번호 확인이 일치하지 않습니다.'); return; }
+    run(async () => {
+      await accountApi.resetPassword(password);
+      setPassword(''); setConfirm(''); onComplete(email.trim());
+    });
+  }
+  return <form className={s.form} onSubmit={submit}>
+    <h3>비밀번호 찾기</h3>
+    <p className={s.description}>이메일 인증 후 새 비밀번호를 설정하세요. SSAFY 계정의 비밀번호는 SSAFY 사이트에서 변경할 수 있습니다.</p>
+    <fieldset disabled={busy}>
+      <label>이메일<input type="email" required maxLength={255} autoComplete="email" readOnly={step !== 'email'} value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+      {step === 'code' && <>
+        <VerificationTime timer={timer} />
+        <label>인증번호<input required minLength={7} maxLength={7} pattern="[A-Za-z0-9]{7}" autoComplete="one-time-code" placeholder="영문·숫자 7자리" value={code} onChange={(event) => setCode(event.target.value)} /></label>
+        <button type="button" className={s.secondary} onClick={() => run(sendCode)}>인증번호 다시 보내기</button>
+      </>}
+      {step === 'password' && <>
+        <label>새 비밀번호<input type="password" required minLength={8} maxLength={72} autoComplete="new-password" placeholder="8~72자" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+        <label>새 비밀번호 확인<input type="password" required minLength={8} maxLength={72} autoComplete="new-password" value={confirm} onChange={(event) => setConfirm(event.target.value)} /></label>
+      </>}
+      <button type="submit" className={s.primary} disabled={step === 'code' && timer.expired}>{busy ? '처리 중…' : step === 'email' ? '인증번호 보내기' : step === 'code' ? '인증번호 확인' : '비밀번호 재설정'}</button>
+      {step !== 'email' && <button type="button" className={s.textButton} onClick={restart}>이메일 인증부터 다시 시작</button>}
+      <button type="button" className={s.textButton} onClick={onBack}>로그인으로 돌아가기</button>
+    </fieldset>
+    {error && <p role="alert" className={s.error}>{error}</p>}
+    {message && <p role="status" className={s.message}>{message}</p>}
+  </form>;
+}
+
+function VerificationTime({ timer }) {
+  return timer.expired
+    ? <p role="status" className={s.error}>인증번호가 만료되었습니다. 인증번호를 다시 보내 주세요.</p>
+    : <p className={s.verificationTimer}>인증번호 유효시간 <strong role="timer" aria-live="off">{timer.label}</strong></p>;
+}
+
+export function PasswordForm({ onChanged, onExpired }) {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function submit(event) {
+    event.preventDefault(); setError('');
+    if (next !== confirm) { setError('새 비밀번호 확인이 일치하지 않습니다.'); return; }
+    if (current === next) { setError('현재 비밀번호와 다른 비밀번호를 입력해 주세요.'); return; }
+    setBusy(true);
+    try { await accountApi.changePassword(current, next); setCurrent(''); setNext(''); setConfirm(''); onChanged(); }
+    catch (err) { if (err.status === 401) onExpired(); else setError(err.message); }
+    finally { setBusy(false); }
+  }
+  return <form className={s.form} onSubmit={submit}><p className={s.description}>비밀번호 변경 후에는 다시 로그인해야 합니다.</p><fieldset disabled={busy}>
+    <label>현재 비밀번호<input type="password" required minLength={8} maxLength={72} autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} /></label>
+    <label>새 비밀번호<input type="password" required minLength={8} maxLength={72} autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} placeholder="8~72자" /></label>
+    <label>새 비밀번호 확인<input type="password" required minLength={8} maxLength={72} autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></label>
+    <button className={s.primary} type="submit">{busy ? '변경 중…' : '비밀번호 변경'}</button></fieldset>{error && <p className={s.error} role="alert">{error}</p>}
+  </form>;
+}
+
+export function WithdrawForm({ onWithdraw, onExpired }) {
+  const [password, setPassword] = useState('');
+  const [agreed, setAgreed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function submit(event) {
+    event.preventDefault(); setError(''); setBusy(true);
+    try { await accountApi.withdraw(password); setPassword(''); await onWithdraw(); }
+    catch (err) { if (err.status === 401) onExpired(); else setError(err.message); }
+    finally { setBusy(false); }
+  }
+  return <form className={`${s.form} ${s.dangerZone}`} onSubmit={submit}>
+    <div className={s.dangerNotice}><strong>계정을 삭제하시겠어요?</strong><p>탈퇴하면 현재 계정과 로그인 세션이 비활성화됩니다. 다시 이용하려면 새로 가입해야 합니다.</p></div>
+    <fieldset disabled={busy}>
+      <label>현재 비밀번호<input type="password" required minLength={8} maxLength={72} autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="본인 확인을 위해 입력해 주세요" /></label>
+      <label className={s.agreement}><input type="checkbox" checked={agreed} onChange={(event) => setAgreed(event.target.checked)} /> <span>회원탈퇴 안내를 확인했으며 계정 삭제에 동의합니다.</span></label>
+      <button className={s.dangerButton} type="submit" disabled={!agreed || password.length < 8}>{busy ? '탈퇴 처리 중…' : '회원 탈퇴'}</button>
+    </fieldset>
+    {error && <p className={s.error} role="alert">{error}</p>}
+  </form>;
+}

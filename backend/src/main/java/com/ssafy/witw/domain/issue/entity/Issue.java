@@ -26,7 +26,7 @@ public class Issue {
 
     @Size(max = 50)
     @NotNull
-    @Column(name = "name", nullable = false, length = 50)
+    @Column(name = "name", nullable = false, length = 50, unique = true)
     private String name;
 
     @Column(name = "embedding", length = Integer.MAX_VALUE)
@@ -43,5 +43,9 @@ public class Issue {
     @NotNull
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+
+    @NotNull
+    @Column(name = "last_active_at", nullable = false)
+    private LocalDateTime lastActiveAt;
 
 }

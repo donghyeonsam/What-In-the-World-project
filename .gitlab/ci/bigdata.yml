@@ -1,12 +1,14 @@
 .bigdata-variables:
   variables:
-    # GitLab Runner가 저장소 파일을 복사할 EC2의 고정 배포 경로
+    # GitLab Runner가 저장소 파일을 복사할 빅데이터 분산 EC2의 고정 배포 경로
     BIGDATA_DEPLOY_DIR: /opt/news-bigdata
     BIGDATA_ENV_FILE: /opt/news-bigdata/.env
 
     # Runner의 체크아웃 경로와 관계없이 동일한 Compose 프로젝트를 관리
     COMPOSE_PROJECT_NAME: news-bigdata-prod
     COMPOSE_FILE: docker-compose.prod.yml
+    MONITORING_COMPOSE_PROJECT_NAME: news-monitoring
+    MONITORING_COMPOSE_FILE: monitoring/docker-compose.yml
 
 
 # =========================================================
@@ -22,6 +24,7 @@ validate-bigdata:
     POSTGRESQL_USER: validation
     POSTGRESQL_PASSWORD: validation
     GMS_API_KEY: validation
+    LOKI_URL: http://validation.invalid/loki/api/v1/push
 
   tags:
     - bigdata-deploy
@@ -42,6 +45,8 @@ validate-bigdata:
     # -----------------------------------------------------
     - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" config --quiet
     - KAFKA_EXTERNAL_HOST=localhost KAFKA_BIND_HOST=127.0.0.1 docker compose -p news-bigdata-local -f docker-compose.local.yml config --quiet
+    - docker compose -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" config --quiet
+    - docker compose -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" run --rm --no-deps --entrypoint promtool prometheus check config /etc/prometheus/prometheus.yml
 
     # -----------------------------------------------------
     # Kafka Topic 생성 스크립트 문법 검사
@@ -51,10 +56,11 @@ validate-bigdata:
     # -----------------------------------------------------
     # 애플리케이션 Docker 이미지 빌드 검증
     #
-    # Collector 의존성, Java consumer 컴파일/테스트, Spark Connector 내장 이미지의
-    # Dockerfile 및 COPY 경로 오류 등을 여기서 잡음
+    # Kafka JMX agent, Collector 의존성, Java consumer 컴파일/테스트,
+    # Spark Connector, HDFS exporter 이미지의 Dockerfile 및 COPY 경로 오류를 잡음
     # -----------------------------------------------------
-    - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" build collector bronze-writer silver-writer spark-master
+    - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" build kafka collector silver-writer spark-master
+    - docker compose -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" build hdfs-exporter
     - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" run --rm --no-deps --entrypoint test spark-master -f /opt/spark/jars/org.apache.spark_spark-sql-kafka-0-10_2.13-4.2.0.jar
     - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" run --rm --no-deps --entrypoint test spark-master -f /opt/spark/jars/org.postgresql_postgresql-42.7.7.jar
     - KAFKA_EXTERNAL_HOST=validation.invalid KAFKA_BIND_HOST=127.0.0.1 docker compose -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" run --rm --no-deps collector --help
@@ -84,7 +90,11 @@ deploy-bigdata:
     - bigdata-deploy
 
   needs:
-    - validate-bigdata
+    - job: validate-bigdata
+    # Spark는 운영 PostgreSQL 스키마를 조회하므로 운영 Backend의 Flyway와
+    # DB 포트 설정이 먼저 반영되어야 한다.
+    - job: deploy-backend
+      optional: true
 
   resource_group: bigdata-production
   interruptible: false
@@ -121,16 +131,17 @@ deploy-bigdata:
     # -----------------------------------------------------
     # 런타임에 그대로 사용하는 공식 이미지 업데이트
     #
-    # Collector, HDFS writer, Spark는 직접 build하는 서비스이므로 제외
+    # Kafka, Collector, HDFS writer, Spark는 직접 build하는 서비스이므로 제외
     # -----------------------------------------------------
-    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" pull kafka namenode datanode
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" pull namenode datanode
 
     # -----------------------------------------------------
     # 애플리케이션 이미지 빌드
     #
-    # Collector, Java Kafka-HDFS consumer, Connector 내장 Spark 이미지 변경사항 반영
+    # JMX agent 내장 Kafka, Collector, Java Kafka-HDFS consumer,
+    # Connector 내장 Spark 이미지 변경사항 반영
     # -----------------------------------------------------
-    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" build collector bronze-writer silver-writer spark-master
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" build kafka collector silver-writer spark-master
 
     # -----------------------------------------------------
     # Collector를 제외한 기반 서비스 실행
@@ -142,25 +153,55 @@ deploy-bigdata:
     # -----------------------------------------------------
     - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" run --rm kafka-init
 
-    # Topic 준비가 끝난 뒤 Collector, HDFS writer, Spark stream 시작
-    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" up -d --no-deps --wait --wait-timeout 900 collector bronze-writer silver-writer spark-enriched-stream
+    # Spark checkpoint 경로를 HDFS에 멱등 생성
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" run --rm hdfs-checkpoint-init
+
+    # Topic과 checkpoint 준비가 끝난 뒤 Collector, HDFS writer, Spark stream 시작
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" up -d --no-deps --wait --wait-timeout 900 collector silver-writer spark-enriched-stream spark-unclassified-issue-stream
+    - docker restart -t 180 news-spark-enriched-stream news-spark-unclassified-issue-stream
+    # 47개국 운영 Collector가 시작되면 동일 소스를 중복 조회하는 관측용 Collector는 중지한다.
+    - |
+      if [ "$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' news-collector | sed -n 's/^COLLECTOR_PROFILE=//p')" = "global47" ] && docker inspect news-collector-observe >/dev/null 2>&1; then
+        docker stop -t 30 news-collector-observe
+      fi
+    # -----------------------------------------------------
+    # BigData Prometheus / Grafana / Exporter 배포
+    # -----------------------------------------------------
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" config --quiet
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" pull alloy prometheus grafana kafka-exporter node-exporter cadvisor
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" build hdfs-exporter
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" run --rm --no-deps alloy validate /etc/alloy/config.alloy
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" up -d --wait --wait-timeout 180
+    # bind mount로 갱신된 scrape/alert 설정을 실행 중인 Prometheus에 즉시 반영한다.
+    - docker kill --signal=HUP news-prometheus
 
     # -----------------------------------------------------
     # 배포 결과 확인
     # -----------------------------------------------------
     - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$COMPOSE_PROJECT_NAME" -f "$COMPOSE_FILE" ps
+    - docker compose --env-file "$BIGDATA_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT_NAME" -f "$MONITORING_COMPOSE_FILE" ps
 
     # 애플리케이션 컨테이너 health 확인
     - test "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' news-collector)" = "healthy"
-    - test "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' news-bronze-writer)" = "healthy"
+    # heartbeat에 기록된 실제 실행 profile이 배포 설정과 같은지 확인한다.
+    - docker exec news-collector python -c 'import json, os; heartbeat=json.load(open("/data/collector/collector.heartbeat", encoding="utf-8")); assert heartbeat.get("collection_profile") == os.environ["COLLECTOR_PROFILE"], heartbeat'
     - test "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' news-silver-writer)" = "healthy"
     - test "$(docker inspect -f '{{.State.Running}}' news-spark-enriched-stream)" = "true"
+    - test "$(docker inspect -f '{{.State.Running}}' news-spark-unclassified-issue-stream)" = "true"
+    - test "$(docker inspect -f '{{.State.Running}}' news-prometheus)" = "true"
+    - test "$(docker inspect -f '{{.State.Running}}' news-grafana)" = "true"
+    - test "$(docker inspect -f '{{.State.Running}}' news-kafka-exporter)" = "true"
+    - test "$(docker inspect -f '{{.State.Running}}' news-hdfs-exporter)" = "true"
+    - test "$(docker inspect -f '{{.State.Running}}' news-alloy)" = "true"
+    - test "$(docker inspect -f '{{.State.Running}}' news-cadvisor)" = "true"
 
     # 최근 Collector 로그 출력
     - docker logs --tail 50 news-collector
-    - docker logs --tail 50 news-bronze-writer
     - docker logs --tail 50 news-silver-writer
     - docker logs --tail 50 news-spark-enriched-stream
+    - docker logs --tail 50 news-spark-unclassified-issue-stream
+    - docker logs --tail 50 news-prometheus
+    - docker logs --tail 50 news-hdfs-exporter
 
   rules:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
@@ -168,5 +209,4 @@ deploy-bigdata:
         - bigdata/**/*
         - .gitlab-ci.yml
         - .gitlab/ci/bigdata.yml
-      when: manual
       allow_failure: true

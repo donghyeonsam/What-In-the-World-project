@@ -1,6 +1,5 @@
 package com.ssafy.witw.domain.country.dto;
 
-import com.ssafy.witw.domain.article.dto.RepresentArticle;
 import com.ssafy.witw.domain.theme.dto.PopularTheme;
 
 import java.util.List;
@@ -11,11 +10,20 @@ public record CountryMainResponse(
         long todayArticleCount,
         int globalRank,
 
+        List<CountryIssue> countryIssues,
         List<PopularTheme> popularThemes,
         List<MentionRatio> sourceMentions,
-        List<MentionRatio> targetMentions,
-        List<RepresentArticle> representArticles
+        List<MentionRatio> targetMentions
 ) {
+    public record CountryIssue(
+            long issueId,
+            String fieldName,
+            String themeName,
+            String issueName,
+            String scoreVersion,
+            Double localHeatScore
+    ) { }
+
     public record MentionRatio(
             String countryCode,
             String countryName,

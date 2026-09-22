@@ -25,7 +25,7 @@ public class Field {
 
     @Size(max = 100)
     @NotNull
-    @Column(name = "name", nullable = false, length = 100)
+    @Column(name = "name", nullable = false, length = 100, unique = true)
     private String name;
 
     @Size(max = 255)

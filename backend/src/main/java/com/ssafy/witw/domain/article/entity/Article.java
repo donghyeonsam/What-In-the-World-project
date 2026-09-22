@@ -61,9 +61,6 @@ public class Article {
     @Column(name = "theme_relevance_score", nullable = false)
     private BigDecimal themeRelevanceScore;
 
-    @Column(name = "embedding", length = Integer.MAX_VALUE)
-    private String embedding;
-
     @Column(name = "issue_similarity")
     private BigDecimal issueSimilarity;
 
@@ -73,6 +70,11 @@ public class Article {
 
     @Column(name = "summary", length = Integer.MAX_VALUE)
     private String summary;
+
+    // 요약문의 E5 임베딩(768차원)을 JSON 배열 문자열로 보관한다.
+    // theme.embedding / issue.embedding 과 동일한 TEXT 방식이다.
+    @Column(name = "summary_embedding", length = Integer.MAX_VALUE)
+    private String summaryEmbedding;
 
     @NotNull
     @Column(name = "created_at", nullable = false)

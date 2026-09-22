@@ -20,6 +20,20 @@ services:
 
       HF_HOME: /app/models/huggingface
 
+      # --- 테마 분류 중심화 ---------------------------------------------
+      # centroid.npy 는 resources/ 가 아니라 models/ 에 둔다.
+      # resources/ 는 이미지에 COPY 되므로 파일을 바꾸려면 재빌드해야 하지만,
+      # models/ 는 bind mount 라 파일만 넣고 재시작하면 된다.
+      # 파일이 없으면 중심화 없이(기존과 100% 동일하게) 뜨므로,
+      # 롤백은 파일을 치우고 재시작하는 것으로 끝난다.
+      THEME_CENTROID_PATH: /app/models/centroid.npy
+
+      # --- 톤 backend ---------------------------------------------------
+      # student: models/tone-student/ 의 증류 모델 (기본값)
+      # teacher: 기존 NLI 모델로 되돌린다 (롤백 스위치)
+      TONE_BACKEND: student
+      TONE_STUDENT_DIR: /app/models/tone-student
+
     volumes:
       - ./models:/app/models
       - ./data:/app/data

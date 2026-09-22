@@ -1,8 +1,7 @@
 import s from './layout.module.css';
 
 /**
- * 대시보드 골격 — 지도 스테이지 + 인사이트 패널. 둘 다 흰 바탕이다.
- * 결정표 2-2(패널이 각자 스크롤) · 3-1(라이트 미니멀) · 4(3D 지구본) · 7-3(데스크톱 전용)
+ * 대시보드 골격 — 좁은 화면에서는 지도와 패널을 쌓고, 넓은 화면에서는 나란히 배치한다.
  *
  * panelTone은 "지금 보고 있는 나라가 이 이슈를 어떻게 썼는가"를 배경 그라데이션으로 말한다.
  * pos = 우호(초록), neg = 비판(빨강), neu = 중립(회색).
@@ -11,20 +10,25 @@ import s from './layout.module.css';
  *          panel: React.ReactNode, panelTone?: 'pos'|'neg'|'neu'|null,
  *          panelRef?: React.Ref<HTMLElement>}} props
  */
-export default function DashboardLayout({ header, stage, panel, panelTone = null, panelRef }) {
+export default function DashboardLayout({ header, stage, panel, panelTone = null, panelRef, timeTravel = false, arrival = false, overlay = null }) {
   const toneClass = panelTone
     ? { pos: s.tonePos, neg: s.toneNeg, neu: s.toneNeu }[panelTone]
     : '';
   return (
-    <div className={s.shell}>
-      {header}
+    <div className={`${s.shell} ${timeTravel ? s.timeTravel : ''}`}>
+      <div>{header}</div>
       <main className={s.dashboard}>
         <section className={s.stage} aria-label="글로벌 지도">
           {stage}
         </section>
-        <aside className={`${s.panel} ${toneClass}`} aria-live="polite" ref={panelRef}>
-          {panel}
-        </aside>
+        <div className={s.projection} aria-hidden="true"><i /><i /><i /></div>
+        <div className={s.hologram} {...(timeTravel ? { inert: '', 'aria-hidden': true } : {})}>
+          <aside className={`${s.panel} ${toneClass}`} aria-live={timeTravel ? 'off' : 'polite'} aria-busy={timeTravel} ref={panelRef}>
+            <div className={s.panelBody} {...(timeTravel ? { inert: '', 'aria-hidden': true } : {})}>{panel}</div>
+          </aside>
+        </div>
+        {overlay}
+        {arrival && <div className={s.arrivalFlash} aria-hidden="true" />}
       </main>
     </div>
   );

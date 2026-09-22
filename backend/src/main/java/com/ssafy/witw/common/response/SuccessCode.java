@@ -9,11 +9,24 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor(access = AccessLevel.PRIVATE)
 public enum SuccessCode {
 
-    // Common
+    // COMMON
     REQUEST_SUCCESS(HttpStatus.OK, "요청이 성공적으로 처리되었습니다."),
     CREATE_SUCCESS(HttpStatus.CREATED, "성공적으로 생성되었습니다."),
     UPDATE_SUCCESS(HttpStatus.OK, "성공적으로 수정되었습니다."),
-    DELETE_SUCCESS(HttpStatus.OK, "성공적으로 삭제되었습니다.");
+    DELETE_SUCCESS(HttpStatus.OK, "성공적으로 삭제되었습니다."),
+
+    // AUTH
+    SIGNUP_SUCCESS(HttpStatus.CREATED, "회원 가입에 성공했습니다."),
+    EMAIL_SEND_SUCCESS(HttpStatus.OK, "인증번호가 발송되었습니다."),
+    EMAIL_VERIFY_SUCCESS(HttpStatus.OK, "이메일 인증에 성공했습니다."),
+    LOGIN_SUCCESS(HttpStatus.OK, "로그인에 성공했습니다."),
+    LOGOUT_SUCCESS(HttpStatus.OK, "로그아웃에 성공했습니다."),
+    WITHDRAW_SUCCESS(HttpStatus.OK, "회원 탈퇴에 성공했습니다."),
+    PASSWORD_RESET_EMAIL_SEND_SUCCESS(HttpStatus.OK, "비밀번호 재설정 인증번호가 발송되었습니다."),
+    PASSWORD_RESET_EMAIL_VERIFY_SUCCESS(HttpStatus.OK, "비밀번호 재설정 이메일 인증에 성공했습니다."),
+    PASSWORD_RESET_SUCCESS(HttpStatus.OK, "비밀번호가 재설정 되었습니다."),
+    PASSWORD_CHANGE_SUCCESS(HttpStatus.OK, "비밀번호가 변경되었습니다."),
+    SSAFY_LOGIN_SUCCESS(HttpStatus.OK, "SSAFY 로그인에 성공했습니다.");
 
     private final HttpStatus status;
     private final String message;

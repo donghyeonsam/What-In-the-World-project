@@ -5,12 +5,26 @@ spring:
   datasource:
     url: ${POSTGRESQL_URL:jdbc:postgresql://localhost:5432/witw}
     username: ${POSTGRESQL_USER:postgres}
-    password: ${POSTGRESQL_PASSWORD:1234}
+    password: ${POSTGRESQL_PASSWORD}
   data:
     redis:
       host: ${VALKEY_HOST:localhost}
       port: ${VALKEY_HOST_PORT:6379}
       password: ${VALKEY_PASSWORD:}
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_APP_PASSWORD}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
 
 server:
   servlet:

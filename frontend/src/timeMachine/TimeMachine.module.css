@@ -1,0 +1,105 @@
+.picker { position: absolute; z-index: 10; inset: 0; color: #edf7ff; pointer-events: none; overflow: clip; animation: pickerReveal 1000ms ease both; }
+.machineContent { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); text-align: center; text-shadow: 0 2px 16px #020712; }
+.machineContent h1 { font: 500 11px var(--wtw-mono); letter-spacing: .28em; margin: 0 0 20px; color: #9bbccd; }
+.currentLabel { font-size: 11px; color: #95aebd; margin: 0 0 10px; }
+.currentDate { position: absolute; bottom: calc(100% + 24px); left: 50%; transform: translateX(-50%); display: block; font: 500 clamp(22px, 2.5vw, 34px) var(--wtw-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dateSelector { position: absolute; right: 0; top: 0; width: min(24%, 360px); height: 100%; display: flex; flex-direction: column; overflow: visible; box-sizing: border-box; padding: 24px 12px 24px 0; pointer-events: auto; }
+.steps { display: flex; gap: 20px; width: min(100%, 380px); align-self: flex-end; flex-shrink: 0; }
+.steps button { flex: 1; display: grid; gap: 10px; padding: 0 0 12px; text-align: left; border: 0; border-bottom: 1px solid #a5cddd24; color: #91aab8; background: transparent; }
+.steps small { font: 10px var(--wtw-mono); }
+.steps strong { font: 24px var(--wtw-mono); }
+.steps [aria-current='step'] { color: #daf4ff; border-bottom-color: #b2dceb; }
+.steps button:disabled { opacity: .3; }
+.ruler { position: relative; width: 100%; margin-left: 0; flex: 1 1 0; min-height: 0; overscroll-behavior: contain; }
+.ruler svg { position: absolute; width: 100%; height: 100%; overflow: visible; }
+.rulerArc { fill: none; stroke: #95bbcc38; stroke-width: 1; }
+.majorTick { stroke: #b4d6e3; stroke-width: 1; }
+.minorTick { stroke: #91afbe55; stroke-width: .7; }
+.rulerPointer { fill: #daf4ff; stroke: #daf4ff; stroke-width: 1; }
+.rulerValue { position: absolute; transform: translateY(-50%); display: flex; align-items: baseline; gap: 4px; min-height: 32px; min-width: 0; padding: 4px 2px; border: 0; border-radius: 5px; background: transparent; color: #8da9b9; text-align: left; font: clamp(16px, 1.5vw, 24px) var(--wtw-mono); font-variant-numeric: tabular-nums; transition: color 120ms ease, background 120ms ease; }
+.rulerValue span { font-size: 8px; }
+.rulerValue:enabled:hover { background: #b1d8e710; color: #e6f7ff; }
+.rulerValue:disabled { color: #74909e; opacity: .22; cursor: not-allowed; }
+.selectedValue { color: #e6f7ff; font-size: clamp(24px, 2.2vw, 34px); text-shadow: 0 0 20px #a5e1ff40; }
+.rulerControls { width: 80px; gap: 12px; align-self: flex-end; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; color: #93afbc; font-size: 10px; }
+.rulerControls button { width: 32px; height: 32px; color: #d2eaf4; border: 1px solid #b4d6e32b; background: #a7c9db08; border-radius: 50%; font-size: 18px; }
+.rulerControls button:disabled { opacity: .22; }
+.launch { display: flex; align-items: center; justify-content: center; text-align: center; width: 190px; margin: 0 auto; pointer-events: auto; padding: 14px; border: 1px solid #b7ddeb55; border-radius: 4px; background: #9ed6ed10; color: #d4eef9; font-size: 12px; letter-spacing: .03em; }
+.launch:hover:enabled { background: #9ed6ed22; border-color: #b7ddeb; }
+.launch:disabled { opacity: .35; cursor: not-allowed; }
+.dateSelector button:focus-visible { outline: 2px solid #ceeefe; outline-offset: 3px; }
+.picker [role='alert'] { color: #ffb3a7; font-size: 11px; }
+.stageClock { position: absolute; top: 26px; left: 30px; z-index: 8; pointer-events: none; color: #d9eef1; text-shadow: 0 2px 16px #020712; }
+.stageClock time { font: 500 clamp(13px, 1.18vw, 17px)/1.4 var(--wtw-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.centeredClock { left: 50%; top: 50%; transform: translate(-50%, -50%); }
+.centeredClock time { font-size: clamp(16px, 3vw, 30px); }
+@media (min-width: 1000px) {
+  .centeredClock { left: calc(var(--stage-width) / 2); }
+}
+.travel { position: absolute; inset: 0; z-index: 9; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 0 20px 7vh; color: #d9eef1; }
+.travel p { font-size: 13px; }
+.travel button { color: #b2c4cf; font-size: 12px; padding: 12px; }
+@media (max-width: 600px) { .stageClock:not(.centeredClock) { top: 15px; left: 18px; } }
+
+.picker { animation: pickerReveal 1000ms ease both; }
+@keyframes pickerReveal { 0%, 60% { opacity: 0; } 100% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .picker { animation: none; } }
+
+@media (max-width: 999px) {
+  .picker { overflow: clip; background: linear-gradient(90deg, transparent, #02071270); }
+  .machineContent { left: 25%; top: 180px; }
+  .currentDate { font-size: 18px; }
+  .dateSelector { right: 0; top: 0; width: 32%; min-width: 190px; padding: 16px 12px 16px 0; }
+  .ruler { min-height: 0; }
+  .rulerControls span { font-size: 8px; }
+}
+@media (max-width: 520px) {
+  .machineContent { left: 22%; top: 150px; }
+  .machineContent h1 { font-size: 8px; letter-spacing: .1em; }
+  .currentDate { font-size: 12px; }
+  .currentLabel { font-size: 8px; }
+  .dateSelector { right: 0; min-width: 150px; width: 40%; padding: 16px 8px 16px 0; }
+  .steps { gap: 8px; }
+  .steps strong { font-size: 19px; }
+  .rulerValue { font-size: 13px; min-width: 0; padding-inline: 0; gap: 1px; }
+  .selectedValue { font-size: 18px; }
+  .launch { width: 130px; font-size: 11px; margin-top: 0; }
+}
+
+.referenceLine { stroke: #a9d7e733; stroke-width: .7; stroke-dasharray: 2 6; }
+.activeRing { transition: opacity 300ms ease, filter 300ms ease; }
+.activeRing { opacity: 1; filter: drop-shadow(0 0 4px #a1e3ff50); }
+.activeRing .rulerArc { stroke: #a7d9ed88; }
+.activeRing .majorTick { stroke: #e0f7ff; stroke-width: 1.3; }
+.activeValues { transition: opacity 300ms ease; }
+.activeValues { opacity: 1; }
+.activeValues .selectedValue { color: #effcff; text-shadow: 0 0 16px #a5e1ff80; }
+@media (prefers-reduced-motion: reduce) { .activeRing, .idleRing, .activeValues { transition: none; } }
+
+.ruler { perspective: 850px; perspective-origin: 30% 50%; }
+.rulerPage { position: absolute; inset: 0; transform-origin: 100% 50%; transform-style: preserve-3d; backface-visibility: hidden; }
+.pageOut { animation: rulerPageOut 1100ms cubic-bezier(.4, 0, .2, 1) both; pointer-events: none; }
+.pageIn { animation: rulerPageIn 1100ms cubic-bezier(.4, 0, .2, 1) both; pointer-events: none; }
+@keyframes rulerPageOut {
+  0% { opacity: 1; transform: rotateY(0deg); }
+  65% { opacity: .55; }
+  100% { opacity: 0; transform: rotateY(-88deg); }
+}
+@keyframes rulerPageIn {
+  0% { opacity: .4; transform: rotateY(88deg); }
+  30% { opacity: 1; }
+  100% { opacity: 1; transform: rotateY(0deg); }
+}
+@media (prefers-reduced-motion: reduce) { .pageOut, .pageIn { animation: none; } }
+
+.orbitStage { position: absolute; inset: 0; pointer-events: none; overflow: clip; opacity: var(--warp-opacity); }
+.speedLines { position: absolute; inset: 0; }
+.speedLines i { position: absolute; left: var(--origin-x); top: var(--origin-y); width: var(--distance); height: 1px; background: linear-gradient(90deg, transparent, #9bdefe99); transform-origin: left; animation: warpStreak var(--streak-speed) linear infinite; animation-delay: var(--delay); }
+.speedLines i:nth-child(4n) { background: linear-gradient(90deg, transparent, #ffd08b88); }
+.travel > p, .travel > button { position: relative; z-index: 1; }
+@keyframes warpStreak {
+  0% { transform: rotate(var(--angle)) translateX(var(--start)) scaleX(.15); opacity: 0; }
+  25% { opacity: .55; }
+  100% { transform: rotate(calc(var(--angle) + var(--drift))) translateX(100vmax) scaleX(2.4); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .orbitStage { display: none; } }
