@@ -27,7 +27,7 @@ Vite 개발 프록시는 개발 서버에서만 사용됩니다. 브라우저가
 | 글로벌 기사 수 · TOP 5 (1분 갱신) | `GET /global/issues` |
 | 글로벌 이슈 정보 · 국가 논조 | `GET /global/issues/{id}` |
 | 이슈 미리보기 · 대표 기사 | `GET /issues/{id}/overview?articleLimit=10` |
-| 국가 기사 수 · 순위 · 인기 테마 · 양방향 언급 비율 · 대표 기사 | `GET /countries/{code}` |
+| 국가 기사 수 · 순위 · 국가별 핫이슈 TOP 5 · 인기 테마 · 양방향 언급 비율 | `GET /countries/{code}` |
 | 국가 인기 테마 · 시간별 추이 | `GET /countries/{code}/themes/popular?limit=10` |
 | 테마 주요 이슈 · 대표 기사 | `GET /themes/{id}/overview?issueLimit=10&articleLimit=10` |
 | 분야별 테마 · 테마 검색용 목록 | `GET /themes/by-field` |
@@ -98,7 +98,9 @@ npm run build
 ```
 integrated/
   index.html               Pretendard + IBM Plex Mono 로드
-  public/earth.jpg         지구 텍스처 (원본 HTML에서 꺼낸 것)
+  public/earth.jpg         2K 지구 텍스처 (로딩 실패·GPU 제한 시 폴백)
+  public/earth-4k.jpg      기본 4K 지구 텍스처
+  public/earth-8k.jpg      충분한 기기에서 선택하는 8K 지구 텍스처
   src/
     main.jsx
     App.jsx                ★ 좌표 → 화면 렌더 + 지구본 연동
@@ -251,7 +253,7 @@ share_b(이슈) = b가 그 이슈에 쓴 표본 / b의 전체 표본
 | `dash` 글로벌 동향 | 채색 없음, 자전 | KPI 2칸(실시간 카운터) · 이슈 TOP 5 · **분야 칩** · 급상승 테마 |
 | `field` 분야 | 그대로 | 그 분야의 테마 목록 + 이슈 TOP |
 | `issue` 이슈 논조 | **이슈 톤으로 채색** | 히어로 · **ToneScatter** · 대표 기사 |
-| `country` 국가 분석 | 포커스 줌 + 외곽선 + 이슈 핀, 채색 끔 | 국가 지표 · 급상승 테마 · 관심도 · 대표 기사 |
+| `country` 국가 분석 | 포커스 줌 + 외곽선 + 이슈 핀, 채색 끔 | 국가 지표 · 핫이슈 TOP 5 · 인기 테마 · 관심도 |
 | `themes` 테마 전체 | 그대로 | **분야별로 묶은** 테마 목록 (7일 막대) |
 | `attention` 관심도 | 그대로 | 방향 전환 + 순위 |
 | `theme` 테마 상세 | 그대로 | 요약 3칸 · 소속 이슈 · 대표 기사 |
@@ -380,6 +382,24 @@ share_b(이슈) = b가 그 이슈에 쓴 표본 / b의 전체 표본
 - 신문 시안의 상세 시트(중앙 팝업) — 뷰 전환으로 통일했으므로 불필요
 
 ---
+
+## 지구 텍스처
+
+지구 텍스처는 씬을 만들 때 GPU 최대 텍스처 크기, `navigator.deviceMemory`,
+`navigator.hardwareConcurrency`, 포인터 유형, 데이터 절약 설정으로 선택합니다.
+8K 지원 + 메모리 8GB 이상 + 논리 CPU 8개 이상 + 정밀 포인터 + 데이터 절약 해제이면
+8K, 그 외에는 4K를 사용합니다. 성능 정보가 없으면 4K, GPU가 4K를 지원하지 않으면
+기존 2K를 사용합니다. 실제 FPS를 측정한 결과가 아닌 보수적인 선택 기준입니다.
+로딩 실패 시 8K → 4K → 2K 순으로 폴백하며, 성공한 텍스처 한 장만 표면·자체발광에
+공유합니다. 확대·회전 시 다시 로드하지 않으며 언마운트 시 GPU 자원을 해제합니다.
+현재 선택된 파일은 지구본 캔버스 컨테이너의 `data-earth-texture`에서 확인할 수 있습니다.
+
+4K·8K 이미지는 NASA Earth Observatory의
+[Blue Marble Next Generation — 지형·해저 지형 포함 버전](https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/base-topography-bathymetry/)입니다.
+[2004년 7월 원본](https://assets.science.nasa.gov/content/dam/science/esd/eo/images/bmng/bmng-topography-bathymetry/july/world.topo.bathy.200407.3x21600x10800.jpg)
+(21600×10800)을 각각 8192×4096, 4096×2048로 축소하고 JPEG 품질 90으로 저장했습니다.
+바다는 단색이 아닌 해저 지형 음영을 포함합니다. URL의 `v=bathymetry-200407`는
+이전 단색 바다 이미지의 브라우저 캐시를 피하기 위한 버전 값입니다. 기존 2K 폴백은 유지합니다.
 
 ## 다음에 할 일
 

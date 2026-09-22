@@ -1,4 +1,4 @@
-const API_BASE = (import.meta.env?.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '');
+export const API_BASE = (import.meta.env?.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '');
 
 export class ApiError extends Error {
   constructor(message, status) {
@@ -8,7 +8,7 @@ export class ApiError extends Error {
   }
 }
 
-export async function request(path, { signal, params = {} } = {}) {
+export async function request(path, { signal, params = {}, method = 'GET', body: payload, allowEmpty = false } = {}) {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
@@ -20,10 +20,12 @@ export async function request(path, { signal, params = {} } = {}) {
   const timeout = setTimeout(() => controller.abort(new Error('요청 시간이 초과되었습니다.')), 15000);
   try {
     const response = await fetch(`${API_BASE}${path}${query.size ? `?${query}` : ''}`, {
-      signal: controller.signal, headers: { Accept: 'application/json' },
+      signal: controller.signal, method, credentials: 'include',
+      headers: { Accept: 'application/json', ...(payload === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
     });
     const body = await response.json().catch(() => null);
-    if (!response.ok || !body || body.status >= 400 || !('data' in body)) {
+    if (!response.ok || !body || body.status >= 400 || (!allowEmpty && !('data' in body))) {
       throw new ApiError(body?.message || `데이터를 불러오지 못했습니다 (${response.status}).`, response.status);
     }
     return body.data;
@@ -37,11 +39,13 @@ export async function request(path, { signal, params = {} } = {}) {
 }
 
 export const api = {
-  dashboard: (signal) => request('/global/issues', { signal }),
-  fields: (signal) => request('/themes/by-field', { signal }),
-  country: (code, signal) => request(`/countries/${encodeURIComponent(code.toUpperCase())}`, { signal }),
-  popular: (code, signal) => request(`/countries/${encodeURIComponent(code.toUpperCase())}/themes/popular`, { signal, params: { limit: 10 } }),
-  theme: (id, countryCode, signal) => request(`/themes/${encodeURIComponent(id)}/overview`, { signal, params: { issueLimit: 10, articleLimit: 10, countryCode } }),
-  issue: (id, signal) => request(`/global/issues/${encodeURIComponent(id)}`, { signal }),
-  overview: (id, countryCode, signal) => request(`/issues/${encodeURIComponent(id)}/overview`, { signal, params: { articleLimit: 10, countryCode } }),
+  dashboard: (signal, asOf) => request('/global/issues', { signal, params: { asOf } }),
+  fields: (signal, asOf) => request('/themes/by-field', { signal, params: { asOf } }),
+  country: (code, signal, asOf) => request(`/countries/${encodeURIComponent(code.toUpperCase())}`, { signal, params: { asOf } }),
+  popular: (code, signal, asOf) => request(`/countries/${encodeURIComponent(code.toUpperCase())}/themes/popular`, { signal, params: { limit: 10, asOf } }),
+  theme: (id, countryCode, signal, asOf) => request(`/themes/${encodeURIComponent(id)}/overview`, { signal, params: { issueLimit: 10, articleLimit: 10, countryCode, asOf } }),
+  issue: (id, signal, asOf) => request(`/global/issues/${encodeURIComponent(id)}`, { signal, params: { asOf } }),
+  countryAnalyses: (id, signal, asOf) => request(`/global/issues/${encodeURIComponent(id)}/country-analyses`, { signal, params: { asOf } }),
+  countryAnalysis: (id, code, signal, asOf) => request(`/global/issues/${encodeURIComponent(id)}/country-analyses/${encodeURIComponent(code.toUpperCase())}`, { signal, params: { asOf } }),
+  overview: (id, countryCode, signal, asOf) => request(`/issues/${encodeURIComponent(id)}/overview`, { signal, params: { articleLimit: 10, countryCode, asOf } }),
 };

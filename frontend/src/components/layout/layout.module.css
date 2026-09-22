@@ -1,18 +1,20 @@
 /* 화면 골격 — 우주 지도 스테이지 + 라이트 인사이트 패널 */
 
 .shell {
-  height: 100%;
-  min-width: 1280px; /* 결정표 7-3: 데스크톱 전용 */
+  min-height: 100dvh;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background: var(--wtw-bg);
 }
 
 .dashboard {
+  position: relative;
+  isolation: isolate;
   flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(660px, 56%) minmax(520px, 44%);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── 왼쪽: 지도 스테이지 ── */
@@ -21,26 +23,32 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  flex: none;
+  height: clamp(320px, 45dvh, 480px);
   min-height: 0;
-  padding: 26px 30px 20px;
-  border-right: 1px solid #17233d;
+  padding: 0; /* 확대된 지구본이 지도 스테이지 가장자리까지 채워지도록 한다. */
+  border-bottom: 1px solid #17233d;
+}
+
+/* Keep space fixed across the whole screen while the globe stage moves. */
+.dashboard {
   background:
-    radial-gradient(circle at 48% 46%, rgba(23, 67, 135, 0.28) 0%, rgba(7, 19, 69, 0.12) 32%, transparent 58%),
-    radial-gradient(circle at 12% 18%, rgba(29, 78, 216, 0.12), transparent 30%),
+    radial-gradient(circle at 48% 46%, rgba(23, 67, 135, 0.1) 0%, rgba(7, 19, 69, 0.04) 32%, transparent 58%),
+    radial-gradient(circle at 12% 18%, rgba(29, 78, 216, 0.04), transparent 30%),
     linear-gradient(145deg, #071225 0%, #020712 55%, #050b18 100%);
 }
-.stage::before {
+.dashboard::before {
   content: '';
   position: absolute;
+  z-index: -1;
   inset: 0;
   pointer-events: none;
-  opacity: 0.72;
-  background-image:
-    radial-gradient(circle, rgba(255, 255, 255, 0.95) 0 1px, transparent 1.4px),
-    radial-gradient(circle, rgba(119, 171, 255, 0.8) 0 1px, transparent 1.3px),
-    radial-gradient(circle, rgba(255, 255, 255, 0.55) 0 0.7px, transparent 1.1px);
-  background-size: 97px 89px, 151px 137px, 59px 67px;
-  background-position: 13px 7px, 47px 31px, 5px 43px;
+  opacity: 0.95;
+  /* 한 장의 불규칙 별 배경을 사용해 반복 무늬가 드러나지 않도록 한다. */
+  background-image: url('../../assets/stars.svg?twinkle=1200-soft-large');
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center;
 }
 
 /* 지구본이 남는 세로 공간을 다 쓴다 */
@@ -52,7 +60,7 @@
   left: 50%; bottom: 6%;
   width: 46%; height: 6%;
   transform: translateX(-50%);
-  background: rgba(37, 99, 235, 0.3);
+  background: rgba(37, 99, 235, 0.08);
   filter: blur(28px);
   border-radius: 50%;
   pointer-events: none;
@@ -60,13 +68,33 @@
 
 /* ── 오른쪽: 라이트 인사이트 패널 ── */
 .panel {
+  position: relative;
   background: var(--wtw-panel);
-  padding: 26px 28px 44px;
-  overflow-y: auto;
-  height: 100%;
+  min-width: 0;
+  padding: 24px 20px 44px;
   scrollbar-width: thin;
   color: var(--wtw-text);
   font-family: var(--wtw-body);
+}
+
+@media (min-width: 700px) {
+  .stage { height: clamp(400px, 48dvh, 600px); }
+  .panel { padding: 26px 28px 44px; }
+}
+
+@media (min-width: 1000px) {
+  .shell { height: 100dvh; min-height: 0; }
+  .dashboard {
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 52%) minmax(0, 48%);
+  }
+  .stage { height: auto; flex: initial; border-right: 1px solid #17233d; border-bottom: 0; }
+  .panel { overflow-y: auto; }
+}
+
+@media (min-width: 1280px) {
+  .dashboard { grid-template-columns: minmax(660px, 56%) minmax(520px, 44%); }
 }
 
 /* 결정표 4-1 + 코스모스의 리더보드 동작:
@@ -82,4 +110,101 @@
 }
 .panel.toneNeu {
   background: linear-gradient(180deg, rgba(158, 167, 180, 0.18) 0%, rgba(158, 167, 180, 0.06) 34%, var(--wtw-panel) 620px);
+}
+
+/* The relay projects onto a framed glass surface; only the frame carries motion. */
+.hologram {
+  --wtw-text: #f1f5fa;
+  --wtw-text-2: #d0dce8;
+  --wtw-muted: #b1c2d2;
+  --wtw-faint: #9caec0;
+  --wtw-panel: rgba(8, 23, 37, .88);
+  --wtw-bg-2: rgba(24, 53, 69, .45);
+  --wtw-surface: rgba(23, 42, 58, .86);
+  --wtw-accent-soft: rgba(44, 114, 132, .13);
+  --wtw-line: rgba(150, 187, 208, .23);
+  --wtw-line-strong: rgba(130, 223, 244, .32);
+  --wtw-accent: #97e2ec;
+  position: relative; z-index: 3; isolation: isolate; min-width: 0; min-height: 0;
+  display: flex; flex-direction: column; margin: 16px 12px 20px;
+  border: 1px solid #8ce5f64d; border-radius: 4px 18px 4px 18px;
+  background: radial-gradient(ellipse at 0 20%, #24637b30, transparent 65%), #071420;
+  box-shadow: inset 0 0 36px #4ac5e509, 0 0 26px #5ce2ff0a, -5px 0 25px #77e1ff0a;
+}
+.hologram::before {
+  opacity: .2;
+  content: ''; position: absolute; z-index: -1; inset: 0; border-radius: inherit; pointer-events: none;
+  background: repeating-linear-gradient(0deg, transparent 0 4px, #8fe8ff04 4px 5px),
+    linear-gradient(90deg, #82e7ff09 1px, transparent 1px), linear-gradient(#82e7ff09 1px, transparent 1px);
+  background-size: auto, 42px 42px, 42px 42px;
+  mask-image: linear-gradient(110deg, #000, #0005 45%, transparent);
+}
+.hologram::after {
+  content: ''; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none;
+  background: linear-gradient(#b7f2ff, #b7f2ff) left top / 34px 2px no-repeat,
+    linear-gradient(#b7f2ff, #b7f2ff) left top / 2px 30px no-repeat,
+    linear-gradient(#8bccdf, #8bccdf) right bottom / 34px 2px no-repeat,
+    linear-gradient(#8bccdf, #8bccdf) right bottom / 2px 30px no-repeat;
+  opacity: .75;
+}
+.hologram .panel { flex: 1; min-height: 0; background: transparent; scrollbar-color: #416d7c transparent; }
+.projection { display: none; pointer-events: none; }
+@media (min-width: 1000px) {
+  .dashboard { --stage-width: 52%; --relay-light: 142, 190, 210; }
+  .stage { border-right: 0; overflow: visible; }
+  .globeSlot { width: 100vw; }
+  .globeSlot::after { left: calc(var(--stage-width) / 2); }
+  .hologram { margin: 20px 20px 20px 64px; }
+  .projection {
+    display: block; position: absolute; z-index: 2;
+    /* Tail nozzle: 76% x / 74% y of the 140px craft at right:12px, top:12px. */
+    --projection-origin-y: 96px;
+    left: calc(var(--stage-width) - 46px); top: 20px; bottom: 20px; width: 110px;
+    clip-path: polygon(0 var(--projection-origin-y), 100% 0, 100% 100%);
+    background: linear-gradient(90deg, rgba(var(--relay-light), .28), rgba(var(--relay-light), .06) 45%, rgba(var(--relay-light), .12));
+    animation: projectorGlow 7s ease-in-out infinite;
+  }
+  .projection::after {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(var(--relay-light), .22), transparent) 0 0 / 32px 100% no-repeat;
+    animation: relayTransfer 2.8s linear infinite;
+  }
+  .projection i { position: absolute; inset: 0; background: rgba(var(--relay-light), .18); clip-path: polygon(0 var(--projection-origin-y), 100% 0, 100% 1px); }
+  .projection i:nth-child(2) { clip-path: polygon(0 var(--projection-origin-y), 100% 50%, 100% calc(50% + 1px)); }
+  .projection i:nth-child(3) { clip-path: polygon(0 var(--projection-origin-y), 100% calc(100% - 1px), 100% 100%); }
+  .hologram {
+    border-color: rgba(var(--relay-light), .18); border-left-color: rgba(var(--relay-light), .28);
+    border-radius: 3px 12px 12px 3px;
+    background: linear-gradient(90deg, rgba(var(--relay-light), .10), transparent 140px), rgba(7, 18, 30, .88);
+    box-shadow: -12px 0 32px rgba(var(--relay-light), .05), inset 0 0 36px rgba(var(--relay-light), .025);
+  }
+  .hologram::after { opacity: .3; }
+  .hologram::before { opacity: .2; }
+}
+@keyframes relayTransfer { from { background-position: -18px 0; } to { background-position: 110px 0; } }
+.timeTravel .projection::after { animation: none; opacity: 0; }
+@media (min-width: 1280px) { .dashboard { --stage-width: max(660px, 56%); } }
+@keyframes projectorGlow { 0%, 100% { opacity: .55; } 50% { opacity: .9; } }
+.timeTravel .projection { animation: none; opacity: .25; }
+@media (prefers-reduced-motion: reduce) { .projection, .projection::after { animation: none; } .projection::after { display: none; } }
+
+
+.dashboard { overflow: clip; }
+.stage { transition: transform 800ms cubic-bezier(.22, 1, .36, 1); }
+.hologram { transition: transform 500ms cubic-bezier(.55, 0, .8, .3), opacity 400ms ease; }
+.projection { transition: transform 450ms ease, opacity 250ms ease; }
+.timeTravel .hologram { transform: translateX(110%); opacity: 0; pointer-events: none; }
+.timeTravel .projection { transform: translateX(50vw); opacity: 0; }
+@media (min-width: 1000px) {
+  .timeTravel .stage { transform: translateX(calc((100vw - 100%) / 2)); }
+}
+.arrivalFlash { position: absolute; inset: 0; z-index: 30; pointer-events: none; background: #fff; animation: arrivalFlash 1000ms ease-out both; }
+@keyframes arrivalFlash {
+  0% { opacity: 0; }
+  14%, 25% { opacity: .96; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage, .hologram, .projection { transition: none; }
+  .arrivalFlash { animation: none; opacity: .12; }
 }

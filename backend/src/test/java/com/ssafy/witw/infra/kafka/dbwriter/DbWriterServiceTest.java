@@ -1,0 +1,350 @@
+package com.ssafy.witw.infra.kafka.dbwriter;
+
+import com.ssafy.witw.domain.article.dao.ArticleRepository;
+import com.ssafy.witw.domain.article.entity.Article;
+import com.ssafy.witw.domain.country.dao.CountryRepository;
+import com.ssafy.witw.domain.country.entity.Country;
+import com.ssafy.witw.domain.issue.dao.IssueRepository;
+import com.ssafy.witw.domain.issue.entity.Issue;
+import com.ssafy.witw.domain.theme.dao.ThemeRepository;
+import com.ssafy.witw.domain.theme.entity.Theme;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
+import org.springframework.jdbc.core.JdbcTemplate;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+@ExtendWith(MockitoExtension.class)
+class DbWriterServiceTest {
+
+    private final ObjectMapper objectMapper = JsonMapper.builder()
+            .findAndAddModules()
+            .build();
+
+    @Mock
+    private ArticleRepository articleRepository;
+    @Mock
+    private CountryRepository countryRepository;
+    @Mock
+    private ThemeRepository themeRepository;
+    @Mock
+    private IssueRepository issueRepository;
+    @Mock
+    private JdbcTemplate jdbcTemplate;
+
+    private DbWriterService dbWriterService;
+
+    @BeforeEach
+    void setUp() {
+        dbWriterService = new DbWriterService(
+                objectMapper,
+                articleRepository,
+                countryRepository,
+                themeRepository,
+                issueRepository,
+                jdbcTemplate
+        );
+    }
+
+    @Test
+    void articleUpsertStoresArticleAndReplacesCountryMentions() throws Exception {
+        Country korea = country("KR");
+        Country us = country("US");
+        Theme theme = theme(27L);
+        when(countryRepository.findById("KR")).thenReturn(Optional.of(korea));
+        when(countryRepository.findById("US")).thenReturn(Optional.of(us));
+        when(themeRepository.findById(27L)).thenReturn(Optional.of(theme));
+        when(articleRepository.findById("a-123")).thenReturn(Optional.empty());
+
+        DbWriterEvent event = objectMapper.readValue("""
+                {
+                  "event_type": "ARTICLE_UPSERT",
+                  "occurred_at": "2026-09-04T03:20:15+09:00",
+                  "payload": {
+                    "article_id": "a-123",
+                    "publisher_country_code": "KR",
+                    "theme_id": 27,
+                    "theme_relevance_score": 0.8123,
+                    "publisher": "Publisher",
+                    "url": "https://example.com/article",
+                    "original_title": "Title",
+                    "translated_title": "번역된 제목",
+                    "summary": "요약 문장입니다.",
+                    "summary_embedding": [0.2, -0.5],
+                    "crawled_at": "2026-09-01T08:22:28.256121Z",
+                    "embedding": [0.031, -0.114],
+                    "tone_score": 51.5,
+                    "published_at": "2026-09-01T08:15:03Z",
+                    "mentioned_countries": [
+                      {"country_code": "US", "count": 3},
+                      {"country_code": "US", "count": 1}
+                    ]
+                  }
+                }
+                """, DbWriterEvent.class);
+
+        dbWriterService.handle(event);
+
+        ArgumentCaptor<Article> captor = ArgumentCaptor.forClass(Article.class);
+        verify(articleRepository).saveAndFlush(captor.capture());
+        Article saved = captor.getValue();
+        assertThat(saved.getId()).isEqualTo("a-123");
+        assertThat(saved.getPublisherCountryCode()).isSameAs(korea);
+        assertThat(saved.getTheme()).isSameAs(theme);
+        assertThat(saved.getThemeRelevanceScore()).isEqualByComparingTo("0.8123");
+        assertThat(saved.getOriginalTitle()).isEqualTo("Title");
+        assertThat(saved.getTranslatedTitle()).isEqualTo("번역된 제목");
+        assertThat(saved.getSummary()).isEqualTo("요약 문장입니다.");
+        // TEXT 컬럼이므로 JSON 배열 문자열로 저장된다.
+        assertThat(saved.getSummaryEmbedding()).isEqualTo("[0.2,-0.5]");
+        assertThat(saved.getCrawledAt()).isEqualTo(
+                LocalDateTime.parse("2026-09-01T17:22:28.256121")
+        );
+        assertThat(saved.getPublishedAt()).isEqualTo(
+                LocalDateTime.parse("2026-09-01T17:15:03")
+        );
+        verify(jdbcTemplate).update(
+                "DELETE FROM article_country_mention WHERE article_id = ?",
+                "a-123"
+        );
+        verify(jdbcTemplate).update(
+                "INSERT INTO article_country_mention (article_id, country_code) VALUES (?, ?)",
+                "a-123",
+                "US"
+        );
+    }
+
+    @Test
+    void articleUpsertKeepsArticleWhenSummaryIsMissing() throws Exception {
+        // 요약(LLM)이 실패하면 summary 와 summary_embedding 이 모두 없다.
+        // 그래도 기사 자체는 저장돼야 한다. 요약 하나로 기사를 버리지 않는다.
+        Country korea = country("KR");
+        Theme theme = theme(27L);
+        when(countryRepository.findById("KR")).thenReturn(Optional.of(korea));
+        when(themeRepository.findById(27L)).thenReturn(Optional.of(theme));
+        when(articleRepository.findById("a-124")).thenReturn(Optional.empty());
+
+        DbWriterEvent event = objectMapper.readValue("""
+                {
+                  "event_type": "ARTICLE_UPSERT",
+                  "occurred_at": "2026-09-04T03:20:15+09:00",
+                  "payload": {
+                    "article_id": "a-124",
+                    "publisher_country_code": "KR",
+                    "theme_id": 27,
+                    "theme_relevance_score": 0.8123,
+                    "publisher": "Publisher",
+                    "url": "https://example.com/article",
+                    "original_title": "Title",
+                    "summary": null,
+                    "summary_embedding": null,
+                    "crawled_at": "2026-09-01T08:22:28.256121Z",
+                    "embedding": [0.031, -0.114],
+                    "tone_score": 51.5,
+                    "published_at": "2026-09-01T08:15:03Z",
+                    "mentioned_countries": []
+                  }
+                }
+                """, DbWriterEvent.class);
+
+        dbWriterService.handle(event);
+
+        ArgumentCaptor<Article> captor = ArgumentCaptor.forClass(Article.class);
+        verify(articleRepository).saveAndFlush(captor.capture());
+        Article saved = captor.getValue();
+        assertThat(saved.getId()).isEqualTo("a-124");
+        assertThat(saved.getSummary()).isNull();
+        assertThat(saved.getSummaryEmbedding()).isNull();
+    }
+
+    @Test
+    void articleIssueAssignedUpdatesArticleAndIssueActivity() throws Exception {
+        Article article = new Article();
+        article.setId("a-123");
+        Issue issue = new Issue();
+        issue.setId(102L);
+        when(articleRepository.findById("a-123")).thenReturn(Optional.of(article));
+        when(issueRepository.findById(102L)).thenReturn(Optional.of(issue));
+
+        DbWriterEvent event = objectMapper.readValue("""
+                {
+                  "event_type": "ARTICLE_ISSUE_ASSIGNED",
+                  "occurred_at": "2026-09-03T06:40:02Z",
+                  "payload": {
+                    "article_id": "a-123",
+                    "issue_id": 102,
+                    "similarity": 0.94
+                  }
+                }
+                """, DbWriterEvent.class);
+
+        dbWriterService.handle(event);
+
+        assertThat(article.getIssue()).isSameAs(issue);
+        assertThat(article.getIssueSimilarity()).isEqualByComparingTo("0.94");
+        assertThat(article.getIssueAssignedAt()).isEqualTo(
+                LocalDateTime.parse("2026-09-03T15:40:02")
+        );
+        verify(articleRepository).save(article);
+        verify(jdbcTemplate).update(
+                any(String.class),
+                eq(LocalDateTime.parse("2026-09-03T15:40:02")),
+                eq(102L)
+        );
+    }
+
+    @Test
+    void articleUpsertRejectsMissingThemeRelevanceScore() throws Exception {
+        Country korea = country("KR");
+        Theme theme = theme(27L);
+        when(countryRepository.findById("KR")).thenReturn(Optional.of(korea));
+        when(themeRepository.findById(27L)).thenReturn(Optional.of(theme));
+        when(articleRepository.findById("a-123")).thenReturn(Optional.empty());
+
+        DbWriterEvent event = objectMapper.readValue("""
+                {
+                  "event_type": "ARTICLE_UPSERT",
+                  "occurred_at": "2026-09-04T03:20:15Z",
+                  "payload": {
+                    "article_id": "a-123",
+                    "publisher_country_code": "KR",
+                    "theme_id": 27,
+                    "publisher": "Publisher",
+                    "url": "https://example.com/article",
+                    "original_title": "Title",
+                    "translated_title": "번역된 제목",
+                    "crawled_at": "2026-09-01T08:22:28Z",
+                    "embedding": [0.031],
+                    "tone_score": 51.5,
+                    "published_at": "2026-09-01T08:15:03Z",
+                    "mentioned_countries": []
+                  }
+                }
+                """, DbWriterEvent.class);
+
+        assertThatThrownBy(() -> dbWriterService.handle(event))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("payload.theme_relevance_score");
+    }
+
+    @Test
+    void issueCreateStoresIssueAndAssignsArticles() throws Exception {
+        Theme theme = theme(12L);
+        Issue issue = new Issue();
+        issue.setId(205L);
+        Article firstArticle = article("a-101");
+        Article secondArticle = article("a-102");
+        when(themeRepository.findById(12L)).thenReturn(Optional.of(theme));
+        when(jdbcTemplate.queryForObject(any(String.class), eq(Long.class), any(Object[].class)))
+                .thenReturn(205L);
+        when(issueRepository.findById(205L)).thenReturn(Optional.of(issue));
+        when(articleRepository.findAllById(List.of("a-101", "a-102")))
+                .thenReturn(List.of(firstArticle, secondArticle));
+
+        DbWriterEvent event = objectMapper.readValue("""
+                {
+                  "event_type": "ISSUE_CREATE",
+                  "occurred_at": "2026-09-03T06:50:00Z",
+                  "payload": {
+                    "theme_id": 12,
+                    "name": "New issue",
+                    "embedding": [0.031, -0.114],
+                    "article_ids": ["a-101", "a-102"],
+                    "article_similarities": {
+                      "a-101": 0.94,
+                      "a-102": 0.91
+                    },
+                    "first_seen_at": "2026-09-03T03:35:24Z"
+                  }
+                }
+                """, DbWriterEvent.class);
+
+        dbWriterService.handle(event);
+
+        verify(jdbcTemplate).queryForObject(
+                any(String.class),
+                eq(Long.class),
+                eq(12L),
+                eq("New issue"),
+                eq("[0.031,-0.114]"),
+                eq(LocalDateTime.parse("2026-09-03T12:35:24")),
+                eq(LocalDateTime.parse("2026-09-03T15:50:00")),
+                eq(LocalDateTime.parse("2026-09-03T15:50:00")),
+                eq(LocalDateTime.parse("2026-09-03T15:50:00"))
+        );
+        assertThat(firstArticle.getIssue()).isSameAs(issue);
+        assertThat(secondArticle.getIssue()).isSameAs(issue);
+        assertThat(firstArticle.getIssueSimilarity()).isEqualByComparingTo("0.94");
+        assertThat(secondArticle.getIssueSimilarity()).isEqualByComparingTo("0.91");
+        verify(articleRepository).saveAll(List.of(firstArticle, secondArticle));
+    }
+
+    @Test
+    void issueCreateAcceptsLegacyEventWithoutArticleSimilarities() throws Exception {
+        Theme theme = theme(12L);
+        Issue issue = new Issue();
+        issue.setId(205L);
+        Article article = article("a-101");
+        when(themeRepository.findById(12L)).thenReturn(Optional.of(theme));
+        when(jdbcTemplate.queryForObject(any(String.class), eq(Long.class), any(Object[].class)))
+                .thenReturn(205L);
+        when(issueRepository.findById(205L)).thenReturn(Optional.of(issue));
+        when(articleRepository.findAllById(List.of("a-101")))
+                .thenReturn(List.of(article));
+
+        DbWriterEvent event = objectMapper.readValue("""
+                {
+                  "event_type": "ISSUE_CREATE",
+                  "occurred_at": "2026-09-03T06:50:00Z",
+                  "payload": {
+                    "theme_id": 12,
+                    "name": "Legacy issue",
+                    "embedding": [0.031, -0.114],
+                    "article_ids": ["a-101"],
+                    "first_seen_at": "2026-09-03T03:35:24Z"
+                  }
+                }
+                """, DbWriterEvent.class);
+
+        dbWriterService.handle(event);
+
+        assertThat(article.getIssue()).isSameAs(issue);
+        assertThat(article.getIssueSimilarity()).isNull();
+        verify(articleRepository).saveAll(List.of(article));
+    }
+
+    private static Country country(String code) {
+        Country country = new Country();
+        country.setCountryCode(code);
+        return country;
+    }
+
+    private static Theme theme(long id) {
+        Theme theme = new Theme();
+        theme.setId(id);
+        return theme;
+    }
+
+    private static Article article(String id) {
+        Article article = new Article();
+        article.setId(id);
+        return article;
+    }
+}

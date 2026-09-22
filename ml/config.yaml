@@ -1,33 +1,56 @@
-# 모든 설정의 단일 출처. 새 데이터가 오면 여기만 수정한다.
-seed: 42
+# =====================================================================
+# 톤 분류기 증류 파이프라인 설정  (v2 — 5개 분야 / worker 분류기 재사용)
+#
+#   분야 분류기는 만들지 않는다. NLP worker 의 테마 분류기(68개 테마 → field_id)
+#   결과를 그대로 쓰고, teacher 는 톤 라벨만 만든다.
+#   → 학습 때 나눈 기준과 런타임 라우팅 기준이 같아져 불일치가 없다.
+# =====================================================================
 
 data:
-  input: data/news.raw.jsonl
-  work_dir: work                      # 수 GB. .gitignore 필수
+  # 병합본 1개 또는 glob 패턴. 여러 개면 순서대로 읽고 article_id 로 중복 제거.
+  input: "data/news.raw.merged.jsonl"
+  work_dir: work                    # 모든 중간 산출물
 
-  # 포털·비기사 소스 (도메인/소스명 부분일치, 소문자 비교)
-  exclude_sources: [docomo, excite, prtimes, togetter, hatena,
-                    univision, golwg360, "chosun online", golem]
+  # 정제 시 제외할 소스 (source_name 부분 일치, 소문자 비교)
+  exclude_sources:
+    - docomo
+    - excite
+    - prtimes
+    - togetter
+    - hatena
+    - univision
+    - golwg360
+    - "chosun online"
+    - golem                         # 쿠키 동의 벽
 
-  # 의견·사상 매체. true면 제외 (팀 결정 대기 중)
-  exclude_opinion_sources: false
-  opinion_sources: ["christ & welt", benzinga]
-
-  body_quality:
-    enabled: true
-    min_body_chars: 300
-    min_longest_line: 40              # 가장 긴 줄이 이보다 짧으면 헤드라인 목록
-    teaser_markers: [記事全文, 外部ページ, 全文を読む, "Read the full article"]
-    wall_markers: ["wie gewohnt mit Werbung", Adblocker,
-                   "Need assistance?", "obituary desk",
-                   "Willkommen auf Golem.de"]
-    min_title_term_overlap: 0.0       # 0.0 = 진단만 (게이트로 쓰지 않음)
-
-  # 도메인 → 국가 하드가드 (theguardian이 United States로 오분류된 사례 대응)
+  # 도메인 → 국가 하드가드
+  #   theguardian.com 기사 221건이 United States 로 들어온 사례가 있었다.
+  #   country 는 지구본 표시와 국가별 톤 집계에 쓰이므로 틀리면 그대로 드러난다.
   domain_country_overrides:
     theguardian.com: United Kingdom
     bbc.co.uk: United Kingdom
     bbc.com: United Kingdom
+
+  # 본문 품질 게이트 — 크롤러가 기사 대신 메뉴·목록·광고벽을 긁어온 경우
+  body_quality:
+    enabled: true
+    min_body_chars: 300             # 이보다 짧으면 티저·요약 카드
+    min_longest_line: 40
+    teaser_markers: [記事全文, 外部ページ, 全文を読む, Read the full article]
+    wall_markers:
+      - "wie gewohnt mit Werbung"
+      - Adblocker
+      - "Need assistance?"
+      - "obituary desk"
+
+  # 본문 길이 상한 — 목록·색인 페이지가 한 건으로 수십 건치 비용을 먹는 것을 막는다
+  max_body_chars: 60000
+
+  # 검토 대상(논평·사상지). true 면 제외.
+  exclude_opinion_sources: false
+  opinion_sources:
+    - "christ & welt"
+    - benzinga
 
   country_to_lang:
     Japan: ja
@@ -36,71 +59,102 @@ data:
     United Kingdom: en
     Germany: de
 
+# ---------------------------------------------------------------------
+# 분야 — NLP worker 의 theme_catalog.json field_id 와 반드시 일치해야 한다
+# ---------------------------------------------------------------------
+fields:
+  1: POLITICS
+  2: ECONOMY
+  3: SOCIETY
+  4: TECH
+  5: SPORTS
+
+# 분야 배정 — worker 의 ThemeClassifier 를 오프라인에서 재현한다
+assign:
+  # nlp-worker 루트. 임베딩 함수(pipeline/embedding.py)를 여기서 직접 불러온다.
+  # 베끼지 않고 import 하므로 worker 가 바뀌어도 조용히 어긋나지 않는다.
+  worker_path: "~/nlp-worker"
+  catalog: "~/nlp-worker/resources/theme_catalog.json"
+  embed_batch_size: 128             # 청크 단위 배치. H200 기준 256 까지 가능
+  # 비등방성 보정. 기사와 카탈로그 양쪽에 적용된다.
+  # worker 의 resources/centroid.npy 와 반드시 같은 파일이어야 한다.
+  # 빈 문자열이면 중심화 없이 진행하지만, 분야 판정이 거의 무작위가 된다.
+  centroid: "work/centroid.npy"
+  min_margin: 0.0                   # 1위-2위 마진 하한. 학습셋에만 적용(0이면 미적용)
+
+# ---------------------------------------------------------------------
+# teacher — 톤 라벨 생성용. 서비스에 배포되지 않는다.
+# ---------------------------------------------------------------------
 teacher:
   model: MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7
   device: cuda
-  batch_size: 64
-  max_length: 512                     # 모델 상한. 바꾸면 안 됨
-  lead_chars: 1200                    # 분야 분류에 쓰는 본문 앞부분
-  chunk_tokens: 200
-  min_chunk_tokens: 20                # 이보다 짧은 꼬리 청크는 앞 청크에 흡수
-  max_chunks: 24                       # 초과분은 버림 (비용 상한)
-  shard_size: 2000
-  hypothesis_lang: en                 # en | ko — 400건 검증 후 확정
+  batch_size: 384                   # H200 기준. 메모리 남으면 768 까지 가능
+  max_length: 512                   # 모델 상한. 바꾸면 안 된다.
+  chunk_tokens: 200                 # 톤 라벨링 청크 크기
+  shard_size: 5000                  # 이 단위로 중간 저장 — 중단 후 재개
+  hypothesis_lang: en
 
+# 게이트 — 확신 없는 샘플은 학습셋에서 뺀다.
+#   split.py 가 저장된 p_pos/p_neg 로 여기서 다시 판정한다.
+#   기준을 바꿔도 label(51분)을 다시 돌릴 필요가 없다.
 gates:
-  category_min_p1: 0.50               # 1위 분야 확률 하한
-  category_min_margin: 0.15           # 1위 - 2위 차이
-  tone_min_conf: 0.60                 # max(p_pos, p_neg) 하한
+  # margin   : |p-0.5| 기반. "확실히 아니다"(0.15)와 "모르겠다"(0.52)를 구분한다.
+  # max_prob : max(p_pos, p_neg) >= tone_min_conf   ← 옛 기준.
+  #            중립 기사를 정의상 전부 버린다(neutral 라벨 0%).
+  mode: margin
 
+  # any  : max(|p_pos-0.5|, |p_neg-0.5|)  한 축만 결정돼도 통과  ← 권장
+  # both : min(...)                       두 축 모두 결정돼야 통과
+  #
+  # 11.8만 건 실측 (2026-09-14)
+  #   기준              통과      neutral   POLITICS쏠림  TECH쏠림
+  #   max_prob 0.60   100,407      0.0%        75%         84%
+  #   both     0.10    84,756      4.9%        81%         87%   ← 극단만 남아 악화
+  #   any      0.10   112,484      3.7%        73%         82%   ← 채택
+  #   any      0.15   107,789      3.6%        75%         83%
+  margin_axes: any
+  tone_min_margin: 0.10             # 0.40~0.60 밖에서 결정된 축이 하나라도 있는가
+  tone_min_conf: 0.60               # mode: max_prob 일 때만 쓰인다
+
+# 청크 → 기사 집계
+#   topk_mean 은 극성차가 큰 청크만 골라 쓰므로 중립 청크 수에 둔감하다.
 aggregate:
-  method: topk_mean                   # topk_mean | weighted_mean | max
+  method: topk_mean                 # weighted_mean | max | topk_mean
   topk: 2
-  neutral_band: 0.15                  # |p_pos-p_neg| < 이 값이면 중립 청크 (neu_base 진단)
 
-labels:
-  mixed_threshold: 0.50
-  neutral_threshold: 0.40
+# ---------------------------------------------------------------------
+# 분할
+# ---------------------------------------------------------------------
+split:
+  val_ratio: 0.10
+  seed: 42
+  min_per_cell: 30                  # (분야 × 언어) 이보다 적으면 경고
 
-# 서빙(NLP worker)과 반드시 공유해야 하는 상수
-categories: [POLITICS, ECONOMY, SOCIETY, TECH, CULTURE, SPORTS]
-
-category_clf:
-  embed_model: intfloat/multilingual-e5-base
-  embed_prefix: "passage: "           # E5 요구 프리픽스
-  max_body_chars: 4000                # NLP worker와 동일해야 함
-  embed_batch_size: 32
-  embed_max_length: 512
-  mean_center: true                   # E5 비등방성 보정. 끄면 안 됨
-  hidden: 256
-  dropout: 0.2
-  epochs: 40
-  lr: 0.001
-  batch_size: 64
-  patience: 6
-
+# ---------------------------------------------------------------------
+# 톤 student — 분야별 5개
+# ---------------------------------------------------------------------
 student:
   model: jhu-clsp/mmBERT-small
   fallback_model: xlm-roberta-base
-  fallback_max_length: 512
-  max_length: 4096
-  head_tokens: 3072
+  max_length: 2048
+  head_tokens: 1024
   tail_tokens: 1024
   epochs: 4
   lr: 0.00002
-  batch_size: 8
-  grad_accum: 4
+  # 실효 배치 = batch_size × grad_accum = 32.
+  # 16×2 에서 32×1 로 바꿔도 실효 배치가 같아 학습 결과는 동일하고,
+  # 한 번에 GPU 로 밀어 넣는 양이 두 배가 된다.
+  # (실측: 16×2 에서 GPU 사용률 7% — 연산보다 배치 준비가 병목이었다)
+  batch_size: 16                    # H200 기준. 메모리 여유 있으면 64 도 가능
+  grad_accum: 2
   warmup_ratio: 0.1
   weight_decay: 0.01
   bf16: true
-  gradient_checkpointing: true
+  gradient_checkpointing: false     # VRAM 이 남으면 끄는 편이 30~40% 빠르다
   pooling: mean
-  group_by_length: true
-  min_train_per_category: 50          # 이보다 적으면 해당 분야 학습 건너뜀
+  num_workers: 8                    # dataloader. 코어 수에 맞춰 조정
 
-split:
-  val_ratio: 0.1
-  stratify_by: [category, lang]       # 24칸이 val에도 고루 들어가게
-
-output:
-  dir: artifacts                      # 산출물 A(분야) + B(톤 6개)
+# 라벨 판정 — 학습 대상 아님. 저장된 확률로 나중에 바꿔도 된다.
+labels:
+  mixed_threshold: 0.50
+  neutral_threshold: 0.40

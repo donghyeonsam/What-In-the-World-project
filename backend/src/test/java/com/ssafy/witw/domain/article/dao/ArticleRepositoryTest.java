@@ -5,6 +5,8 @@ import com.ssafy.witw.support.RepositoryTest;
 import com.ssafy.witw.support.TestContainerSupport;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -47,6 +49,9 @@ class ArticleRepositoryTest extends TestContainerSupport {
         assertThat(articles.get(0).getArticleTitle())
                 .as("대표 기사의 제목이 projection에 매핑됨")
                 .isEqualTo("가장 유사한 기사");
+        assertThat(articles.get(0).getUrl())
+                .as("대표 기사의 원문 URL이 projection에 매핑됨")
+                .isEqualTo("https://example.com/represent-1");
         assertThat(articles.get(0).getPublishedAt())
                 .as("대표 기사의 발행 시각이 projection에 매핑됨")
                 .isNotNull();
@@ -78,6 +83,32 @@ class ArticleRepositoryTest extends TestContainerSupport {
         assertThat(article.getIssue()).as("배정된 이슈").isNull();
         assertThat(article.getIssueSimilarity()).as("이슈 유사도").isNull();
         assertThat(article.getIssueAssignedAt()).as("이슈 배정 시각").isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"theme", "theme-country", "issue", "issue-country"})
+    void 대표기사는_조회시점_직전_24시간만_포함한다(String scope) {
+        prepareData();
+        LocalDateTime asOf = LocalDateTime.now().minusDays(7).withNano(0);
+        jdbcTemplate.update("INSERT INTO issue (id, theme_id, name) VALUES (?, ?, '기간 테스트')",
+                THEME_ID, THEME_ID);
+        insertArticle("window-old", THEME_ID, "24시간 초과", 1.0, asOf.minusHours(24).minusSeconds(1), false);
+        insertArticle("window-start", THEME_ID, "24시간 경계", 0.8, asOf.minusHours(24), false);
+        insertArticle("window-recent", THEME_ID, "최근 기사", 0.9, asOf.minusHours(1), false);
+        insertArticle("window-end", THEME_ID, "조회 시점", 1.0, asOf, false);
+        insertArticle("window-future", THEME_ID, "미래 기사", 1.0, asOf.plusSeconds(1), false);
+        jdbcTemplate.update("UPDATE article SET issue_id = ?, issue_similarity = theme_relevance_score WHERE id LIKE 'window-%'",
+                THEME_ID);
+
+        List<ArticleRepository.RepresentArticleProjection> articles = switch (scope) {
+            case "theme" -> articleRepository.getRepresentArticlesByThemeId(THEME_ID, 10, asOf);
+            case "theme-country" -> articleRepository.getRepresentArticlesByThemeIdAndCountryCode(THEME_ID, COUNTRY_CODE, 10, asOf);
+            case "issue" -> articleRepository.getRepresentArticlesByIssueId(THEME_ID, 10, asOf);
+            default -> articleRepository.getRepresentArticlesByIssueIdAndCountryCode(THEME_ID, COUNTRY_CODE, 10, asOf);
+        };
+
+        assertThat(articles).extracting(ArticleRepository.RepresentArticleProjection::getArticleId)
+                .containsExactly("window-recent", "window-start");
     }
 
     private void prepareData() {

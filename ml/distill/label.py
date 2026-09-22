@@ -1,299 +1,234 @@
-"""[1] teacher 라벨링. 파이프라인에서 가장 무거운 단계 (GPU).
+"""[stage 1] teacher 톤 라벨링 — work/clean.field.jsonl → work/labels/shard_XXXX.jsonl
 
-python -m distill.label --limit 500     # 검증용. 분야×언어 교차표 확보
-python -m distill.label                 # 전체. 샤드 단위 재개됨
+분야는 이미 assign_field 가 붙였다(worker 분류기와 동일). teacher 는 톤만 맡는다.
 
-입력: work/clean.jsonl
-출력: work/labeled.NNNNN.jsonl (샤드) + work/label_report.json
+기사 한 건에 대해
+  ① 청킹 — 본문을 200토큰 청크로 쪼갠다 (teacher 상한 512 우회)
+  ② 채점 — 청크마다 그 분야의 긍정 가설 3개, 부정 가설 3개를 독립 채점
+            entail vs contradiction 둘만 softmax (multi_label=True 방식)
+  ③ 앙상블 — 극성 내 평균 → 청크별 (P긍정, P부정)
+  ④ 집계 — config.aggregate.method 로 기사 단위 확률로.
+            나머지 두 방식도 alt_agg 에 남긴다 (나중에 비교 가능)
+  ⑤ 게이트 — max(P긍정, P부정) 이 기준 미만이면 학습 제외 표시
 
-설계 요약
-- 분야 (multi_label=False): 6개 분야가 서로 경쟁.
-  분야 안에서 가설 2개의 entail 로짓 평균 → 분야 간 softmax → argmax.
-- 톤 (multi_label=True): neutral을 버리고 entail vs contradiction 둘만 softmax.
-  긍정·부정 가설이 경쟁하지 않아 '둘 다 높음'이 표현된다 → mixed 라벨 가능.
-- NLI 라벨 인덱스는 반드시 config에서 찾는다. 하드코딩하면 0.980이
-  0.020으로 조용히 뒤집힌다.
+부수적으로 진단값 두 개를 남긴다.
+  hyp_disagreement — 앙상블 가설끼리 얼마나 어긋났나
+  neu_base         — 중립 청크에서 두 축의 기저값 (축 비대칭 탐지용)
+
+shard_size 건마다 파일로 저장한다. 중단돼도 같은 명령을 다시 실행하면
+이미 있는 샤드는 건너뛰고 이어서 돈다.
+
+실행
+    python -m distill.label
+    python -m distill.label --limit 500      # 검증용 소규모
 """
 from __future__ import annotations
 
 import argparse
-import json
+import collections
 import time
-from collections import Counter, defaultdict
 
 import numpy as np
+import torch
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+from . import hypotheses
 from .config import load_config, work_path
-from .hypotheses import CATEGORIES, flat_category_pairs, flat_tone_hypotheses
-from .io_utils import (count_jsonl, read_jsonl, resume_state, shard_path,
-                       write_jsonl)
-from .scoring import (aggregate, aggregate_all, hypothesis_disagreement,
-                      make_sentiment, neutral_baseline)
-from .text import chunk_by_tokens
-
-SHARD_STEM = "labeled"
+from .io_utils import iter_shards, read_jsonl, shard_path, write_jsonl
+from .scoring import aggregate, decide_label, tone_point
+from .text import build_text, chunk_by_tokens
 
 
 class Teacher:
-    """mDeBERTa NLI zero-shot 채점기."""
-
-    def __init__(self, cfg):
-        import torch
-        from transformers import (AutoModelForSequenceClassification,
-                                  AutoTokenizer)
-
+    def __init__(self, cfg) -> None:
+        t = cfg.teacher
         self.cfg = cfg
-        self.torch = torch
-        name = cfg.teacher["model"]
-        dev = cfg.teacher.get("device", "cuda")
-        self.device = dev if (dev != "cuda" or torch.cuda.is_available()) else "cpu"
-        if self.device != dev:
-            print(f"[teacher] {dev} 사용 불가 → {self.device}")
+        self.device = t.device if torch.cuda.is_available() else "cpu"
+        self.batch_size = t.batch_size
+        self.max_length = t.max_length
 
-        self.tok = AutoTokenizer.from_pretrained(name)
-        self.model = AutoModelForSequenceClassification.from_pretrained(name)
-        self.model.to(self.device).eval()
+        self.tok = AutoTokenizer.from_pretrained(t.model)
+        self.model = (
+            AutoModelForSequenceClassification.from_pretrained(t.model)
+            .to(self.device)
+            .eval()
+        )
 
-        # --- NLI 라벨 인덱스 탐색 (하드코딩 금지) -------------------------
-        id2label = {int(k): str(v).lower()
-                    for k, v in self.model.config.id2label.items()}
-        try:
-            self.ent_idx = next(i for i, l in id2label.items() if "entail" in l)
-            self.con_idx = next(i for i, l in id2label.items() if "contra" in l)
-        except StopIteration:
-            raise RuntimeError(
-                f"NLI 라벨을 찾을 수 없음: {id2label}. NLI 모델이 맞는지 확인") from None
-        print(f"[teacher] {name}\n  id2label={id2label} "
-              f"ent={self.ent_idx} con={self.con_idx} device={self.device}")
+        # NLI 라벨 인덱스 — 모델마다 순서가 다르다. 하드코딩하면 조용히 뒤집힌다.
+        id2label = {int(k): v.lower() for k, v in self.model.config.id2label.items()}
+        self.ent_idx = next(i for i, l in id2label.items() if "entail" in l)
+        self.con_idx = next(i for i, l in id2label.items() if "contra" in l)
+        print(f"teacher 라벨: {id2label} → entail={self.ent_idx}, contra={self.con_idx}")
+        print(f"device={self.device}, batch_size={self.batch_size}")
 
-        self.batch_size = int(cfg.teacher["batch_size"])
-        self.max_length = int(cfg.teacher["max_length"])
+        lang = t.hypothesis_lang
+        self.fields = sorted(set(cfg_fields(cfg).values()))
+        hypotheses.check(self.fields, lang)
+        self.tone_hyps = {f: hypotheses.tone_hypotheses(lang, f) for f in self.fields}
 
-    def _logits(self, premises: list[str], hypotheses: list[str]) -> np.ndarray:
-        """(N, 3) NLI 로짓. truncation='only_first' — 가설은 자르지 않는다."""
-        outs = []
-        with self.torch.no_grad():
-            for i in range(0, len(premises), self.batch_size):
-                enc = self.tok(premises[i:i + self.batch_size],
-                               hypotheses[i:i + self.batch_size],
-                               return_tensors="pt", padding=True,
-                               truncation="only_first",
-                               max_length=self.max_length)
-                enc = {k: v.to(self.device) for k, v in enc.items()}
-                outs.append(self.model(**enc).logits.float().cpu().numpy())
-        return np.concatenate(outs, axis=0) if outs else np.zeros((0, 3))
+    # ------------------------------------------------------------------
+    @torch.no_grad()
+    def _nli_logits(self, premises: list[str], hyps: list[str]) -> torch.Tensor:
+        """(premise, hypothesis) 쌍 N개 → logits (N, 3). 배치로 나눠 돈다."""
+        out = []
+        for i in range(0, len(premises), self.batch_size):
+            enc = self.tok(
+                premises[i:i + self.batch_size],
+                hyps[i:i + self.batch_size],
+                truncation="only_first",      # 가설은 자르지 않고 premise 만 자른다
+                max_length=self.max_length,
+                padding=True,
+                return_tensors="pt",
+            ).to(self.device)
+            with torch.autocast(self.device, dtype=torch.bfloat16,
+                                enabled=self.device == "cuda"):
+                logits = self.model(**enc).logits
+            out.append(logits.float().cpu())
+        return torch.cat(out, dim=0) if out else torch.zeros((0, 3))
 
-    # --- 분야: 분야 간 경쟁 (multi_label=False) --------------------------
-    def category_probs(self, lead: str, lang: str) -> np.ndarray:
-        pairs = flat_category_pairs(lang)
-        logits = self._logits([lead] * len(pairs), [h for _, h in pairs])
-        ent = logits[:, self.ent_idx].reshape(len(CATEGORIES), -1).mean(axis=1)
-        e = np.exp(ent - ent.max())
-        return e / e.sum()
+    # ------------------------------------------------------------------
+    def label_tone(self, rows: list[dict]) -> list[dict]:
+        """청크별로 (긍정, 부정) 가설을 독립 채점하고 기사 단위로 집계."""
+        chunk_tokens = self.cfg.teacher.chunk_tokens
 
-    # --- 톤: 축끼리 경쟁 없음 (multi_label=True) -------------------------
-    def tone_chunk_probs(self, chunks: list[str], category: str,
-                         lang: str) -> tuple[np.ndarray, np.ndarray]:
-        """(n_chunks, 3) 긍정 / (n_chunks, 3) 부정 — 가설별 p_entail."""
-        hyps, per_pol = flat_tone_hypotheses(category, lang)
-        premises, hypos = [], []
-        for c in chunks:
-            for h in hyps:
-                premises.append(c)
-                hypos.append(h)
-        logits = self._logits(premises, hypos)
+        premises, hyps = [], []
+        index = []          # (기사 idx, 청크 idx, 0=긍정/1=부정, 청크 토큰 수)
+        n_chunks = []
+
+        for i, r in enumerate(rows):
+            text = build_text(r["title"], r["body"])
+            chunks = chunk_by_tokens(text, self.tok, chunk_tokens)   # 한 번만 쪼갠다
+            n_chunks.append(len(chunks))
+            pos_hs, neg_hs = self.tone_hyps[r["field"]]
+            for j, (ctext, clen) in enumerate(chunks):
+                for h in pos_hs:
+                    premises.append(ctext); hyps.append(h); index.append((i, j, 0, clen))
+                for h in neg_hs:
+                    premises.append(ctext); hyps.append(h); index.append((i, j, 1, clen))
+
+        logits = self._nli_logits(premises, hyps)
+
+        # multi_label=True 방식 — entail vs contradiction 두 개만 softmax.
+        # 긍정·부정 가설이 서로 경쟁하지 않아 "둘 다 높음" 이 표현 가능하다.
         two = logits[:, [self.con_idx, self.ent_idx]]
-        m = two.max(axis=1, keepdims=True)
-        e = np.exp(two - m)
-        p_ent = (e[:, 1] / e.sum(axis=1)).reshape(len(chunks), len(hyps))
-        return p_ent[:, :per_pol], p_ent[:, per_pol:]
+        p_ent = torch.softmax(two, dim=-1)[:, 1].numpy()
+
+        def _slot():
+            return {"pos": [], "neg": [], "len": 0}
+        per_article: list[dict[int, dict]] = [collections.defaultdict(_slot) for _ in rows]
+        for (i, j, which, clen), p in zip(index, p_ent):
+            slot = per_article[i][j]
+            slot["pos" if which == 0 else "neg"].append(float(p))
+            slot["len"] = clen
+
+        agg_cfg = self.cfg.aggregate
+        lab = self.cfg.labels
+        g = self.cfg.gates
+        results = []
+        for i in range(len(rows)):
+            chunks = per_article[i]
+            if not chunks:
+                results.append({"tone_pass": False, "n_chunks": 0})
+                continue
+            order = sorted(chunks)
+            # 가설 앙상블 평균 → 청크별 (P긍정, P부정)
+            probs = np.array([[np.mean(chunks[j]["pos"]), np.mean(chunks[j]["neg"])]
+                              for j in order])
+            lens = np.array([chunks[j]["len"] for j in order])
+
+            # 가설 간 불일치 — 3개가 크게 어긋나면 그 기사는 애매하다는 신호
+            hyp_std = float(np.mean(
+                [np.std(chunks[j]["pos"]) for j in order] +
+                [np.std(chunks[j]["neg"]) for j in order]))
+
+            # 중립 청크 기저값 — 두 축이 편향 없다면 같아야 한다.
+            # 다르면 가설 기저율이 비대칭이고, weighted_mean 이 그 편향을
+            # 중립 청크 수만큼 누적한다.
+            strength = np.abs(probs[:, 0] - probs[:, 1])
+            neu = probs[strength < 0.15]
+            neu_base = [round(float(neu[:, 0].mean()), 4),
+                        round(float(neu[:, 1].mean()), 4)] if len(neu) else None
+
+            p_pos, p_neg = aggregate(probs, lens, agg_cfg.method, agg_cfg.topk)
+            alt = {m: aggregate(probs, lens, m, agg_cfg.topk)
+                   for m in ("weighted_mean", "max", "topk_mean") if m != agg_cfg.method}
+
+            results.append({
+                "p_pos": round(p_pos, 4),
+                "p_neg": round(p_neg, 4),
+                "tone_label": decide_label(p_pos, p_neg,
+                                           lab.mixed_threshold, lab.neutral_threshold),
+                "tone_point": tone_point(p_pos, p_neg),
+                "tone_conf": round(max(p_pos, p_neg), 4),
+                "tone_pass": max(p_pos, p_neg) >= g.tone_min_conf,
+                "hyp_disagreement": round(hyp_std, 4),
+                "neu_base": neu_base,
+                "n_chunks": n_chunks[i],
+                "alt_agg": {m: [round(a, 4), round(b, 4)] for m, (a, b) in alt.items()},
+            })
+        return results
 
 
-def label_one(art: dict, teacher: Teacher, cfg) -> dict:
-    """기사 1건 → 라벨 레코드. 게이트 탈락분도 버리지 않고 표시만 한다."""
-    lang_h = cfg.teacher["hypothesis_lang"]
-    text = f"{art['title']}\n\n{art['body']}"
-
-    # 분야
-    lead = text[:int(cfg.teacher["lead_chars"])]
-    cp = teacher.category_probs(lead, lang_h)
-    order = np.argsort(-cp)
-    cat = CATEGORIES[int(order[0])]
-    p1, p2 = float(cp[order[0]]), float(cp[order[1]])
-    margin = p1 - p2
-
-    rec = {
-        "id": art["id"], "url": art["url"], "source": art["source"],
-        "country": art["country"], "lang": art["lang"],
-        "title": art["title"], "body": art["body"],
-        "category": cat,
-        "category_probs": {c: round(float(cp[i]), 6) for i, c in enumerate(CATEGORIES)},
-        "cat_p1": round(p1, 6), "cat_margin": round(margin, 6),
-    }
-
-    g = cfg.gates
-    if p1 < float(g["category_min_p1"]):
-        rec.update(gate_pass=False, gate_reason="cat_p1")
-        return rec
-    if margin < float(g["category_min_margin"]):
-        rec.update(gate_pass=False, gate_reason="cat_margin")
-        return rec
-
-    # 톤. 청크는 한 번만 쪼개서 긍정·부정이 공유한다.
-    chunks = chunk_by_tokens(text, teacher.tok,
-                             max_tokens=int(cfg.teacher["chunk_tokens"]),
-                             min_tokens=int(cfg.teacher["min_chunk_tokens"]),
-                             max_chunks=int(cfg.teacher.get("max_chunks", 24)))
-    if not chunks:
-        rec.update(gate_pass=False, gate_reason="no_chunk")
-        return rec
-
-    pos_h, neg_h = teacher.tone_chunk_probs([c.text for c in chunks], cat, lang_h)
-    p_pos_c, p_neg_c = pos_h.mean(axis=1), neg_h.mean(axis=1)
-    lengths = [c.n_tokens for c in chunks]
-
-    agg = cfg.aggregate
-    p_pos, p_neg = aggregate(p_pos_c, p_neg_c, lengths,
-                             method=agg["method"], topk=int(agg["topk"]))
-    sent = make_sentiment(p_pos, p_neg,
-                          float(cfg.labels["mixed_threshold"]),
-                          float(cfg.labels["neutral_threshold"]))
-
-    rec["sentiment"] = sent
-    rec["alt_agg"] = aggregate_all(p_pos_c, p_neg_c, lengths, topk=int(agg["topk"]))
-    rec["chunks"] = {
-        "n": len(chunks),
-        "tokens": lengths,
-        "p_pos": [round(float(x), 6) for x in p_pos_c],
-        "p_neg": [round(float(x), 6) for x in p_neg_c],
-    }
-    rec["diag"] = {
-        "hyp_disagreement_pos": round(hypothesis_disagreement(pos_h), 6),
-        "hyp_disagreement_neg": round(hypothesis_disagreement(neg_h), 6),
-        "neu_base": neutral_baseline(p_pos_c, p_neg_c,
-                                     band=float(agg.get("neutral_band", 0.15))),
-    }
-
-    if sent["confidence"] < float(g["tone_min_conf"]):
-        rec.update(gate_pass=False, gate_reason="tone_conf")
-        return rec
-    rec.update(gate_pass=True, gate_reason=None)
-    return rec
-
-
-def print_crosstab(counts: dict, langs: list[str]) -> None:
-    """분야 × 언어 교차표. 필요 수집 일수를 확정하는 근거."""
-    print("\n[분야 × 언어 교차표] (게이트 통과분)")
-    head = f"  {'':<9}" + "".join(f"{l:>8}" for l in langs) + f"{'TOTAL':>9}"
-    print(head)
-    col = {l: 0 for l in langs}
-    for c in CATEGORIES:
-        row = [counts.get((c, l), 0) for l in langs]
-        for l, v in zip(langs, row):
-            col[l] += v
-        print(f"  {c:<9}" + "".join(f"{v:>8,}" for v in row) + f"{sum(row):>9,}")
-    print(f"  {'TOTAL':<9}" + "".join(f"{col[l]:>8,}" for l in langs) +
-          f"{sum(col.values()):>9,}")
-    smallest = min(((c, l, counts.get((c, l), 0))
-                    for c in CATEGORIES for l in langs), key=lambda t: t[2])
-    print(f"  최소 칸: {smallest[0]}/{smallest[1]} = {smallest[2]:,}건 "
-          "← 이 칸이 전체 일정을 결정한다")
-
-
-def run(cfg, limit: int | None = None, restart: bool = False) -> dict:
-    src = work_path(cfg, "clean.jsonl")
-    if not src.exists():
-        raise FileNotFoundError(f"{src} 없음. 먼저 python -m distill.prepare 실행")
-
-    wd = work_path(cfg, ".keep").parent
-    next_shard, done = (0, 0) if restart else resume_state(wd, SHARD_STEM)
-    if done:
-        print(f"[label] 재개: 샤드 {next_shard}개 / {done:,}건 처리됨")
-
-    teacher = Teacher(cfg)
-    shard_size = int(cfg.teacher["shard_size"])
-    langs = sorted(set(cfg.data["country_to_lang"].values()))
-
-    buf: list[dict] = []
-    n = 0
-    gates: Counter = Counter()
-    labels: Counter = Counter()
-    cross: dict = defaultdict(int)
-    disagree: list[float] = []
-    neu_gap: list[float] = []
-    t0 = time.time()
-
-    def flush() -> None:
-        nonlocal buf, next_shard
-        if not buf:
-            return
-        p = shard_path(wd, SHARD_STEM, next_shard)
-        write_jsonl(p, buf)
-        print(f"  → {p.name} ({len(buf):,}건, {time.time()-t0:.0f}s 경과)")
-        next_shard += 1
-        buf = []
-
-    for art in read_jsonl(src, limit=limit, skip=done):
-        rec = label_one(art, teacher, cfg)
-        buf.append(rec)
-        n += 1
-        gates[rec.get("gate_reason") or "pass"] += 1
-        if rec.get("gate_pass"):
-            labels[rec["sentiment"]["label"]] += 1
-            cross[(rec["category"], rec["lang"])] += 1
-        if "diag" in rec:
-            d = rec["diag"]
-            disagree.append(max(d["hyp_disagreement_pos"], d["hyp_disagreement_neg"]))
-            g = d["neu_base"]["gap_lowmax"]
-            if g is None:
-                g = d["neu_base"]["gap"]
-            if g is not None:
-                neu_gap.append(g)
-        if len(buf) >= shard_size:
-            flush()
-    flush()
-
-    passed = gates.get("pass", 0)
-    report = {
-        "processed": n,
-        "gate_pass": passed,
-        "gate_pass_ratio": round(passed / n, 4) if n else 0.0,
-        "gate_reasons": dict(gates.most_common()),
-        "label_dist": dict(labels.most_common()),
-        "crosstab": {f"{c}|{l}": v for (c, l), v in sorted(cross.items())},
-        "diag": {
-            "hyp_disagreement_mean": round(float(np.mean(disagree)), 6) if disagree else None,
-            "hyp_disagreement_p95": round(float(np.percentile(disagree, 95)), 6) if disagree else None,
-            "neu_base_gap_mean": round(float(np.mean(neu_gap)), 6) if neu_gap else None,
-        },
-        "elapsed_sec": round(time.time() - t0, 1),
-        "aggregate": dict(cfg.aggregate),
-        "gates": dict(cfg.gates),
-        "hypothesis_lang": cfg.teacher["hypothesis_lang"],
-    }
-    work_path(cfg, "label_report.json").write_text(
-        json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    print(f"\n[label] {n:,}건 처리 / 게이트 통과 {passed:,} "
-          f"({report['gate_pass_ratio']:.1%})")
-    for k, v in report["gate_reasons"].items():
-        print(f"  {k:14s} {v:>7,}")
-    print(f"  라벨 분포: {report['label_dist']}")
-    d = report["diag"]
-    print(f"  hyp_disagreement 평균 {d['hyp_disagreement_mean']} / p95 {d['hyp_disagreement_p95']}")
-    print(f"  neu_base gap 평균 {d['neu_base_gap_mean']} "
-          "(0에서 멀면 축 기저율 비대칭 → weighted_mean 사용 금지 근거)")
-    print_crosstab(cross, langs)
-    return report
+def cfg_fields(cfg) -> dict[int, str]:
+    """config.fields 를 {field_id: 이름} 으로."""
+    f = cfg.fields
+    if isinstance(f, dict):
+        return {int(k): v for k, v in f.items()}
+    return dict(enumerate(f, 1))
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="[1] teacher 라벨링")
-    ap.add_argument("--config", default=None)
-    ap.add_argument("--limit", type=int, default=None, help="검증용 상한 (예: 500)")
-    ap.add_argument("--restart", action="store_true", help="기존 샤드 무시하고 처음부터")
-    a = ap.parse_args()
-    run(load_config(a.config), limit=a.limit, restart=a.restart)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--limit", type=int, default=0, help="앞에서 N건만 (검증용)")
+    args = ap.parse_args()
+
+    cfg = load_config()
+    labels_dir = cfg.data.work_dir / "labels"
+    labels_dir.mkdir(parents=True, exist_ok=True)
+
+    src = work_path(cfg, "clean.field.jsonl")
+    if not src.exists():
+        raise SystemExit(
+            f"{src} 가 없습니다. 먼저 실행하세요:\n"
+            f"  python -m distill.prepare\n"
+            f"  python -m distill.assign_field"
+        )
+
+    rows = read_jsonl(src)
+    if args.limit:
+        rows = (r for _, r in zip(range(args.limit), rows))
+
+    teacher = Teacher(cfg)
+    stats = collections.Counter()
+    t0 = time.time()
+
+    for shard_idx, batch in iter_shards(rows, cfg.teacher.shard_size):
+        out = shard_path(labels_dir, shard_idx)
+        if out.exists():
+            print(f"샤드 {shard_idx:04d} 이미 있음 — 건너뜀")
+            continue
+
+        tone = teacher.label_tone(batch)
+
+        merged = []
+        for r, t in zip(batch, tone):
+            row = {**r, **t}
+            merged.append(row)
+            stats["total"] += 1
+            stats["tone_pass"] += int(t.get("tone_pass", False))
+            stats[f"field_{r['field']}"] += 1
+
+        write_jsonl(out, merged)
+        elapsed = time.time() - t0
+        rate = stats["total"] / max(elapsed, 1e-9)
+        print(f"샤드 {shard_idx:04d} 저장 — 누적 {stats['total']:,}건 / "
+              f"톤통과 {stats['tone_pass']:,} / {elapsed / 60:.1f}분 "
+              f"({rate:.1f}건/초)")
+
+    total = stats["total"]
+    print(f"\n완료. 학습 가능(톤 게이트 통과): {stats['tone_pass']:,} / {total:,}"
+          f"  ({stats['tone_pass'] / max(total, 1):.1%})")
+    print("분야별:", {k[6:]: v for k, v in stats.items() if k.startswith("field_")})
 
 
 if __name__ == "__main__":

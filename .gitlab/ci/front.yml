@@ -51,6 +51,8 @@ deploy-frontend-dev:
     FRONTEND_CONTAINER: what-in-the-world-front-dev
     FRONTEND_IMAGE: jamonda1/what-in-the-world:develop
     FRONTEND_HOST_PORT: "3001"
+    FRONTEND_LOGGING: "enabled"
+    FRONTEND_LOG_ENV: "dev"
   needs:
     - validate-frontend
     - job: deploy-backend-dev
@@ -79,6 +81,8 @@ deploy-frontend:
     FRONTEND_CONTAINER: what-in-the-world-front
     FRONTEND_IMAGE: jamonda1/what-in-the-world:latest
     FRONTEND_HOST_PORT: "3000"
+    FRONTEND_LOGGING: "disabled"
+    FRONTEND_LOG_ENV: "prod"
 
   needs:
     - validate-frontend
@@ -102,7 +106,12 @@ deploy-frontend:
 
     - docker network inspect "$APP_DOCKER_NETWORK" >/dev/null
     - docker rm -f "$FRONTEND_CONTAINER" || true
-    - docker run -d --name "$FRONTEND_CONTAINER" --restart unless-stopped --network "$APP_DOCKER_NETWORK" -p "127.0.0.1:$FRONTEND_HOST_PORT:80" "$FRONTEND_IMAGE"
+    - >-
+      docker run -d --name "$FRONTEND_CONTAINER" --restart unless-stopped
+      --network "$APP_DOCKER_NETWORK"
+      --label "logging=$FRONTEND_LOGGING" --label service=fe --label "env=$FRONTEND_LOG_ENV"
+      --log-driver json-file --log-opt max-size=10m --log-opt max-file=3
+      -p "127.0.0.1:$FRONTEND_HOST_PORT:80" "$FRONTEND_IMAGE"
 
     - timeout 5 bash -c "</dev/tcp/127.0.0.1/$FRONTEND_HOST_PORT"
     - docker exec "$FRONTEND_CONTAINER" wget -q -O /dev/null http://127.0.0.1/healthz

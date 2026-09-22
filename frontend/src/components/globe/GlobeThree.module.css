@@ -1,8 +1,29 @@
-.wrap { position: relative; width: 100%; height: 100%; min-height: 320px; }
+.wrap { position: relative; width: 100%; height: 100%; min-height: 320px; overflow: hidden; }
 
-.canvas { position: absolute; inset: 0; cursor: grab; }
+.relationsLegend {
+  position: absolute; left: 20px; bottom: 20px; right: 20px; z-index: 3;
+  width: fit-content; max-width: calc(100% - 40px); pointer-events: none;
+  display: grid; gap: 6px; padding: 12px 16px; border-radius: 10px;
+  background: rgba(6, 9, 19, 0.85); border: 1px solid var(--wtw-line);
+  font-size: 13px;
+}
+.relationsLegend small { color: #b3bdcd; font-size: 11px; }
+
+.canvas { position: absolute; inset: 0; cursor: grab; touch-action: pan-y; }
+.canvas > canvas { display: block; width: 100%; height: 100%; }
 .canvas.dragging { cursor: grabbing; }
 .canvas.pointing { cursor: pointer; }
+.canvas.pending { opacity: 0; pointer-events: none; }
+.canvas.ready { opacity: 1; transition: opacity 450ms ease-out; }
+.loadingOverlay {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  color: #aebdce; text-align: center; font-size: 13px; letter-spacing: .025em;
+}
+.loadingOverlay button {
+  margin-top: 14px; padding: 8px 16px; border: 1px solid #40576c;
+  border-radius: 7px; color: #d4e5ed; background: #152334;
+}
+.spinBtn:disabled { opacity: .35; cursor: default; }
 
 .hud { position: absolute; left: 26px; top: 24px; z-index: 3; pointer-events: none; }
 .hud .kicker {
@@ -17,20 +38,29 @@
 .hud p { margin-top: 8px; font-size: 12.5px; color: var(--wtw-muted); max-width: 340px; line-height: 1.6; }
 
 .spin {
-  position: absolute; left: 26px; bottom: 24px; z-index: 4;
+  position: absolute; right: 24px; bottom: 24px; z-index: 4;
   display: flex; align-items: center; gap: 8px;
-  background: rgba(6, 9, 19, 0.58); border: 1px solid var(--wtw-line);
-  border-radius: 999px; padding: 7px; backdrop-filter: blur(8px);
+  padding: 0;
+}
+@media (min-width: 1000px) {
+  .spin { right: calc(100% - var(--stage-width) + 24px); }
 }
 .spinBtn {
-  width: 40px; height: 40px; border-radius: 50%;
-  border: 1px solid var(--wtw-line-strong); background: rgba(15, 21, 42, 0.72);
-  color: var(--wtw-text); font-family: var(--wtw-mono); font-size: 15px;
-  display: flex; align-items: center; justify-content: center; transition: all 0.16s;
+  min-width: 96px; height: 40px; padding: 0 10px; border-radius: 8px;
+  border: none; background: transparent; box-shadow: none;
+  color: #b3bdcd; font-family: inherit; font-size: 12px;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  cursor: pointer; transition: color 0.16s, background 0.16s;
 }
-.spinBtn:hover, .spinBtn.on {
-  border-color: var(--wtw-accent); color: var(--wtw-accent); box-shadow: var(--wtw-glow);
+.spinningIcon { display: inline-block; font-size: 18px; animation: spinIndicator 4s linear infinite; }
+@keyframes spinIndicator { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .spinningIcon { animation: none; }
+  .canvas.ready { transition: none; }
 }
+.spinBtn:focus-visible { outline: 2px solid var(--wtw-accent); outline-offset: 3px; }
+.spinBtn.on { color: #c8d2df; }
+.spinBtn:hover { color: #fff; background: rgba(255, 255, 255, 0.06); }
 
 .tip {
   position: absolute; z-index: 4; pointer-events: none; opacity: 0;
@@ -41,3 +71,36 @@
 }
 .tip.show { opacity: 1; }
 .tip b { color: var(--wtw-accent); font-weight: 500; }
+
+.analysisLink {
+  position: absolute; inset: 0; z-index: 4; width: 100%; height: 100%;
+  overflow: visible; pointer-events: none; visibility: hidden;
+}
+.analysisLink line { stroke: rgb(var(--analysis-tone-rgb)); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.analysisAnchor {
+  position: absolute; top: -5px; left: -5px; z-index: 5;
+  width: 10px; height: 10px; border: 2px solid rgb(var(--analysis-tone-rgb));
+  border-radius: 50%; background: #142135; box-shadow: 0 0 0 4px rgba(var(--analysis-tone-rgb), .2);
+  pointer-events: none; visibility: hidden;
+}
+.analysisCallout {
+  position: absolute; top: 0; left: 0; z-index: 6;
+  width: min(350px, calc(100% - 32px)); max-height: calc(100% - 32px);
+  overflow-y: auto; overscroll-behavior: contain; visibility: hidden;
+  border-radius: 12px; box-shadow: 0 16px 44px rgba(0, 0, 0, .35);
+}
+@media (max-width: 699px) {
+  .analysisCallout { width: min(300px, calc(100% - 32px)); }
+}
+
+.issueCard { position: absolute; left: 0; top: 0; z-index: 5; visibility: hidden; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid rgba(var(--issue-tone), .8); border-radius: 9px; background: linear-gradient(115deg, rgba(var(--issue-tone), .62), rgba(var(--issue-tone), .42)), #0a1422; color: #fff; text-align: left; cursor: pointer; box-shadow: 0 4px 14px #0004; }
+.issueCard { width: min(150px, calc((100% - 36px) / 2)); height: 50px; }
+.issueCard strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.issueFlag { width: 30px; height: 22px; flex: 0 0 30px; display: grid; place-items: center; overflow: hidden; border: 1px solid rgba(255, 255, 255, .72); border-radius: 4px; font-size: 18px; line-height: 1; box-shadow: 0 3px 8px #0005; }
+.issueFlag img, .issueFlag i { display: block; width: 100%; height: 100%; border-radius: inherit; object-fit: cover; background-position: center; background-repeat: no-repeat; background-size: cover; }
+.issueCard:hover, .issueCardSelected { border-color: rgba(var(--issue-tone), 1); background: linear-gradient(115deg, rgba(var(--issue-tone), .78), rgba(var(--issue-tone), .58)), #0a1422; }
+.issueCard:focus-visible { outline: 2px solid #8ce2ff; outline-offset: 3px; }
+.issueLegend { position: absolute; z-index: 4; left: 20px; bottom: 22px; padding: 12px 15px; max-width: calc(100% - 150px); border: 1px solid #8aa4c140; border-radius: 10px; color: #d4e2f5; background: #091422dd; font-size: 11px; pointer-events: none; }
+.issueLegend small { display: block; color: #95a9c3; font-size: 10px; margin-top: 6px; }
+.issueLegend span { display: block; margin-top: 8px; font-size: 10px; }
+@media (max-width: 600px) { .issueCard { padding: 6px 8px; gap: 6px; } .issueFlag { width: 26px; height: 19px; flex-basis: 26px; font-size: 16px; } .issueLegend { left: 10px; bottom: 12px; padding: 9px; } .issueLegend small { display: none; } }

@@ -1,0 +1,61 @@
+discovery.docker "apps" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+
+  filter {
+    name   = "label"
+    values = ["logging=enabled"]
+  }
+}
+
+discovery.relabel "apps" {
+  targets = []
+
+  rule {
+    source_labels = ["__meta_docker_container_label_service"]
+    regex         = "fe|be|postgres"
+    action        = "keep"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_service"]
+    target_label  = "service_name"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_env"]
+    target_label  = "env"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+}
+
+loki.source.docker "apps" {
+  host             = "unix:///var/run/docker.sock"
+  targets          = discovery.docker.apps.targets
+  refresh_interval = "5s"
+  labels           = { "host" = sys.env("LOG_HOST") }
+  relabel_rules    = discovery.relabel.apps.rules
+  forward_to       = [loki.process.apps.receiver]
+}
+
+loki.process "apps" {
+  stage.match {
+    selector = "{service_name=~\"be|postgres\"}"
+
+    stage.multiline {
+      firstline     = "^\\d{4}-\\d{2}-\\d{2}[T ]"
+      max_wait_time = "3s"
+      max_lines     = 256
+    }
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

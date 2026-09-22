@@ -35,3 +35,7 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### perf 측정 산출물 ###
+scripts/perf/*.txt
+scripts/perf/measure-table.sql

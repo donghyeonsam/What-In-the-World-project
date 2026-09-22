@@ -45,13 +45,12 @@ export function SectionTitle({ title, note, action, help }) {
           <span className={s.helpTooltip} role="tooltip">{help}</span>
         </span>}
       </div>
-      {action ? (
+      {action && (
         <button type="button" onClick={action.onClick}>
           {action.label}
         </button>
-      ) : (
-        note && <span>{note}</span>
       )}
+      {note && <span className={s.sectionNote}>{note}</span>}
     </div>
   );
 }
@@ -96,10 +95,12 @@ export function TaxonomyPath({ items }) {
 }
 
 /** 국가 아이덴티티 — 큰 국기 + 국명 + 매체 수 */
-export function CountryIdentity({ flag, flagImage, name, meta }) {
+export function CountryIdentity({ flag, flagImage, flagClass, name, meta }) {
   return (
     <div className={s.identity}>
-      <span className={s.largeFlag}>{flagImage ? <img src={flagImage} alt="" /> : flag}</span>
+      <span className={s.largeFlag}>
+        {flagImage ? <img src={flagImage} alt="" /> : flagClass ? <i className={flagClass} aria-hidden="true" /> : flag}
+      </span>
       <div>
         <h2>{name}</h2>
         {meta && <p>{meta}</p>}

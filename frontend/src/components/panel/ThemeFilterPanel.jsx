@@ -3,24 +3,17 @@ import s from './panel.module.css';
 
 /**
  * 테마 선택 패널 + 전체 테마 찾기.
- * 급상승 상위 몇 개는 칩으로 바로 노출하고, 나머지 전체는 검색 팝오버에서 고른다.
- * 목록이 길어질수록 "많이 보여주기"보다 "빨리 찾게 하기"가 낫다는 판단이다.
  * 출처: 아카이브/app.js .theme-filter-panel / .theme-picker
  *
- * @param {{quickThemes: object[], catalog: object[], fields: string[],
- *          selectedIndex?: number|null, selectedTheme?: object|null,
- *          onSelectQuick?: (index: number|null) => void,
+ * @param {{catalog: object[], fields: string[], selectedTheme?: object|null,
  *          onSelectCatalog?: (index: number) => void,
  *          totalLabel?: string}} props
- *   selectedIndex는 quickThemes 기준, selectedTheme은 화면에 표시할 현재 테마.
+ *   selectedTheme은 화면에 표시할 현재 테마.
  */
 export default function ThemeFilterPanel({
-  quickThemes,
   catalog,
   fields,
-  selectedIndex = null,
   selectedTheme = null,
-  onSelectQuick,
   onSelectCatalog,
   totalLabel = '128',
 }) {
@@ -41,53 +34,22 @@ export default function ThemeFilterPanel({
 
   return (
     <section className={s.themeFilterPanel}>
-      <div className={s.filterTitle}>
-        <div>
-          <strong>테마 선택</strong>
-          <span>분야별 테마 · 빠른 선택 {quickThemes.length}개</span>
+      <div className={s.themeToolbar}>
+        <div className={s.themeSummary}>
+          {selectedTheme?.field && <span>{selectedTheme.field}</span>}
+          <strong>{selectedTheme?.name || '테마를 선택해 주세요'}</strong>
         </div>
         <button
           type="button"
+          className={s.themeSearchButton}
+          aria-expanded={open}
           onClick={() => {
             setOpen(true);
             setTimeout(() => inputRef.current?.focus(), 0);
           }}
         >
-          전체 테마 찾기 <b>{totalLabel}</b> →
+          테마 검색 <span aria-hidden="true">→</span>
         </button>
-      </div>
-
-      <div className={s.selectedTheme}>
-        <span>현재 테마</span>
-        <strong>
-          {selectedTheme ? `${selectedTheme.field} › ${selectedTheme.name}` : '테마 선택 없음'}
-        </strong>
-        {selectedTheme && (
-          <button type="button" aria-label="테마 선택 해제" onClick={() => onSelectQuick?.(null)}>
-            ×
-          </button>
-        )}
-      </div>
-
-      <div className={s.quickThemeList}>
-        <button
-          type="button"
-          className={selectedIndex === null ? s.on : ''}
-          onClick={() => onSelectQuick?.(null)}
-        >
-          선택 해제
-        </button>
-        {quickThemes.map((theme, index) => (
-          <button
-            key={theme.name}
-            type="button"
-            className={selectedIndex === index ? s.on : ''}
-            onClick={() => onSelectQuick?.(index)}
-          >
-            {theme.name}
-            <b>{theme.rise}</b>
-          </button>
-        ))}
       </div>
 
       {open && (

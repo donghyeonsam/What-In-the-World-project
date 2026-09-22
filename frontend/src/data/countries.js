@@ -1,14 +1,73 @@
 import { flagOf } from './responseAdapters.js';
 
+const US_TERRITORY_CODES = new Set(['AS', 'GU', 'MP', 'PR', 'UM', 'VI']);
+
+export const displayCountryCode = (code = '') => {
+  const normalized = String(code).trim().toUpperCase();
+  return US_TERRITORY_CODES.has(normalized) ? 'US' : normalized;
+};
+
+export const flagImageOf = (code = '') => {
+  const normalized = displayCountryCode(code);
+  return /^[A-Z]{2}$/.test(normalized) ? `/flags/${normalized.toLowerCase()}.svg` : null;
+};
+
 // Geographic metadata only. Analytics are never filled with sample values.
+// Keep this list aligned with the collector's global47 profile
+// (registry_50country.csv, excluding China, Egypt, and Norway).
+
 export const countryMetadata = [
   ['US', '미국', 38.0, -97.0, 'USA'],
   ['KR', '대한민국', 36.5, 127.8, 'KOR'],
   ['JP', '일본', 36.2, 138.3, 'JPN'],
   ['DE', '독일', 51.2, 10.4, 'DEU'],
   ['GB', '영국', 54.0, -2.0, 'GBR'],
+  ['AR', '아르헨티나', -34.0, -64.0, 'ARG'],
+  ['AU', '오스트레일리아', -27.0, 133.0, 'AUS'],
+  ['AT', '오스트리아', 47.33333333, 13.33333333, 'AUT'],
+  ['BD', '방글라데시', 24.0, 90.0, 'BGD'],
+  ['BE', '벨기에', 50.83333333, 4.0, 'BEL'],
+  ['BR', '브라질', -10.0, -55.0, 'BRA'],
+  ['CA', '캐나다', 60.0, -95.0, 'CAN'],
+  ['CL', '칠레', -30.0, -71.0, 'CHL'],
+  ['CO', '콜롬비아', 4.0, -72.0, 'COL'],
+  ['CZ', '체코', 49.75, 15.5, 'CZE'],
+  ['DK', '덴마크', 56.0, 10.0, 'DNK'],
+  ['FI', '핀란드', 64.0, 26.0, 'FIN'],
+  ['FR', '프랑스', 46.0, 2.0, 'FRA'],
+  ['HK', '홍콩(중국 특별행정구)', 22.267, 114.188, 'HKG'],
+  ['IN', '인도', 20.0, 77.0, 'IND'],
+  ['ID', '인도네시아', -5.0, 120.0, 'IDN'],
+  ['IR', '이란', 32.0, 53.0, 'IRN'],
+  ['IQ', '이라크', 33.0, 44.0, 'IRQ'],
+  ['IE', '아일랜드', 53.0, -8.0, 'IRL'],
+  ['IL', '이스라엘', 31.47, 35.13, 'ISR'],
+  ['IT', '이탈리아', 42.83333333, 12.83333333, 'ITA'],
+  ['KZ', '카자흐스탄', 48.0, 68.0, 'KAZ'],
+  ['MY', '말레이시아', 2.5, 112.5, 'MYS'],
+  ['MX', '멕시코', 23.0, -102.0, 'MEX'],
+  ['NL', '네덜란드', 52.5, 5.75, 'NLD'],
+  ['PK', '파키스탄', 30.0, 70.0, 'PAK'],
+  ['PE', '페루', -10.0, -76.0, 'PER'],
+  ['PH', '필리핀', 13.0, 122.0, 'PHL'],
+  ['PL', '폴란드', 52.0, 20.0, 'POL'],
+  ['PT', '포르투갈', 39.5, -8.0, 'PRT'],
+  ['RO', '루마니아', 46.0, 25.0, 'ROU'],
+  ['RU', '러시아', 60.0, 100.0, 'RUS'],
+  ['SA', '사우디아라비아', 25.0, 45.0, 'SAU'],
+  ['SG', '싱가포르', 1.36666666, 103.8, 'SGP'],
+  ['ZA', '남아프리카', -29.0, 24.0, 'ZAF'],
+  ['ES', '스페인', 40.0, -4.0, 'ESP'],
+  ['SE', '스웨덴', 62.0, 15.0, 'SWE'],
+  ['CH', '스위스', 47.0, 8.0, 'CHE'],
+  ['TH', '태국', 15.0, 100.0, 'THA'],
+  ['TR', '튀르키예', 39.0, 35.0, 'TUR'],
+  ['AE', '아랍에미리트', 24.0, 54.0, 'ARE'],
+  ['VN', '베트남', 16.16666666, 107.83333333, 'VNM'],
 ].map(([code, name, lat, lon, iso]) => ({
   id: code.toLowerCase(), code, name, lat, lon, iso,
-  flag: flagOf(code), flagImage: `/flags/${code.toLowerCase()}.svg`,
+  flag: flagOf(code),
+  flagImage: flagImageOf(code),
+  flagClass: `fi fi-${code.toLowerCase()}`,
 }));
 export const iso3 = Object.fromEntries(countryMetadata.map((country) => [country.id, [country.iso]]));

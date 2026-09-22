@@ -1,157 +1,121 @@
-"""text.py 단독 테스트. HF 없이 돌아가야 한다 (컨테이너 프록시 403)."""
+"""CPU 단위 테스트 — 모델 없이 정제·청킹·집계·라벨 로직을 검증한다.
+
+    pytest tests/ -v
+"""
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+import numpy as np
 import pytest
 
-from distill.text import (boilerplate_hits, chunk_by_tokens, clean_text,
-                          head_tail_ids, longest_line, split_sentences,
-                          title_term_overlap)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from distill.scoring import aggregate, decide_label, tone_point  # noqa: E402
+from distill.text import build_text, chunk_by_tokens, clean_text, head_tail, split_sentences  # noqa: E402
 
 
-class FakeTokenizer:
-    """공백 단위 토크나이저. 청킹 로직만 검증한다 (실제 서브워드 수와 무관)."""
-
-    def __init__(self) -> None:
-        self.vocab: dict[str, int] = {}
-        self.inv: dict[int, str] = {}
-
-    def _id(self, tok: str) -> int:
-        if tok not in self.vocab:
-            i = len(self.vocab) + 5
-            self.vocab[tok] = i
-            self.inv[i] = tok
-        return self.vocab[tok]
-
-    def encode(self, text: str, add_special_tokens: bool = False) -> list[int]:
-        return [self._id(t) for t in text.split()]
-
-    def decode(self, ids: list[int], skip_special_tokens: bool = True) -> str:
-        return " ".join(self.inv.get(i, "") for i in ids).strip()
+# ---------------------------------------------------------------- 정제
+def test_clean_removes_reporter_prefix():
+    assert clean_text("[데일리한국 정백현 기자] 본문 시작") == "본문 시작"
 
 
-@pytest.fixture
-def tok() -> FakeTokenizer:
-    return FakeTokenizer()
+def test_clean_removes_email_and_copyright():
+    s = "본문. 문의 abc@news.com 저작권자 ⓒ 뉴스 무단전재 금지"
+    out = clean_text(s)
+    assert "@" not in out and "저작권" not in out
 
 
-def words(n: int, w: str = "가") -> str:
-    return " ".join([w] * n)
+def test_clean_cuts_related_articles():
+    s = "본문 첫 문장.\n\n관련기사\n다른 기사 제목 1\n다른 기사 제목 2"
+    assert clean_text(s) == "본문 첫 문장."
 
 
-# --- clean_text -------------------------------------------------------------
-@pytest.mark.parametrize("name,text", [
-    ("copyright", "본문입니다.\n무단전재 및 재배포 금지"),
-    ("copyright", "Body text.\nCopyright 2026 Reuters. All rights reserved."),
-    ("byline", "홍길동 기자\n본문입니다."),
-    ("byline", "By Jane Smith\nBody text."),
-    ("credit", "본문입니다.\n[사진=연합뉴스]"),
-    ("promo", "본문입니다.\n관련 기사 더 보기"),
-    ("consent", "Willkommen auf Golem.de!\nBitte Adblocker deaktivieren."),
-])
-def test_boilerplate_detected(name, text):
-    assert name in boilerplate_hits(text)
+def test_clean_docomo_title_tail():
+    assert clean_text("제목입니다（東スポWEB）｜ｄメニューニュース") == "제목입니다"
 
 
-def test_boilerplate_removed():
-    cleaned = clean_text("본문입니다.\n[사진=연합뉴스]\n무단전재 및 재배포 금지")
-    assert cleaned == "본문입니다."
+def test_build_text_title_first():
+    assert build_text("제목", "본문").startswith("제목\n\n")
+    assert build_text("제목", "") == "제목"
 
 
-def test_clean_text_keeps_body():
-    assert clean_text("정부는 오늘 대책을 발표했다.\n\n김철수 기자") == \
-        "정부는 오늘 대책을 발표했다."
-
-
-def test_clean_text_normalizes_whitespace():
-    src = "  a\u3000\u3000b  \r\n\n\n\nc\xa0d  "
-    assert clean_text(src) == "a b\n\nc d"
-
-
-def test_clean_text_handles_none():
-    assert clean_text(None) == "" and clean_text("") == ""
-
-
-def test_longest_line_detects_headline_list():
-    assert longest_line("속보 A\n속보 B\n단독 C") < 40
-    assert longest_line("정부는 오늘 종합 대책을 발표하고 후속 조치를 예고했다고 관계 부처가 밝혔다.") >= 40
-
-
-def test_title_term_overlap():
-    title = "반도체 수출 증가"
-    assert title_term_overlap(title, "반도체 수출이 증가했다고 밝혔다.") == 1.0
-    assert title_term_overlap(title, "스포츠 경기 결과입니다.") == 0.0
-    assert title_term_overlap("", "본문") == 0.0
-
-
-# --- split_sentences --------------------------------------------------------
+# ---------------------------------------------------------------- 문장 분리
 def test_split_sentences_multilingual():
-    src = "첫 문장이다. 두 번째다!\n日本語の文です。次の文です。\nA sentence. Another one?"
-    sents = split_sentences(src)
-    assert len(sents) == 6
-    assert sents[2].endswith("。")
+    s = "첫 문장이다. 둘째 문장이다! Third one here? 日本語の文。次の文。"
+    parts = split_sentences(s)
+    assert len(parts) == 5
 
 
-def test_split_sentences_keeps_abbrev_and_decimal():
-    """U.S. / 3.5 에서 잘리면 청크 경계가 무의미하게 잘게 쪼개진다."""
-    sents = split_sentences("The U.S. economy grew 3.5 percent last year. It slowed.")
-    assert len(sents) == 2
+# ---------------------------------------------------------------- 청킹 (가짜 토크나이저)
+class FakeTok:
+    """공백 단위로 토큰을 세는 대체 토크나이저.
+
+    HF 토크나이저와 같은 규약 — 문자열 하나면 평탄 리스트, 리스트면 리스트의 리스트.
+    """
+    def __call__(self, texts, add_special_tokens=False, truncation=False):
+        if isinstance(texts, str):
+            return {"input_ids": texts.split()}
+        return {"input_ids": [t.split() for t in texts]}
+    def decode(self, ids):
+        return " ".join(ids)
 
 
-# --- chunk_by_tokens --------------------------------------------------------
-def test_chunk_respects_budget(tok):
-    text = " ".join(f"{words(30)} 문장{i}." for i in range(10))
-    chunks = chunk_by_tokens(text, tok, max_tokens=200)
-    assert all(c.n_tokens <= 200 for c in chunks)
-    assert [c.index for c in chunks] == list(range(len(chunks)))
+def test_chunk_respects_limit_and_keeps_lengths():
+    text = " ".join(f"w{i} w{i} w{i}." for i in range(20))   # 20문장 × 3토큰
+    chunks = chunk_by_tokens(text, FakeTok(), chunk_tokens=7)
+    assert all(n <= 7 for _, n in chunks)
+    assert sum(n for _, n in chunks) == 60
+    assert len(chunks) == 10                                # 7 안에 문장 2개(6토큰)씩
 
 
-def test_chunk_respects_sentence_boundary(tok):
-    text = f"{words(120)} 끝. {words(120)} 끝."
-    assert len(chunk_by_tokens(text, tok, max_tokens=200)) == 2
+def test_chunk_oversized_sentence_is_truncated_alone():
+    text = "a b c d e f g h i j. short one."
+    chunks = chunk_by_tokens(text, FakeTok(), chunk_tokens=4)
+    assert chunks[0][1] == 4 and chunks[0][0] == "a b c d"
+    assert chunks[1][1] == 2
 
 
-def test_chunk_hard_splits_long_sentence(tok):
-    chunks = chunk_by_tokens(words(450) + " 끝.", tok, max_tokens=200)
-    assert len(chunks) == 3 and all(c.n_tokens <= 200 for c in chunks)
-
-
-def test_chunk_merges_tiny_tail(tok):
-    chunks = chunk_by_tokens(f"{words(150)} 끝. 짧다.", tok,
-                             max_tokens=200, min_tokens=20)
-    assert len(chunks) == 1 and "짧다" in chunks[0].text
-
-
-def test_chunk_respects_max_chunks(tok):
-    text = " ".join(f"{words(190)} 끝{i}." for i in range(10))
-    assert len(chunk_by_tokens(text, tok, max_tokens=200, max_chunks=4)) == 4
-
-
-def test_chunk_is_deterministic(tok):
-    """긍정·부정 가설이 같은 청크를 공유해야 topk_mean이 성립한다."""
-    text = " ".join(f"{words(40)} 문장{i}." for i in range(6))
-    a = chunk_by_tokens(text, tok, max_tokens=200)
-    b = chunk_by_tokens(text, tok, max_tokens=200)
-    assert [(c.index, c.text, c.n_tokens) for c in a] == \
-           [(c.index, c.text, c.n_tokens) for c in b]
-
-
-def test_chunk_empty(tok):
-    assert chunk_by_tokens("", tok) == []
-
-
-# --- head_tail --------------------------------------------------------------
-def test_head_tail_passthrough_when_short():
-    ids = list(range(100))
-    assert head_tail_ids(ids, 4096, 3072, 1024) == ids
+# ---------------------------------------------------------------- 절단
+def test_head_tail_untouched_when_short():
+    ids = list(range(10))
+    assert head_tail(ids, 20, 15, 5) == ids
 
 
 def test_head_tail_keeps_both_ends():
-    out = head_tail_ids(list(range(10000)), 4096, 3072, 1024)
-    assert len(out) == 4096
-    assert out[0] == 0 and out[-1] == 9999
-    assert out[3071] == 3071 and out[3072] == 10000 - 1024
+    ids = list(range(100))
+    out = head_tail(ids, 20, 15, 5)
+    assert out == list(range(15)) + list(range(95, 100))
 
 
-def test_head_tail_rejects_bad_budget():
-    with pytest.raises(ValueError):
-        head_tail_ids(list(range(10000)), 512, 3072, 1024)
+# ---------------------------------------------------------------- 집계
+def test_aggregate_weighted_mean():
+    probs = np.array([[0.9, 0.1], [0.1, 0.9]])
+    lens = np.array([3, 1])
+    p, n = aggregate(probs, lens, "weighted_mean")
+    assert abs(p - 0.7) < 1e-6 and abs(n - 0.3) < 1e-6
+
+
+def test_aggregate_max_and_topk():
+    probs = np.array([[0.2, 0.2], [0.9, 0.1], [0.1, 0.8]])
+    lens = np.array([1, 1, 1])
+    assert aggregate(probs, lens, "max") == (0.9, 0.8)
+    p, n = aggregate(probs, lens, "topk_mean", topk=2)     # 극성 뚜렷한 2개: [0.9,0.1],[0.1,0.8]
+    assert abs(p - 0.5) < 1e-6 and abs(n - 0.45) < 1e-6
+
+
+# ---------------------------------------------------------------- 라벨
+@pytest.mark.parametrize("pp,pn,exp", [
+    (0.90, 0.05, "positive"),
+    (0.10, 0.85, "negative"),
+    (0.71, 0.68, "mixed"),
+    (0.12, 0.09, "neutral"),
+])
+def test_decide_label(pp, pn, exp):
+    assert decide_label(pp, pn, 0.5, 0.4) == exp
+
+
+def test_mixed_and_neutral_share_score_but_not_label():
+    assert tone_point(0.71, 0.68) == tone_point(0.12, 0.09)
+    assert decide_label(0.71, 0.68, 0.5, 0.4) != decide_label(0.12, 0.09, 0.5, 0.4)

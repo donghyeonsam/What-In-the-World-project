@@ -293,6 +293,53 @@ def _pool_chunk_embeddings(
 # Public
 # =========================================================
 
+def create_summary_embedding(summary):
+    """요약문 하나를 768차원 벡터로 만든다.
+
+    create_article_embedding 과 '같은 벡터 공간'에 있어야 비교가 되므로
+    prefix("query: ")와 normalize 설정을 반드시 맞춘다.
+    E5 는 query/passage prefix 로 공간이 갈려서, 여기만 passage 를 쓰면
+    숫자는 나오지만 코사인 유사도의 의미가 어긋난다.
+
+    요약은 3문장(최대 400자)이라 512 token 을 넘지 않으므로 청킹하지 않는다.
+    중심화(centering)도 하지 않는다. classifier 가 분류할 때만 centroid 를 빼고,
+    저장되는 article_embedding 은 중심화 전 원본이기 때문이다.
+    여기서 미리 빼면 되돌릴 수 없다.
+
+    요약이 없으면(요약 실패) None 을 돌려준다.
+    """
+
+    text = _normalize_text(summary)
+
+    if not text:
+        return None
+
+    embeddings = _embedding_model.encode(
+        [f"query: {text}"],
+        batch_size=1,
+        normalize_embeddings=True,
+        convert_to_numpy=True,
+        show_progress_bar=False,
+    )
+
+    embedding = np.asarray(
+        embeddings,
+        dtype=np.float32,
+    )
+
+    # create_article_embedding 과 동일한 수준으로 출력을 검증한다.
+    if (embedding.ndim != 2
+            or embedding.shape != (1, 768)
+            or not np.all(np.isfinite(embedding))
+            or np.linalg.norm(embedding[0]) == 0):
+        raise RuntimeError(
+            "Embedding model must return a finite, non-zero 768D vector"
+        )
+
+    # Kafka JSON 직렬화를 위해 list로 변환
+    return embedding[0].tolist()
+
+
 def create_article_embedding(article):
     """
     title과 body 전체를 이용하여

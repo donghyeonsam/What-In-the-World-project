@@ -136,6 +136,7 @@ def build_issue_result(
         "theme_id": article["theme_id"],
         "embedding": list(article["embedding"]),
         "title": article["title"],
+        "summary": article.get("summary"),
         "published_at": article["published_at"],
         "unclassified_at": article["occurred_at"],
     }

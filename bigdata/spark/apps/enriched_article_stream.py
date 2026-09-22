@@ -12,6 +12,8 @@ from issue_matching import (
     build_issue_result,
     parse_issue_candidate,
 )
+from streaming_metrics import register_streaming_metrics
+from pyspark import StorageLevel
 from pyspark.sql import SparkSession
 from pyspark.sql.types import (
     ArrayType,
@@ -33,7 +35,8 @@ KAFKA_UNCLASSIFIED_TOPIC = os.getenv(
 POSTGRESQL_URL = os.getenv("POSTGRESQL_URL", "").strip()
 POSTGRESQL_USER = os.getenv("POSTGRESQL_USER", "").strip()
 POSTGRESQL_PASSWORD = os.getenv("POSTGRESQL_PASSWORD", "")
-ISSUE_MATCH_THRESHOLD = float(os.getenv("ISSUE_MATCH_THRESHOLD", "0.90"))
+ISSUE_MATCH_THRESHOLD = float(os.getenv("ISSUE_MATCH_THRESHOLD", "0.93"))
+ISSUE_MATCH_WINDOW_HOURS = 72
 SPARK_CHECKPOINT_LOCATION = os.getenv(
     "SPARK_CHECKPOINT_LOCATION",
     "hdfs://namenode:9000/checkpoints/enriched-article-events-v1",
@@ -54,6 +57,7 @@ ARTICLE_SCHEMA = StructType(
             nullable=False,
         ),
         StructField("title", StringType(), nullable=False),
+        StructField("summary", StringType(), nullable=True),
         StructField("published_at", StringType(), nullable=False),
         StructField("occurred_at", StringType(), nullable=False),
     ]
@@ -92,7 +96,8 @@ def _transform_kafka_partition(rows):
             payload["article_id"],
             payload["theme_id"],
             payload["embedding"],
-            payload["original_title"],
+            payload.get("translated_title") or payload["original_title"],
+            payload.get("summary"),
             payload["published_at"],
             event["occurred_at"],
         )
@@ -108,12 +113,17 @@ def _load_issue_candidates(spark, theme_ids: list[int]) -> dict[int, list[IssueC
         )
 
     # theme_id는 정수로 확인된 값만 사용하므로 IN 절을 안전하게 구성할 수 있다.
+    # 마지막 기사 연결 후 72시간이 지난 이슈는 신규 기사 매칭 후보에서 제외한다.
     theme_id_csv = ",".join(str(theme_id) for theme_id in sorted(set(theme_ids)))
     query = f"""
         SELECT id AS issue_id, theme_id, embedding
         FROM issue
         WHERE theme_id IN ({theme_id_csv})
           AND embedding IS NOT NULL
+          AND last_active_at >= (
+              CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Seoul'
+              - INTERVAL '{ISSUE_MATCH_WINDOW_HOURS} hours'
+          )
     """
     issue_rows = (
         spark.read.format("jdbc")
@@ -160,6 +170,7 @@ def _match_partition(
             "theme_id": row.theme_id,
             "embedding": row.embedding,
             "title": row.title,
+            "summary": row.summary,
             "published_at": row.published_at,
             "occurred_at": row.occurred_at,
         }
@@ -178,16 +189,24 @@ def write_event_batch(batch_df, batch_id: int) -> None:
 
     # Kafka Source의 value는 binary이므로 문자열로 변환한 뒤, 각 Partition에서
     # Enriched Article을 ARTICLE_UPSERT key/value 쌍으로 변환한다.
-    article_rows = batch_df.selectExpr(
-        "topic",
-        "partition",
-        "offset",
-        "CAST(value AS STRING) AS value",
-    ).rdd.mapPartitions(_transform_kafka_partition)
-    article_df = spark.createDataFrame(article_rows, schema=ARTICLE_SCHEMA).cache()
+    # Spark 4.2.0의 SPARK-59451을 피하기 위해 InMemoryRelation을 만드는
+    # DataFrame.cache() 대신 그 입력 RDD를 보관한다. 첫 Kafka write가 RDD의
+    # 모든 파티션을 materialize한 뒤 이어지는 action들이 같은 결과를 재사용한다.
+    article_rows = (
+        batch_df.selectExpr(
+            "topic",
+            "partition",
+            "offset",
+            "CAST(value AS STRING) AS value",
+        )
+        .rdd.mapPartitions(_transform_kafka_partition)
+        .persist(StorageLevel.MEMORY_AND_DISK)
+    )
 
     issues_by_theme = None
     try:
+        article_df = spark.createDataFrame(article_rows, schema=ARTICLE_SCHEMA)
+
         # topic 옵션을 지정했기 때문에 각 Row에는 key와 value만 있으면 된다.
         (
             article_df.select("key", "value").write.format("kafka")
@@ -225,16 +244,19 @@ def write_event_batch(batch_df, batch_id: int) -> None:
     finally:
         if issues_by_theme is not None:
             issues_by_theme.destroy()
-        article_df.unpersist()
+        article_rows.unpersist()
 
 
 def main() -> None:
     # Driver가 Spark Standalone Cluster에 제출하는 Structured Streaming 앱이다.
     spark = SparkSession.builder.appName("news-enriched-article-events-v1").getOrCreate()
     spark.sparkContext.setLogLevel(os.getenv("SPARK_LOG_LEVEL", "WARN"))
+    register_streaming_metrics(spark, "news-enriched-article-events-v1")
 
     if not 0.0 <= ISSUE_MATCH_THRESHOLD <= 1.0:
         raise ValueError("이슈매칭 THRESHOLD값은 0~1사이여야 합니다.")
+    if ISSUE_MATCH_WINDOW_HOURS <= 0:
+        raise ValueError("이슈 매칭 기간은 0보다 커야 합니다.")
     if not POSTGRESQL_URL or not POSTGRESQL_USER or not POSTGRESQL_PASSWORD:
         raise RuntimeError(
             "DB 접근 환경변수가 필요합니다."
@@ -255,6 +277,7 @@ def main() -> None:
     # 체크포인트는 HDFS에 저장해 Driver 컨테이너가 재생성되어도 진행 위치를 보존한다.
     query = (
         enriched_stream.writeStream.foreachBatch(write_event_batch)
+        .trigger(processingTime="15 seconds")
         .option("checkpointLocation", SPARK_CHECKPOINT_LOCATION)
         .queryName("news-enriched-article-events-v1")
         .start()

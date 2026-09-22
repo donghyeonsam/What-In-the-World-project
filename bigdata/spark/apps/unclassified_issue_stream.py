@@ -4,14 +4,22 @@ from __future__ import annotations
 
 import os
 
-from gms_issue_generator import GmsConfig, generate_issue
+from gms_issue_generator import (
+    GmsConfig,
+    GmsIssueGenerationError,
+    generate_issue,
+)
 from issue_clustering import (
     InvalidUnclassifiedArticle,
     UnclassifiedArticle,
     build_issue_events,
     cluster_articles,
+    filter_cluster_articles,
+    merge_generated_issue_candidates,
     parse_unclassified_message,
 )
+from streaming_metrics import register_streaming_metrics
+from pyspark import StorageLevel
 from pyspark.sql import SparkSession, functions as F
 from pyspark.sql.types import (
     ArrayType,
@@ -34,9 +42,12 @@ POSTGRESQL_PASSWORD = os.getenv("POSTGRESQL_PASSWORD", "")
 
 # MVP에서 모든 환경이 동일한 이슈 형성 기준을 사용하도록 코드 상수로 고정한다.
 ISSUE_CLUSTER_TRIGGER_COUNT = 50
-ISSUE_CLUSTER_MIN_SIZE = 5
-ISSUE_CLUSTER_MIN_SAMPLES = 3
-ISSUE_CLUSTER_MIN_MEMBERSHIP = 0.60
+ISSUE_CLUSTER_MIN_SIZE = 4
+ISSUE_CLUSTER_MIN_SAMPLES = 4
+ISSUE_CLUSTER_MIN_MEMBER_CONFIDENCE = 0.80
+ISSUE_CLUSTER_MIN_CENTROID_SIMILARITY = 0.92
+ISSUE_CLUSTER_WINDOW_HOURS = 72
+ISSUE_CLUSTER_REPRESENTATIVE_COUNT = 4
 ISSUE_CLUSTER_MAX_ARTICLES_PER_THEME = int(
     os.getenv("ISSUE_CLUSTER_MAX_ARTICLES_PER_THEME", "2000")
 )
@@ -71,6 +82,7 @@ PENDING_SCHEMA = StructType(
             "embedding", ArrayType(DoubleType(), containsNull=False), nullable=False
         ),
         StructField("title", StringType(), nullable=False),
+        StructField("summary", StringType(), nullable=True),
         StructField("published_at", StringType(), nullable=False),
         StructField("unclassified_at", StringType(), nullable=False),
     ]
@@ -104,6 +116,7 @@ def _parse_partition(rows):
             article.theme_id,
             list(article.embedding),
             article.title,
+            article.summary,
             article.published_at,
             article.unclassified_at,
         )
@@ -143,7 +156,7 @@ def _write_pending_state(spark: SparkSession, remaining, batch_id: int) -> None:
 
     if file_system.exists(temporary_path):
         file_system.delete(temporary_path, True)
-    remaining.write.mode("overwrite").parquet(temporary_path.toString())
+    remaining.coalesce(1).write.mode("overwrite").parquet(temporary_path.toString())
 
     if file_system.exists(backup_path):
         file_system.delete(backup_path, True)
@@ -191,6 +204,7 @@ def _to_article(row) -> UnclassifiedArticle:
         theme_id=row.theme_id,
         embedding=tuple(row.embedding),
         title=row.title,
+        summary=row.summary,
         published_at=row.published_at,
         unclassified_at=row.unclassified_at,
     )
@@ -203,27 +217,44 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
         "CAST(value AS STRING) AS value",
         "partition",
         "offset",
-    ).rdd.mapPartitions(_parse_partition)
+    ).rdd.mapPartitions(_parse_partition).persist(StorageLevel.MEMORY_AND_DISK)
     incoming = spark.createDataFrame(parsed_rows, schema=PENDING_SCHEMA)
-    pending = (
+    incoming_theme_ids = [
+        row.theme_id for row in incoming.select("theme_id").distinct().collect()
+    ]
+    pending_rows = (
         _read_pending_state(spark)
         .unionByName(incoming)
         .dropDuplicates(["article_id"])
-        .cache()
+        .rdd.persist(StorageLevel.MEMORY_AND_DISK)
     )
-    pending.count()
 
     try:
+        # DataFrame.cache()가 만드는 PartitionKeyedAccumulator는 Spark 4.2.0의
+        # SPARK-59451을 유발할 수 있다. 일반 RDD를 먼저 materialize하고 그 위에
+        # DataFrame을 다시 만들어 이후 action들이 동일한 파티션을 재사용하게 한다.
+        pending_rows.count()
+        pending = spark.createDataFrame(pending_rows, schema=PENDING_SCHEMA).filter(
+            F.to_timestamp("published_at")
+            >= F.expr(
+                f"current_timestamp() - INTERVAL {ISSUE_CLUSTER_WINDOW_HOURS} HOURS"
+            )
+        )
+
         triggered_theme_ids = [
             row.theme_id
             for row in pending.groupBy("theme_id")
             .count()
-            .filter(F.col("count") >= ISSUE_CLUSTER_TRIGGER_COUNT)
+            .filter(
+                (F.col("count") >= ISSUE_CLUSTER_TRIGGER_COUNT)
+                & F.col("theme_id").isin(incoming_theme_ids)
+            )
             .select("theme_id")
             .collect()
         ]
-        processed_article_ids: set[str] = set()
+        assigned_article_ids: set[str] = set()
         event_rows: list[tuple[str, str]] = []
+        generated_candidates = []
 
         if triggered_theme_ids:
             theme_names = _load_theme_names(spark, triggered_theme_ids)
@@ -239,20 +270,64 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
                     .collect()
                 ]
 
-                # A triggered slice is consumed once. Articles that HDBSCAN marks as
-                # noise are deliberately removed according to the pipeline contract.
-                selected_ids = {article.article_id for article in selected}
+                # 이슈 군집에 실제로 포함된 기사만 소비한다. HDBSCAN noise와
+                # 개별 membership/centroid 응집도 기준을 통과하지 못한 기사는
+                # 72시간 동안 pending에 남겨 후속 기사와 다시 군집화할 기회를 준다.
                 clusters = cluster_articles(
                     selected,
                     min_cluster_size=ISSUE_CLUSTER_MIN_SIZE,
                     min_samples=ISSUE_CLUSTER_MIN_SAMPLES,
-                    representative_count=3,
-                    min_membership_confidence=ISSUE_CLUSTER_MIN_MEMBERSHIP,
+                    representative_count=ISSUE_CLUSTER_REPRESENTATIVE_COUNT,
+                    min_membership_confidence=ISSUE_CLUSTER_MIN_MEMBER_CONFIDENCE,
+                    min_centroid_similarity=ISSUE_CLUSTER_MIN_CENTROID_SIMILARITY,
                 )
                 for cluster in clusters:
-                    generated = generate_issue(GMS_CONFIG, theme_name, cluster)
-                    event_rows.extend(build_issue_events(cluster, generated))
-                processed_article_ids.update(selected_ids)
+                    try:
+                        decision = generate_issue(GMS_CONFIG, theme_name, cluster)
+                    except GmsIssueGenerationError as exc:
+                        print(
+                            f"Skipped issue generation: "
+                            f"batch_id={batch_id} "
+                            f"theme_id={theme_id} "
+                            f"article_count={len(cluster.articles)} "
+                            f"reason={exc}",
+                            flush=True,
+                        )
+                        continue
+
+                    filtered_cluster = filter_cluster_articles(
+                        cluster,
+                        decision.included_article_ids,
+                        min_cluster_size=ISSUE_CLUSTER_MIN_SIZE,
+                        representative_count=ISSUE_CLUSTER_REPRESENTATIVE_COUNT,
+                        min_centroid_similarity=(
+                            ISSUE_CLUSTER_MIN_CENTROID_SIMILARITY
+                        ),
+                    )
+                    if filtered_cluster is None:
+                        print(
+                            "Skipped issue after event membership validation: "
+                            f"batch_id={batch_id} "
+                            f"theme_id={theme_id} "
+                            f"candidate_count={len(cluster.articles)} "
+                            f"included_count={len(decision.included_article_ids)} "
+                            f"minimum={ISSUE_CLUSTER_MIN_SIZE}",
+                            flush=True,
+                        )
+                        continue
+
+                    generated_candidates.append(
+                        (filtered_cluster, decision.issue)
+                    )
+                    assigned_article_ids.update(
+                        article.article_id for article in filtered_cluster.articles
+                    )
+
+        for cluster, generated in merge_generated_issue_candidates(
+            generated_candidates,
+            representative_count=ISSUE_CLUSTER_REPRESENTATIVE_COUNT,
+        ):
+            event_rows.extend(build_issue_events(cluster, generated))
 
         if event_rows:
             event_df = spark.createDataFrame(event_rows, schema=EVENT_SCHEMA)
@@ -263,10 +338,11 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
                 .save()
             )
 
-        remaining = pending
-        if processed_article_ids:
+        materialized_remaining = pending
+        remaining_rows = None
+        if assigned_article_ids:
             processed_df = spark.createDataFrame(
-                [(article_id,) for article_id in sorted(processed_article_ids)],
+                [(article_id,) for article_id in sorted(assigned_article_ids)],
                 schema=StructType(
                     [StructField("article_id", StringType(), nullable=False)]
                 ),
@@ -274,18 +350,25 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
             remaining = pending.join(
                 F.broadcast(processed_df), on="article_id", how="left_anti"
             )
-        remaining = remaining.cache()
-        remaining.count()
+            remaining_rows = remaining.rdd.persist(StorageLevel.MEMORY_AND_DISK)
         try:
-            _write_pending_state(spark, remaining, batch_id)
+            if remaining_rows is not None:
+                # 기존 상태 경로를 교체하기 전에 결과를 완전히 고정한다.
+                remaining_rows.count()
+                materialized_remaining = spark.createDataFrame(
+                    remaining_rows, schema=PENDING_SCHEMA
+                )
+            _write_pending_state(spark, materialized_remaining, batch_id)
         finally:
-            remaining.unpersist()
+            if remaining_rows is not None:
+                remaining_rows.unpersist()
         print(
             f"Completed unclassified cluster batch {batch_id}: "
-            f"events={len(event_rows)} consumed={len(processed_article_ids)}"
+            f"events={len(event_rows)} assigned={len(assigned_article_ids)}"
         )
     finally:
-        pending.unpersist()
+        pending_rows.unpersist()
+        parsed_rows.unpersist()
 
 
 def _validate_config() -> None:
@@ -309,14 +392,21 @@ def _validate_config() -> None:
         raise ValueError("GMS_TIMEOUT_SECONDS must be positive")
     if GMS_CONFIG.max_attempts < 1:
         raise ValueError("GMS_MAX_ATTEMPTS must be positive")
-    if not 0.0 <= ISSUE_CLUSTER_MIN_MEMBERSHIP <= 1.0:
-        raise ValueError("ISSUE_CLUSTER_MIN_MEMBERSHIP must be between 0 and 1")
+    if not 0.0 <= ISSUE_CLUSTER_MIN_MEMBER_CONFIDENCE <= 1.0:
+        raise ValueError(
+            "ISSUE_CLUSTER_MIN_MEMBER_CONFIDENCE must be between 0 and 1"
+        )
+    if not -1.0 <= ISSUE_CLUSTER_MIN_CENTROID_SIMILARITY <= 1.0:
+        raise ValueError(
+            "ISSUE_CLUSTER_MIN_CENTROID_SIMILARITY must be between -1 and 1"
+        )
 
 
 def main() -> None:
     _validate_config()
     spark = SparkSession.builder.appName("news-unclassified-issue-stream-v1").getOrCreate()
     spark.sparkContext.setLogLevel(os.getenv("SPARK_LOG_LEVEL", "WARN"))
+    register_streaming_metrics(spark, "news-unclassified-issue-stream-v1")
     stream = (
         spark.readStream.format("kafka")
         .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS)
@@ -327,6 +417,7 @@ def main() -> None:
     )
     query = (
         stream.writeStream.foreachBatch(write_cluster_batch)
+        .trigger(processingTime="15 seconds")
         .option("checkpointLocation", SPARK_CHECKPOINT_LOCATION)
         .queryName("news-unclassified-issue-stream-v1")
         .start()

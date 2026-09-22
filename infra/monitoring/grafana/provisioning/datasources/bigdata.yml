@@ -1,0 +1,11 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus-BigData
+    uid: prometheus-bigdata
+    type: prometheus
+    access: proxy
+    url: $BIGDATA_PROMETHEUS_URL
+    jsonData:
+      timeInterval: 15s
+    editable: false

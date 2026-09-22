@@ -1,15 +1,15 @@
 package com.ssafy.witw.domain.theme.service;
 
-import com.ssafy.witw.domain.article.dao.ArticleRepository;
 import com.ssafy.witw.domain.article.dao.ArticleRepository.RepresentArticleProjection;
+import com.ssafy.witw.domain.article.dao.ArticleRepository;
 import com.ssafy.witw.domain.article.dto.ArticleTone;
 import com.ssafy.witw.domain.country.service.CountryFinder;
 import com.ssafy.witw.domain.issue.dao.IssueRepository;
 import com.ssafy.witw.domain.theme.dao.ThemeRepository;
 import com.ssafy.witw.domain.theme.dto.ThemeOverviewResponse;
 import com.ssafy.witw.domain.theme.entity.Theme;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -20,8 +20,11 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class ThemeOverviewServiceTest {
@@ -55,11 +58,12 @@ class ThemeOverviewServiceTest {
         when(article.getArticleTitle()).thenReturn("폭염이 이어진다");
         when(article.getArticleToneScore()).thenReturn(BigDecimal.valueOf(33));
         when(article.getArticlePublisher()).thenReturn("publisher");
+        when(article.getUrl()).thenReturn("https://example.com/article-1");
         when(article.getPublishedAt()).thenReturn(LocalDateTime.of(2026, 1, 1, 12, 0));
 
         when(themeRepository.findById(THEME_ID)).thenReturn(Optional.of(theme));
-        when(issueRepository.getPrimaryIssuesByThemeId(THEME_ID, 3)).thenReturn(List.of(issue));
-        when(articleRepository.getRepresentArticlesByThemeId(THEME_ID, 10)).thenReturn(List.of(article));
+        when(issueRepository.getPrimaryIssuesByThemeId(eq(THEME_ID), eq(3), any(LocalDateTime.class), isNull())).thenReturn(List.of(issue));
+        when(articleRepository.getRepresentArticlesByThemeId(eq(THEME_ID), eq(10), any(LocalDateTime.class))).thenReturn(List.of(article));
 
         // when
         ThemeOverviewResponse response = service().getThemeOverview(THEME_ID, 3, 10);
@@ -82,19 +86,20 @@ class ThemeOverviewServiceTest {
     }
 
     @Test
-    @DisplayName("[테마 개요 조회] 국가 코드가 있으면 해당 국가 대표 기사만 조회한다")
+    @DisplayName("[테마 개요 조회] 국가 코드가 있으면 주요 이슈와 대표 기사를 해당 국가로 조회한다")
     void 국가별_대표_기사를_조회한다() {
         Theme theme = new Theme();
         theme.setId(THEME_ID);
         theme.setName("기후 변화");
         when(themeRepository.findById(THEME_ID)).thenReturn(Optional.of(theme));
-        when(issueRepository.getPrimaryIssuesByThemeId(THEME_ID, 3)).thenReturn(List.of());
-        when(articleRepository.getRepresentArticlesByThemeIdAndCountryCode(THEME_ID, "KR", 10))
+        when(issueRepository.getPrimaryIssuesByThemeId(eq(THEME_ID), eq(3), any(LocalDateTime.class), eq("KR"))).thenReturn(List.of());
+        when(articleRepository.getRepresentArticlesByThemeIdAndCountryCode(eq(THEME_ID), eq("KR"), eq(10), any(LocalDateTime.class)))
                 .thenReturn(List.of());
 
         service().getThemeOverview(THEME_ID, 3, 10, "KR");
 
-        verify(articleRepository).getRepresentArticlesByThemeIdAndCountryCode(THEME_ID, "KR", 10);
+        verify(issueRepository).getPrimaryIssuesByThemeId(eq(THEME_ID), eq(3), any(LocalDateTime.class), eq("KR"));
+        verify(articleRepository).getRepresentArticlesByThemeIdAndCountryCode(eq(THEME_ID), eq("KR"), eq(10), any(LocalDateTime.class));
     }
 
     private ThemeService service() {

@@ -13,7 +13,9 @@ public record GlobalIssueRankResponse(
             String fieldName,
             String themeName,
             String issueName,
-            long articleCount,
-            LocalDateTime firstSeenAt
+            LocalDateTime firstSeenAt,
+            String scoreVersion,
+            Double globalHeatScore,
+            Long countryCount
     ) { }
 }

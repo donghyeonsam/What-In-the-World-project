@@ -1,0 +1,99 @@
+name: witw-monitoring
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    restart: unless-stopped
+    pid: host
+    command:
+      - --path.rootfs=/host
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --collector.disable-defaults
+      - --collector.cpu
+      - --collector.meminfo
+      - --collector.filesystem
+      - --collector.diskstats
+    volumes:
+      - /:/host:ro,rslave
+    logging: *logging
+
+  prometheus:
+    image: prom/prometheus:v3.13.1
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - default
+      - app
+    logging: *logging
+
+  alloy:
+    image: grafana/alloy:v1.19.2
+    restart: unless-stopped
+    user: "0:0"
+    command:
+      - run
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    environment:
+      LOG_HOST: ${LOG_HOST:?LOG_HOST is required}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy/data
+    depends_on:
+      - loki
+    logging: *logging
+
+  loki:
+    image: grafana/loki:3.7.7
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/config.yml"]
+    ports:
+      - "${LOKI_BIND_HOST:-127.0.0.1}:3100:3100"
+    volumes:
+      - ./loki/config.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
+    logging: *logging
+
+  grafana:
+    image: grafana/grafana:13.2.1
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      BIGDATA_PROMETHEUS_URL: ${BIGDATA_PROMETHEUS_URL:-http://172.26.11.46:9090}
+    ports:
+      - "127.0.0.1:3002:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ${BIGDATA_DASHBOARDS_PATH:-../../bigdata/monitoring/grafana/dashboards}:/var/lib/grafana/bigdata:ro
+    depends_on:
+      - loki
+    logging: *logging
+
+volumes:
+  alloy-data:
+  loki-data:
+  grafana-data:
+  prometheus-data:
+
+networks:
+  app:
+    external: true
+    name: witw-dev-network

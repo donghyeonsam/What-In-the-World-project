@@ -148,11 +148,39 @@ class TestTextHandling(unittest.TestCase):
 class TestSentimentContract(unittest.TestCase):
     def test_shape(self):
         s = tone.make_sentiment(0.88, 0.12, model="m", category="ECONOMY", n_chunks=3)
-        for k in ("score", "label", "confidence", "p_pos", "p_neg",
+        for k in ("score", "score_raw", "label", "confidence", "p_pos", "p_neg",
                   "category", "n_chunks", "model"):
             self.assertIn(k, s)
-        self.assertEqual(s["score"], 88.0)
+        # score 는 calibration.json 이 있으면 분야별 분위수 점수로 바뀐다.
+        # 선형 환산값은 score_raw 에 남으므로 그쪽을 검사한다.
+        self.assertEqual(s["score_raw"], 88.0)
+        self.assertGreaterEqual(s["score"], 0.0)
+        self.assertLessEqual(s["score"], 100.0)
+        # label 은 확률로만 판정하므로 보정과 무관하게 항상 같다.
         self.assertEqual(s["label"], "positive")
+
+    def test_calibration_does_not_touch_fallback_paths(self):
+        """empty/dummy/error/disabled 는 실제 추론이 아니라 자리표시자다.
+
+        (0.0, 0.0) 을 보정에 태우면 그 분야의 최하위 퍼센타일로 떨어져
+        '모델이 실패한 기사'가 '매우 부정적인 기사'로 둔갑한다. 50.0 이어야 한다.
+        """
+        for model in ("empty", "dummy", "error", "disabled"):
+            s = tone.make_sentiment(0.0, 0.0, model=model,
+                                    category="POLITICS", n_chunks=0)
+            self.assertEqual(s["score"], 50.0, model)
+
+    def test_calibration_is_monotonic_within_field(self):
+        """보정은 분야 안의 순서를 바꾸면 안 된다.
+
+        기준표가 없으면 선형 환산이라 자명하게 통과한다. 있으면 분위수 매핑이
+        단조증가인지 확인한다.
+        """
+        for category in ("POLITICS", "ECONOMY", "SOCIETY", "TECH", "SPORTS"):
+            scores = [tone.tone_point(0.5 + d / 2, 0.5 - d / 2, category)
+                      for d in [i / 100 - 1 for i in range(201)]]
+            for a, b in zip(scores, scores[1:]):
+                self.assertLessEqual(a, b + 1e-9, category)
 
     def test_score_is_json_safe_and_in_range(self):
         import json
