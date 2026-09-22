@@ -114,11 +114,15 @@
 
 /* The relay projects onto a framed glass surface; only the frame carries motion. */
 .hologram {
+  --wtw-text: #f1f5fa;
+  --wtw-text-2: #d0dce8;
+  --wtw-muted: #b1c2d2;
+  --wtw-faint: #9caec0;
   --wtw-panel: rgba(8, 23, 37, .88);
   --wtw-bg-2: rgba(24, 53, 69, .45);
-  --wtw-surface: rgba(23, 52, 69, .45);
+  --wtw-surface: rgba(23, 42, 58, .86);
   --wtw-accent-soft: rgba(44, 114, 132, .13);
-  --wtw-line: rgba(119, 202, 224, .16);
+  --wtw-line: rgba(150, 187, 208, .23);
   --wtw-line-strong: rgba(130, 223, 244, .32);
   --wtw-accent: #97e2ec;
   position: relative; z-index: 3; isolation: isolate; min-width: 0; min-height: 0;
@@ -128,6 +132,7 @@
   box-shadow: inset 0 0 36px #4ac5e509, 0 0 26px #5ce2ff0a, -5px 0 25px #77e1ff0a;
 }
 .hologram::before {
+  opacity: .2;
   content: ''; position: absolute; z-index: -1; inset: 0; border-radius: inherit; pointer-events: none;
   background: repeating-linear-gradient(0deg, transparent 0 4px, #8fe8ff04 4px 5px),
     linear-gradient(90deg, #82e7ff09 1px, transparent 1px), linear-gradient(#82e7ff09 1px, transparent 1px);
@@ -146,7 +151,9 @@
 .projection { display: none; pointer-events: none; }
 @media (min-width: 1000px) {
   .dashboard { --stage-width: 52%; --relay-light: 142, 190, 210; }
-  .stage { border-right: 0; }
+  .stage { border-right: 0; overflow: visible; }
+  .globeSlot { width: 100vw; }
+  .globeSlot::after { left: calc(var(--stage-width) / 2); }
   .hologram { margin: 20px 20px 20px 64px; }
   .projection {
     display: block; position: absolute; z-index: 2;
@@ -168,11 +175,11 @@
   .hologram {
     border-color: rgba(var(--relay-light), .18); border-left-color: rgba(var(--relay-light), .28);
     border-radius: 3px 12px 12px 3px;
-    background: linear-gradient(90deg, rgba(var(--relay-light), .10), transparent 140px), #07121e;
+    background: linear-gradient(90deg, rgba(var(--relay-light), .10), transparent 140px), rgba(7, 18, 30, .88);
     box-shadow: -12px 0 32px rgba(var(--relay-light), .05), inset 0 0 36px rgba(var(--relay-light), .025);
   }
   .hologram::after { opacity: .3; }
-  .hologram::before { opacity: .55; }
+  .hologram::before { opacity: .2; }
 }
 @keyframes relayTransfer { from { background-position: -18px 0; } to { background-position: 110px 0; } }
 .timeTravel .projection::after { animation: none; opacity: 0; }

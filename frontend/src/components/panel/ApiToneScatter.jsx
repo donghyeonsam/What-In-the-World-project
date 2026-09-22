@@ -11,7 +11,7 @@ export default function ApiToneScatter({ rows = [], spot, onSelectCountry }) {
     <div className={s.toneAxis}><span>부정 −1.0</span><span>중립 0</span><span>긍정 +1.0</span></div>
     <div className={s.toneRows}>{rows.map((row) => {
       const id = row.country.countryCode.toLowerCase();
-      const enough = row.articleCount == null || row.articleCount >= 30;
+      const enough = row.articleCount !== 1;
       const score = scoreOf(row.toneAvg);
       const scorePosition = P(score);
       const rangeStart = P(scoreOf(row.toneMin));
@@ -30,7 +30,7 @@ export default function ApiToneScatter({ rows = [], spot, onSelectCountry }) {
           {!enough ? '표본 부족' : score === null ? '분석 없음' : sg(score)}
         </span>
         <span className={s.toneWord} title={canShowDeviation ? `논조 표준편차 ${sd.toFixed(2)}` : '기사 1건으로는 논조 편차를 산출할 수 없습니다.'}>
-          {!canShowDeviation ? '편차 산출 불가' : `σ ${sd.toFixed(2)} · ${enough ? deviationLabel(sd) : '참고용'}`}
+          {!canShowDeviation ? '편차 산출 불가' : `σ ${sd.toFixed(2)} · ${row.articleCount == null || row.articleCount >= 30 ? deviationLabel(sd) : '참고용'}`}
         </span>
       </button>;
     })}</div>
@@ -39,7 +39,7 @@ export default function ApiToneScatter({ rows = [], spot, onSelectCountry }) {
       <p>색 막대는 중립점에서 국가별 평균 논조 방향으로 뻗고, 옅은 띠는 최소~최대 논조입니다.
       σ는 기사별 논조의 표준편차이며 클수록 논조가 다양합니다. 원점수와 표준편차는 −1~1 척도에 맞게
       환산했습니다. 기사 1건은 편차를 산출할 수 없고, 2~29건의 편차는 참고용으로 표시합니다.
-      평균 논조는 30건 미만일 때 숨깁니다.</p>
+      평균 논조 숫자는 기사 1건일 때만 표본 부족으로 표시합니다.</p>
     </details>
   </div>;
 }

@@ -89,32 +89,32 @@
 .globalDashboard .updated { font-size: 11px; padding-top: 8px; }
 .globalDashboard .kpiGrid { gap: 12px; margin: 24px 0 32px; }
 .globalDashboard .kpiCard { padding: 16px 18px; background: var(--wtw-surface); border-radius: 14px; }
-.globalDashboard .kpiCard:last-child { background: var(--wtw-accent-soft); border-color: var(--wtw-line-strong); }
 .globalDashboard .kpiCard small { font-size: 12px; margin-bottom: 12px; line-height: 1.5; }
 .globalDashboard .kpiCard strong { font-size: 28px; font-variant-numeric: tabular-nums; }
-.globalDashboard .kpiCard:last-child strong { color: var(--wtw-accent); }
 .globalDashboard .kpiCard strong em { font-size: 13px; margin-left: 5px; }
 .globalDashboard .sectionTitle { flex-wrap: wrap; gap: 8px 12px; margin-bottom: 16px; }
 .globalDashboard .sectionTitle h3 { font-size: 18px; font-weight: 750; line-height: 1.2; letter-spacing: -0.03em; }
 .globalDashboard .sectionTitle > span { font-size: 11px; }
+.countryDashboard .countrySection:first-of-type .sectionTitle h3 { font-size: 18px; font-weight: 750; line-height: 1.2; letter-spacing: -0.03em; }
+.countryDashboard .countrySection:first-of-type .sectionTitle > span { font-size: 11px; }
 .globalDashboard .sectionTitleMain { gap: 8px; }
 .globalDashboard .helpWrap { top: 1.5px; }
 .globalDashboard .helpIcon { width: 18px; height: 18px; font-size: 11px; }
-.globalDashboard .issueList { gap: 10px; }
-.globalDashboard .issueCard {
+:is(.globalDashboard, .countryDashboard) .issueList { gap: 10px; }
+:is(.globalDashboard, .countryDashboard) .issueCard {
   grid-template-columns: 34px minmax(0, 1fr); gap: 14px;
   min-height: 92px; padding: 14px 16px; border-radius: 14px;
   transition: border-color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
 }
-.globalDashboard .issueCard:hover {
+:is(.globalDashboard, .countryDashboard) .issueCard:hover {
   transform: none; background: var(--wtw-surface-2);
   box-shadow: 0 4px 14px rgba(23, 55, 100, 0.07);
 }
-.globalDashboard .issueCard:focus-visible { outline: 2px solid var(--wtw-accent); outline-offset: 3px; }
-.globalDashboard .issueRank { font-size: 19px; line-height: 1.2; color: var(--wtw-muted); padding-top: 0; font-variant-numeric: tabular-nums; }
-.globalDashboard .taxonomyMini { font-size: 11px; line-height: 1.5; margin-bottom: 6px; }
-.globalDashboard .issueMain strong { font-size: 14px; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; margin-bottom: 9px; letter-spacing: -0.02em; }
-.globalDashboard .issueMeta { font-size: 12px; line-height: 1.4; font-variant-numeric: tabular-nums; }
+:is(.globalDashboard, .countryDashboard) .issueCard:focus-visible { outline: 2px solid var(--wtw-accent); outline-offset: 3px; }
+:is(.globalDashboard, .countryDashboard) .issueRank { font-size: 19px; line-height: 1.2; color: var(--wtw-muted); padding-top: 0; font-variant-numeric: tabular-nums; }
+:is(.globalDashboard, .countryDashboard) .taxonomyMini { font-size: 11px; line-height: 1.5; margin-bottom: 6px; }
+:is(.globalDashboard, .countryDashboard) .issueMain strong { font-size: 14px; line-height: 1.5; white-space: normal; overflow-wrap: anywhere; margin-bottom: 9px; letter-spacing: -0.02em; }
+:is(.globalDashboard, .countryDashboard) .issueMeta { font-size: 12px; line-height: 1.4; font-variant-numeric: tabular-nums; }
 
 /* ── 급상승 태그 ── */
 .rising { margin-top: 24px; }
@@ -328,6 +328,19 @@
 .emptyArticles { padding: 35px 15px; border: 1px solid var(--wtw-line); border-radius: 9px; text-align: center; }
 .emptyArticles strong { font-size: 12px; }
 .emptyArticles p { margin: 5px 0 0; color: var(--wtw-muted); font-size: 10px; }
+.emptyState {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 158px; padding: 24px; margin-bottom: 24px;
+  border: 1px solid var(--wtw-line); border-radius: 14px;
+  background: var(--wtw-surface); text-align: center;
+}
+.emptyStateMark {
+  display: grid; place-items: center; width: 34px; height: 34px; margin-bottom: 13px;
+  border-radius: 50%; background: var(--wtw-accent-soft); color: var(--wtw-accent);
+  font-size: 18px; line-height: 1;
+}
+.emptyState strong { color: var(--wtw-text); font-size: 14px; line-height: 1.5; }
+.emptyState p { margin: 6px 0 0; color: var(--wtw-muted); font-size: 12px; line-height: 1.5; }
 
 /* ── 분류 경로 ── */
 .taxonomyPath {
@@ -623,8 +636,68 @@
   white-space: nowrap;
 }
 
-/* 공통 패널 위계: 화면 제목 26 / 섹션 18 / 본문 14 / 보조 12px */
-.panelContent { font-size: 14px; line-height: 1.6; }
+/* 패널 전반의 읽기 위계와 카드 간격 */
+.panelContent { min-width: 0; font-size: 15px; line-height: 1.65; word-break: keep-all; overflow-wrap: anywhere; }
+.panelContent :is(.heading, .subheading, .identity) h2 { font-size: 28px; line-height: 1.4; letter-spacing: -0.025em; }
+.panelContent .sectionTitle { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; padding-bottom: 14px; border-bottom: 1px solid var(--wtw-line); }
+.panelContent .sectionTitle > .sectionNote { grid-column: 1 / -1; color: var(--wtw-muted); }
+.panelContent .sectionTitle > button { justify-self: end; padding: 6px 9px; border: 1px solid var(--wtw-line); border-radius: 7px; color: var(--wtw-accent); font-weight: 600; }
+.panelContent .heading { display: grid; gap: 8px; }
+.panelContent .updated { padding: 0; font-size: 12px; color: var(--wtw-muted); }
+.panelContent .subheading p { color: var(--wtw-text-2); font-size: 14px; max-width: 60ch; }
+.panelContent .sectionTitle h3 { font-size: 19px; line-height: 1.4; }
+.panelContent .sectionTitle > span { flex-basis: 100%; font-size: 12px; line-height: 1.6; }
+.panelContent .kpiCard { background: var(--wtw-surface); padding: 18px; }
+.panelContent .kpiCard small { font-size: 13px; color: var(--wtw-text-2); margin-bottom: 14px; }
+.panelContent .kpiCard strong { font-size: clamp(24px, 2.3vw, 32px); line-height: 1.3; overflow-wrap: anywhere; }
+.panelContent .issueCard { position: relative; background: var(--wtw-surface); padding: 20px 18px; gap: 12px 14px; align-items: start; grid-template-areas: 'rank field' 'main main'; }
+.panelContent .issueCard > .issueRank { grid-area: rank; }
+.panelContent .issueCard > .issueMain { grid-area: main; }
+.issueField { grid-area: field; justify-self: end; min-width: 0; max-width: 100%; }
+.issueCard:has(.fieldBadge:hover), .issueCard:focus-visible { z-index: 2; }
+.panelContent .issueCard:hover { transform: none; background: var(--wtw-surface-2); border-color: var(--wtw-line-strong); }
+.panelContent .issueSide { grid-column: 2; text-align: left; }
+.panelContent .issueMain strong { margin-bottom: 0; font-size: 18px; font-weight: 650; line-height: 1.6; letter-spacing: -0.015em; }
+.panelContent .issueMeta { flex-wrap: wrap; gap: 5px 12px; font-size: 13px; margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--wtw-line); color: var(--wtw-text-2); }
+.panelContent .issueMeta > span:first-child { color: var(--wtw-text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.panelContent .taxonomyMini { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 10px; font-size: 12px; margin: 8px 0 0; color: var(--wtw-muted); font-weight: 500; }
+.fieldBadge {
+  position: relative;
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0;
+  padding: 3px 7px; border: 1px solid color-mix(in srgb, var(--field-color) 24%, transparent);
+  border-radius: 5px; background: color-mix(in srgb, var(--field-color) 8%, transparent);
+  color: var(--field-color); font-size: 12px; font-weight: 600; line-height: 1.5;
+}
+.fieldBadge svg { width: 14px; height: 14px; flex: 0 0 14px; }
+.fieldBadge > span { min-width: 0; overflow-wrap: anywhere; }
+.fieldTooltip {
+  position: absolute; z-index: 5; top: 100%; right: 0;
+  width: max-content; max-width: min(260px, 65vw); padding: 9px 12px;
+  border: 1px solid var(--wtw-line-strong); border-radius: 7px;
+  background: #101c2c; color: var(--wtw-text); box-shadow: 0 6px 18px #0005;
+  font-size: 12px; font-weight: 500; line-height: 1.6; text-align: left;
+  visibility: hidden; opacity: 0;
+}
+.fieldBadge:hover .fieldTooltip, .issueCard:focus-visible .fieldTooltip { visibility: visible; opacity: 1; }
+.panelContent .issueRank { color: var(--wtw-muted); font-size: 16px; line-height: 1.65; }
+.panelContent .themeCard { border-color: var(--wtw-line); background: var(--wtw-surface); padding: 16px; margin-bottom: 10px; }
+.panelContent .themeCardIssue { white-space: normal; font-size: 13px; line-height: 1.6; }
+.panelContent .themeField { font-size: 11px; }
+.panelContent .themeCardTitle { align-items: flex-start; flex-direction: column-reverse; gap: 6px; }
+.panelContent .themeField { background: transparent; padding: 0; color: var(--wtw-muted); font-weight: 500; font-size: 12px; }
+.panelContent .themeCardMetric { padding-left: 12px; border-left: 1px solid var(--wtw-line); }
+.panelContent .themeCard .themeCardMetric strong { font-size: 21px; line-height: 1.3; color: var(--wtw-text); }
+.panelContent .themeCardMetric small { font-size: 12px; }
+.panelContent .themeCardIssue { color: var(--wtw-text-2); }
+.panelContent .feedCard > strong { margin-top: 12px; }
+.panelContent .feedCard p { color: var(--wtw-text-2); }
+.panelContent :is(.themeDetailCard, .feedCard, .themeIssueList > button) { background: var(--wtw-surface); }
+.panelContent :is(.themeCard strong, .themeDetailHead strong, .feedCard strong, .articleCard strong, .themeIssueList strong) { font-size: 16px; font-weight: 650; line-height: 1.65; }
+.panelContent :is(.themeDetailMeta, .leading, .articleCard p) { font-size: 13px; line-height: 1.7; }
+.panelContent .feedCard p { font-size: 15px; line-height: 1.8; }
+.panelContent .countryAnalysisSummary { font-size: 15px; line-height: 1.8; }
+.panelContent .countryAnalysis li { font-size: 13px; line-height: 1.75; }
+.panelContent .countryAnalysisFoot { font-size: 12px; }
 .themeList { margin-bottom: 28px; }
 .heading { align-items: flex-start; flex-wrap: wrap; }
 .heading h2, .subheading h2, .identity h2 {
@@ -754,6 +827,9 @@
 }
 
 @media (max-width: 420px) {
+  .panelContent :is(.heading, .subheading, .identity) h2 { font-size: 24px; }
+  .panelContent .issueCard { padding: 14px 12px; gap: 10px; grid-template-columns: 24px minmax(0, 1fr); }
+  .panelContent .themeCard { gap: 8px; padding: 12px; grid-template-columns: 28px minmax(0, 1fr) auto; }
   .panelContent { min-width: 0; }
   .heading h2, .subheading h2, .identity h2 { font-size: 23px; }
   .kpiGrid { gap: 8px; }

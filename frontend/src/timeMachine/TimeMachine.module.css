@@ -33,6 +33,9 @@
 .stageClock time { font: 500 clamp(13px, 1.18vw, 17px)/1.4 var(--wtw-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .centeredClock { left: 50%; top: 50%; transform: translate(-50%, -50%); }
 .centeredClock time { font-size: clamp(16px, 3vw, 30px); }
+@media (min-width: 1000px) {
+  .centeredClock { left: calc(var(--stage-width) / 2); }
+}
 .travel { position: absolute; inset: 0; z-index: 9; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 0 20px 7vh; color: #d9eef1; }
 .travel p { font-size: 13px; }
 .travel button { color: #b2c4cf; font-size: 12px; padding: 12px; }
@@ -75,8 +78,8 @@
 
 .ruler { perspective: 850px; perspective-origin: 30% 50%; }
 .rulerPage { position: absolute; inset: 0; transform-origin: 100% 50%; transform-style: preserve-3d; backface-visibility: hidden; }
-.pageOut { animation: rulerPageOut 1200ms cubic-bezier(.4, 0, .2, 1) both; pointer-events: none; }
-.pageIn { animation: rulerPageIn 1200ms cubic-bezier(.4, 0, .2, 1) both; pointer-events: none; }
+.pageOut { animation: rulerPageOut 1100ms cubic-bezier(.4, 0, .2, 1) both; pointer-events: none; }
+.pageIn { animation: rulerPageIn 1100ms cubic-bezier(.4, 0, .2, 1) both; pointer-events: none; }
 @keyframes rulerPageOut {
   0% { opacity: 1; transform: rotateY(0deg); }
   65% { opacity: .55; }

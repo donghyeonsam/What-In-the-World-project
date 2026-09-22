@@ -32,7 +32,7 @@ export default function TimeMachinePicker({ asOf, onTravel }) {
   };
   useEffect(() => {
     if (turn === null) return undefined;
-    const finish = setTimeout(() => { setStep(turn); setTurn(null); }, 1200);
+    const finish = setTimeout(() => { setStep(turn); setTurn(null); }, 1100);
     return () => clearTimeout(finish);
   }, [turn]);
   const select = (next) => {

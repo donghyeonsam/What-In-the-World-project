@@ -1,7 +1,8 @@
 import s from './panel.module.css';
+import FieldBadge from './FieldBadge.jsx';
 
 /**
- * 글로벌 이슈 TOP 5 카드 — 분야·테마 꼬리표, 기사량, 관련 국기, 증가율 스파크라인.
+ * 이슈 순위 카드 — 등수, 분야 배지, 제목. 테마는 배지 툴팁으로 표시한다.
  * 출처: 아카이브/app.js renderGlobal() .issue-card
  *
  * @param {{issues: {field: string, theme: string, title: string, count: string,
@@ -19,20 +20,10 @@ export default function IssueCardList({ issues, onSelect }) {
           onClick={() => onSelect?.(index)}
         >
           <span className={s.issueRank}>{String(index + 1).padStart(2, '0')}</span>
+          <span className={s.issueField}><FieldBadge field={issue.field} theme={issue.theme} /></span>
           <span className={s.issueMain}>
-            <span className={s.taxonomyMini}>
-              {issue.field} · {issue.theme}
-            </span>
             <strong>{issue.title}</strong>
-            <span className={s.issueMeta}>
-              <span>{issue.count}</span>
-              <span className={s.mini}>{issue.countries}</span>
-            </span>
           </span>
-          {(issue.change || issue.path) && <span className={s.issueSide}>
-            <strong>{issue.change}</strong>
-            {issue.path && <Sparkline path={issue.path} />}
-          </span>}
         </button>
       ))}
     </div>

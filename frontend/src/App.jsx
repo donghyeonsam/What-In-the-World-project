@@ -24,7 +24,7 @@ import s from './components/panel/panel.module.css';
 import NewsPage from './news/NewsPage.jsx';
 import PageTransition from './components/layout/PageTransition.jsx';
 import { TimeMachinePicker, TimeTravelEffects, StageClock, useTimeTravel } from './timeMachine/TimeMachine.jsx';
-import { readAsOf, timeLabel } from './timeMachine/timeMachine.js';
+import { readAsOf, timeLabel, travelDirection } from './timeMachine/timeMachine.js';
 import { PersonalizationProvider, InterestButton } from './personalization/Personalization.jsx';
 
 const HOME = { type: 'dash', title: '글로벌 동향' };
@@ -38,8 +38,12 @@ function ResourceState({ resource, children }) {
   if (resource.error) return <div role="alert"><p>{resource.error.message}</p><button type="button" onClick={resource.retry}>다시 시도</button></div>;
   return resource.data == null ? null : children(resource.data);
 }
-function Empty({ items, children }) {
-  return items.length ? children : <p role="status">해당 조건의 데이터가 없습니다.</p>;
+function Empty({ items, title, children }) {
+  return items.length ? children : <div className={s.emptyState} role="status">
+    <span className={s.emptyStateMark} aria-hidden="true">—</span>
+    <strong>{title}</strong>
+    <p>다른 시점을 선택하거나 잠시 후 다시 확인해 주세요.</p>
+  </div>;
 }
 
 function issueRankCard(item) {
@@ -217,7 +221,7 @@ function DashboardApp({ picker, arrival, onNews, initialCountry, asOf, timeProps
     <SectionTitle title={asOf ? '그날의 이슈 TOP 5' : '실시간 이슈 TOP 5'}
       note="국가별 보도 강도·확산도 종합 점수 순"
       help={asOf ? '선택 시점 직전 24시간을 기준으로 집계합니다.' : '핫이슈 점수는 5분마다 갱신됩니다.'} />
-    <Empty items={data.globalIssues}><IssueCardList issues={data.globalIssues.map(issueRankCard)} onSelect={(index) => openIssue(data.globalIssues[index])} /></Empty>
+    <Empty items={data.globalIssues} title="이 시점에 집계된 이슈가 없습니다"><IssueCardList issues={data.globalIssues.map(issueRankCard)} onSelect={(index) => openIssue(data.globalIssues[index])} /></Empty>
   </div>}</ResourceState>;
   else if (view.type === 'country') body = <ResourceState resource={country}>{(data) => <div className={s.countryDashboard}>
     <CountryIdentity flag={flagOf(data.countryCode)}
@@ -227,15 +231,15 @@ function DashboardApp({ picker, arrival, onNews, initialCountry, asOf, timeProps
     <KpiCards items={[{ label: '최근 24시간 수집 기사', value: fmt(data.todayArticleCount), unit: '건' }, { label: '기사량 세계 순위', value: fmt(data.globalRank), unit: '위' }]} />
     <section className={s.countrySection} aria-label="핫이슈">
     <SectionTitle title="핫이슈 TOP 5" note="보도 비중·증가세·매체 다양성 기준" help={asOf ? '선택 시점 직전 최신 점수 스냅샷을 기준으로 집계합니다.' : '핫이슈 점수는 5분마다 갱신됩니다.'} />
-    <Empty items={data.countryIssues || []}><IssueCardList issues={(data.countryIssues || []).map(countryIssueRankCard)} onSelect={(index) => openIssue(data.countryIssues[index])} /></Empty>
+    <Empty items={data.countryIssues || []} title="이 시점에 집계된 핫이슈가 없습니다"><IssueCardList issues={(data.countryIssues || []).map(countryIssueRankCard)} onSelect={(index) => openIssue(data.countryIssues[index])} /></Empty>
     </section>
     <section className={s.countrySection} aria-label="인기 테마">
     <SectionTitle title="인기 테마" action={{ label: '전체 보기 →', onClick: () => go({ type: 'themes', title: `${data.countryName} 인기 테마`, countryCode: view.countryCode }) }} />
-    <Empty items={data.popularThemes}><ThemeCardList themes={data.popularThemes.map(themeCard)} onSelect={(index) => openTheme(data.popularThemes[index])} /></Empty>
+    <Empty items={data.popularThemes} title="이 시점에 집계된 인기 테마가 없습니다"><ThemeCardList themes={data.popularThemes.map(themeCard)} onSelect={(index) => openTheme(data.popularThemes[index])} /></Empty>
     </section>
     <section className={s.countrySection} aria-label="많이 언급한 국가">
     <SectionTitle title="많이 언급한 국가" action={{ label: '자세히 보기 →', onClick: () => go({ type: 'attention', title: '국가 관심도', countryCode: view.countryCode }) }} />
-    <Empty items={data.sourceMentions}><AttentionList rows={mentionRows(data.sourceMentions)} /></Empty>
+    <Empty items={data.sourceMentions} title="이 시점에 집계된 국가 언급이 없습니다"><AttentionList rows={mentionRows(data.sourceMentions)} /></Empty>
     </section>
   </div>}</ResourceState>;
   else if (view.type === 'theme') body = <ResourceState resource={theme}>{(data) => <>
@@ -247,7 +251,7 @@ function DashboardApp({ picker, arrival, onNews, initialCountry, asOf, timeProps
     </div>
     {view.countryCode && <PolicyNote>주요 이슈와 대표 기사는 {countryName} 발행 기사 기준입니다.</PolicyNote>}
     <SectionTitle title="주요 이슈" note={`${asOf ? '선택 시점 직전' : '최근'} 24시간 · ${view.countryCode ? countryName : '전 세계'} 기사량 순`} />
-    <Empty items={data.primaryIssues}><ThemeIssueList issues={data.primaryIssues.map((item) => ({ title: item.issueTitle }))} onSelect={(index) => openIssue(data.primaryIssues[index])} /></Empty>
+    <Empty items={data.primaryIssues} title="이 기간에 집계된 주요 이슈가 없습니다"><ThemeIssueList issues={data.primaryIssues.map((item) => ({ title: item.issueTitle }))} onSelect={(index) => openIssue(data.primaryIssues[index])} /></Empty>
     <SectionTitle title={view.countryCode ? `${countryName} 대표 기사` : '대표 기사'}
       note={asOf ? '선택 시점 직전 24시간 · 테마 유사도순' : '최근 24시간 · 테마 유사도순'}
       action={SHOW_THEME_ARTICLES_MORE ? { label: '더 보기 →', onClick: openArticles } : undefined} />
@@ -268,7 +272,7 @@ function DashboardApp({ picker, arrival, onNews, initialCountry, asOf, timeProps
     const list = view.countryCode ? (popular.data?.popularThemes || []) : catalog;
     const grouped = [...new Set(list.map((item) => item.fieldName))];
     return <><SubHeading title={view.title} desc={view.countryCode ? '최근 24시간 · 상위 10개 테마' : undefined} />
-      <Empty items={list}>{grouped.filter((name) => !view.fieldName || name === view.fieldName).map((name) => {
+      <Empty items={grouped.filter((name) => !view.fieldName || name === view.fieldName)} title="이 시점에 집계된 테마가 없습니다">{grouped.filter((name) => !view.fieldName || name === view.fieldName).map((name) => {
         const items = list.filter((item) => item.fieldName === name);
         return <div key={name}><SectionTitle title={name} action={view.type === 'field' ? undefined : { label: '이 분야 보기 →', onClick: () => go({ type: 'field', title: name, fieldName: name, countryCode: view.countryCode }) }} />
           <ThemeDetailList themes={items.map(themeCard)} onSelect={(index) => openTheme(items[index])} /></div>;
@@ -286,7 +290,7 @@ function DashboardApp({ picker, arrival, onNews, initialCountry, asOf, timeProps
       satelliteDemo={!asOf && !timeMachineActive}
       timeMachineActive={timeMachineActive}
       timeTravel={trip ? (journey.reduced ? 0 : journey.progress) : null}
-      timeTravelDirection={trip && trip.target === null ? 1 : -1}
+      timeTravelDirection={travelDirection(trip)}
       calloutCountry={timeMachineActive ? null : selectedCountry?.id || null}
       calloutToneColor={analysisToneColor}
       callout={selectedCountry ? <IssueCountryAnalysis countryName={selectedCountry.name}
