@@ -1,4 +1,4 @@
-"""GMS OpenAI-compatible client for generating issue metadata."""
+"""GMS Gemini-native client for generating issue metadata."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
 
 from issue_clustering import (
@@ -39,11 +40,14 @@ class GmsConfig:
     max_attempts: int = 3
 
 
-def _completion_url(base_url: str) -> str:
+def _generation_url(base_url: str, model: str, api_key: str) -> str:
     normalized = base_url.rstrip("/")
-    if normalized.endswith("/chat/completions"):
-        return normalized
-    return f"{normalized}/chat/completions"
+    if normalized.endswith(":generateContent"):
+        endpoint = normalized
+    else:
+        endpoint = f"{normalized}/models/{model}:generateContent"
+    separator = "&" if "?" in endpoint else "?"
+    return f"{endpoint}{separator}key={quote_plus(api_key)}"
 
 
 def _extract_json_object(content: str) -> dict[str, Any]:
@@ -167,31 +171,47 @@ def _prompt_articles(
     return tuple(article.article_id for article in articles), values
 
 
-def _response_format() -> dict[str, Any]:
+def _response_schema() -> dict[str, Any]:
     return {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "issue_membership_decision",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "summary": {"type": "string"},
-                    "included_article_refs": {
-                        "type": "array",
-                        "items": {"type": "integer"},
-                    },
-                },
-                "required": [
-                    "name",
-                    "summary",
-                    "included_article_refs",
-                ],
-                "additionalProperties": False,
+        "type": "OBJECT",
+        "properties": {
+            "name": {"type": "STRING"},
+            "summary": {"type": "STRING"},
+            "included_article_refs": {
+                "type": "ARRAY",
+                "items": {"type": "INTEGER"},
             },
         },
+        "required": [
+            "name",
+            "summary",
+            "included_article_refs",
+        ],
+        "propertyOrdering": [
+            "name",
+            "summary",
+            "included_article_refs",
+        ],
     }
+
+
+def _extract_response_text(response_value: dict[str, Any]) -> str:
+    try:
+        parts = response_value["candidates"][0]["content"]["parts"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise GmsIssueGenerationError(
+            "GMS response does not contain Gemini candidate content"
+        ) from exc
+
+    texts = [
+        part["text"]
+        for part in parts
+        if isinstance(part, dict) and isinstance(part.get("text"), str)
+    ]
+    content = "".join(texts).strip()
+    if not content:
+        raise GmsIssueGenerationError("GMS response content must be text")
+    return content
 
 
 def _request_body(
@@ -231,14 +251,24 @@ def _request_body(
     )
     return json.dumps(
         {
-            "model": config.model,
-            "temperature": 0.1,
-            "max_tokens": min(16_000, 600 + len(cluster.articles) * 8),
-            "response_format": _response_format(),
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
+            "systemInstruction": {
+                "parts": [{"text": system_prompt}],
+            },
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": user_prompt}],
+                },
             ],
+            "generationConfig": {
+                "temperature": 0.1,
+                "maxOutputTokens": min(
+                    16_000,
+                    600 + len(cluster.articles) * 8,
+                ),
+                "responseMimeType": "application/json",
+                "responseSchema": _response_schema(),
+            },
         },
         ensure_ascii=False,
         separators=(",", ":"),
@@ -263,10 +293,9 @@ def generate_issue(
     article_ids_by_ref, _ = _prompt_articles(cluster)
     for attempt in range(1, config.max_attempts + 1):
         request = Request(
-            _completion_url(config.base_url),
+            _generation_url(config.base_url, config.model, config.api_key),
             data=_request_body(config, theme_name, cluster),
             headers={
-                "Authorization": f"Bearer {config.api_key}",
                 "Content-Type": "application/json",
             },
             method="POST",
@@ -274,9 +303,7 @@ def generate_issue(
         try:
             with urlopen(request, timeout=config.timeout_seconds) as response:
                 response_value = json.loads(response.read().decode("utf-8"))
-            content = response_value["choices"][0]["message"]["content"]
-            if not isinstance(content, str):
-                raise GmsIssueGenerationError("GMS response content must be text")
+            content = _extract_response_text(response_value)
             return validate_generated_issue_decision(
                 _extract_json_object(content),
                 article_ids_by_ref,
