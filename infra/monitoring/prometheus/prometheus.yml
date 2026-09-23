@@ -5,12 +5,18 @@ scrape_configs:
   - job_name: node
     static_configs:
       - targets: ["node-exporter:9100"]
+        labels:
+          env: prod
 
   - job_name: backend
     metrics_path: /actuator/prometheus
     static_configs:
-      - targets: ["witw-backend-dev:9091"]
+      - targets: ["witw-backend:9091"]
+        labels:
+          env: prod
 
   - job_name: postgres
     static_configs:
       - targets: ["postgres-exporter:9187"]
+        labels:
+          env: prod

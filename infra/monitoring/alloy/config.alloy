@@ -4,7 +4,7 @@ discovery.docker "apps" {
 
   filter {
     name   = "label"
-    values = ["logging=enabled"]
+    values = ["logging=enabled", "env=prod"]
   }
 }
 
