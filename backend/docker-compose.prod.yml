@@ -27,6 +27,17 @@ services:
       - "${DB_BIND_HOST:?DB_BIND_HOST is required}:5432:5432"
 
 
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.17.0
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_URI: postgres:5432/${POSTGRES_DB:-witw}?sslmode=disable
+      DATA_SOURCE_USER: ${POSTGRES_USER:-postgres}
+      DATA_SOURCE_PASS: ${POSTGRES_PASSWORD:-PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   valkey:
     image: valkey/valkey:8-alpine
     container_name: witw-valkey
@@ -41,6 +52,15 @@ services:
     build: .
     container_name: witw-backend
     restart: unless-stopped
+    labels:
+      logging: enabled
+      service: be
+      env: prod
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     # Kafka metadata가 반환하는 외부 hostname을 BigData EC2 사설 IP로 해석한다.
     extra_hosts:
       - "j15d203a.p.ssafy.io:172.26.11.46"
