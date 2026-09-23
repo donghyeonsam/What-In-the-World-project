@@ -11,7 +11,7 @@ Core guarantees:
 - published_at guard rejects articles clearly older than experiment start.
 - source-level new article counts printed each round.
 - final baseline refresh immediately before experiment_start.
-- resume mode skips baseline refresh so downtime articles are not lost.
+- resume mo de skips  baseline refresh so downtime articles are not lost.
 - SQLite state makes restart safe.
 - publisher-local timestamps are normalized to UTC and future dates are guarded.
 - source names are canonical domains; title suffix and body-prefix duplicates are removed.
