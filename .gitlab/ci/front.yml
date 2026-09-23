@@ -81,7 +81,7 @@ deploy-frontend:
     FRONTEND_CONTAINER: what-in-the-world-front
     FRONTEND_IMAGE: jamonda1/what-in-the-world:latest
     FRONTEND_HOST_PORT: "3000"
-    FRONTEND_LOGGING: "disabled"
+    FRONTEND_LOGGING: "enabled"
     FRONTEND_LOG_ENV: "prod"
 
   needs:

@@ -1,12 +1,17 @@
-deploy-monitoring-dev:
+deploy-monitoring-prod:
   stage: deploy
   tags:
     - backend-deploy
   timeout: 20m
-  resource_group: monitoring-development
+  needs:
+    - job: deploy-backend
+      optional: true
+    - job: deploy-frontend
+      optional: true
+  resource_group: monitoring-production
   interruptible: false
   environment:
-    name: development-monitoring
+    name: production-monitoring
   variables:
     MONITORING_DEPLOY_DIR: /opt/witw-monitoring
     MONITORING_ENV_FILE: /opt/witw-monitoring/.env
@@ -30,9 +35,11 @@ deploy-monitoring-dev:
     - docker compose --env-file "$MONITORING_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT" run --rm --no-deps alloy validate /etc/alloy/config.alloy
     - docker compose --env-file "$MONITORING_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT" run --rm --no-deps loki -config.file=/etc/loki/config.yml -verify-config=true
     - docker compose --env-file "$MONITORING_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT" up -d --wait --wait-timeout 180
+    # bind mount 설정 변경을 실행 중인 프로세스에도 반영한다.
+    - docker compose --env-file "$MONITORING_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT" restart prometheus alloy
     - docker compose --env-file "$MONITORING_ENV_FILE" -p "$MONITORING_COMPOSE_PROJECT" ps
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "develop"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "master"'
       changes:
         - infra/monitoring/**/*
         - bigdata/monitoring/grafana/dashboards/**/*
