@@ -51,7 +51,10 @@ ISSUE_CLUSTER_REPRESENTATIVE_COUNT = 4
 ISSUE_CLUSTER_MAX_ARTICLES_PER_THEME = int(
     os.getenv("ISSUE_CLUSTER_MAX_ARTICLES_PER_THEME", "2000")
 )
-GMS_BASE_URL = "https://gms.ssafy.io/gmsapi/api.openai.com/v1"
+GMS_BASE_URL = (
+    "https://gms.ssafy.io/gmsapi/"
+    "generativelanguage.googleapis.com/v1beta"
+)
 GMS_MODEL = os.getenv("GMS_MODEL", "gemini-2.5-flash-lite")
 GMS_TIMEOUT_SECONDS = 30.0
 GMS_MAX_ATTEMPTS = 3

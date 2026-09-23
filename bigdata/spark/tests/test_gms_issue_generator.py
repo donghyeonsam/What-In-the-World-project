@@ -9,8 +9,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps"))
 from gms_issue_generator import (  # noqa: E402
     GmsConfig,
     GmsIssueGenerationError,
-    _completion_url,
     _extract_json_object,
+    _extract_response_text,
+    _generation_url,
     _request_body,
     validate_generated_issue_decision,
 )
@@ -31,14 +32,24 @@ class GmsIssueGeneratorTest(unittest.TestCase):
         )
         self.assertEqual(parsed["name"], "새 이슈")
 
-    def test_completion_url_accepts_base_or_full_endpoint(self):
+    def test_generation_url_accepts_base_or_full_endpoint(self):
         self.assertEqual(
-            _completion_url("https://example.test/v1"),
-            "https://example.test/v1/chat/completions",
+            _generation_url(
+                "https://example.test/v1beta",
+                "gemini-test",
+                "test-key",
+            ),
+            "https://example.test/v1beta/models/"
+            "gemini-test:generateContent?key=test-key",
         )
         self.assertEqual(
-            _completion_url("https://example.test/v1/chat/completions/"),
-            "https://example.test/v1/chat/completions",
+            _generation_url(
+                "https://example.test/v1beta/models/gemini-test:generateContent/",
+                "gemini-test",
+                "test-key",
+            ),
+            "https://example.test/v1beta/models/"
+            "gemini-test:generateContent?key=test-key",
         )
 
     def test_request_sends_every_candidate_with_compact_refs(self):
@@ -59,7 +70,7 @@ class GmsIssueGeneratorTest(unittest.TestCase):
 
         request = json.loads(_request_body(config, "국제", cluster).decode("utf-8"))
         prompt_payload = json.loads(
-            request["messages"][1]["content"].split("\n", maxsplit=1)[1]
+            request["contents"][0]["parts"][0]["text"].split("\n", maxsplit=1)[1]
         )
 
         self.assertEqual(
@@ -79,9 +90,33 @@ class GmsIssueGeneratorTest(unittest.TestCase):
                 },
             ],
         )
-        self.assertNotIn("article_id", request["messages"][1]["content"])
-        self.assertEqual(request["response_format"]["type"], "json_schema")
-        self.assertTrue(request["response_format"]["json_schema"]["strict"])
+        self.assertNotIn("article_id", request["contents"][0]["parts"][0]["text"])
+        self.assertNotIn("model", request)
+        self.assertEqual(
+            request["generationConfig"]["responseMimeType"],
+            "application/json",
+        )
+        self.assertEqual(
+            request["generationConfig"]["responseSchema"]["type"],
+            "OBJECT",
+        )
+
+    def test_extracts_text_from_gemini_candidate_parts(self):
+        content = _extract_response_text(
+            {
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {"text": '{"name":"새로운 구체적 이슈",'},
+                                {"text": '"summary":"요약","included_article_refs":[0]}'},
+                            ]
+                        }
+                    }
+                ]
+            }
+        )
+        self.assertIn("included_article_refs", content)
 
     def test_validates_issue_metadata_and_exact_article_partition(self):
         decision = validate_generated_issue_decision(
