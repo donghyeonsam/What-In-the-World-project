@@ -3,20 +3,29 @@
 from __future__ import annotations
 
 import os
+import time
+from datetime import datetime, timezone
 
 from gms_issue_generator import (
     GmsConfig,
     GmsIssueGenerationError,
+    GmsRateLimitError,
+    GmsTransientError,
     generate_issue,
 )
 from issue_clustering import (
+    ClusterAttempt,
     InvalidUnclassifiedArticle,
     UnclassifiedArticle,
     build_issue_events,
     cluster_articles,
+    cluster_event_key,
+    cluster_membership_key,
+    decide_cluster_attempt,
     filter_cluster_articles,
     merge_generated_issue_candidates,
     parse_unclassified_message,
+    record_cluster_attempt,
 )
 from streaming_metrics import register_streaming_metrics
 from pyspark import StorageLevel
@@ -42,11 +51,12 @@ POSTGRESQL_PASSWORD = os.getenv("POSTGRESQL_PASSWORD", "")
 
 # MVP에서 모든 환경이 동일한 이슈 형성 기준을 사용하도록 코드 상수로 고정한다.
 ISSUE_CLUSTER_TRIGGER_COUNT = 50
-ISSUE_CLUSTER_MIN_SIZE = 4
+ISSUE_CLUSTER_MIN_SIZE = 8
 ISSUE_CLUSTER_MIN_SAMPLES = 4
 ISSUE_CLUSTER_MIN_MEMBER_CONFIDENCE = 0.80
 ISSUE_CLUSTER_MIN_CENTROID_SIMILARITY = 0.92
 ISSUE_CLUSTER_WINDOW_HOURS = 72
+ISSUE_CLUSTER_ATTEMPT_TTL_HOURS = 72
 ISSUE_CLUSTER_REPRESENTATIVE_COUNT = 4
 ISSUE_CLUSTER_MAX_ARTICLES_PER_THEME = int(
     os.getenv("ISSUE_CLUSTER_MAX_ARTICLES_PER_THEME", "2000")
@@ -57,7 +67,12 @@ GMS_BASE_URL = (
 )
 GMS_MODEL = os.getenv("GMS_MODEL", "gemini-2.5-flash-lite")
 GMS_TIMEOUT_SECONDS = 30.0
-GMS_MAX_ATTEMPTS = 3
+# 같은 요청 똑같이 보낼 수 있는 데드라인
+GMS_MAX_ATTEMPTS = int(os.getenv("GMS_MAX_ATTEMPTS", "2"))
+# 429 응답에 Retry-After가 없으면 GMS 호출을 60초 동안 중단한다.
+GMS_RATE_LIMIT_COOLDOWN_SECONDS = float(
+    os.getenv("GMS_RATE_LIMIT_COOLDOWN_SECONDS", "60")
+)
 GMS_CONFIG = GmsConfig(
     api_key=os.getenv("GMS_API_KEY", ""),
     base_url=GMS_BASE_URL,
@@ -74,7 +89,17 @@ PENDING_STATE_LOCATION = os.getenv(
     "ISSUE_CLUSTER_STATE_LOCATION",
     "hdfs://namenode:9000/checkpoints/unclassified-issue-state-v1",
 )
+ATTEMPT_STATE_LOCATION = os.getenv(
+    "ISSUE_CLUSTER_ATTEMPT_STATE_LOCATION",
+    "hdfs://namenode:9000/checkpoints/unclassified-issue-attempt-state-v1",
+)
+DISCARDED_STATE_LOCATION = os.getenv(
+    "ISSUE_CLUSTER_DISCARDED_STATE_LOCATION",
+    "hdfs://namenode:9000/checkpoints/unclassified-issue-discarded-state-v1",
+)
 SPARK_STARTING_OFFSETS = os.getenv("ISSUE_CLUSTER_STARTING_OFFSETS", "earliest")
+
+_gms_blocked_until = 0.0
 
 
 PENDING_SCHEMA = StructType(
@@ -95,6 +120,26 @@ EVENT_SCHEMA = StructType(
     [
         StructField("key", StringType(), nullable=False),
         StructField("value", StringType(), nullable=False),
+    ]
+)
+
+ATTEMPT_SCHEMA = StructType(
+    [
+        StructField("lineage_id", StringType(), nullable=False),
+        StructField("theme_id", LongType(), nullable=False),
+        StructField(
+            "article_ids", ArrayType(StringType(), containsNull=False), nullable=False
+        ),
+        StructField("attempted_at", StringType(), nullable=False),
+    ]
+)
+
+DISCARDED_SCHEMA = StructType(
+    PENDING_SCHEMA.fields
+    + [
+        StructField("discarded_at", StringType(), nullable=False),
+        StructField("discard_reason", StringType(), nullable=False),
+        StructField("source_cluster_id", StringType(), nullable=False),
     ]
 )
 
@@ -147,31 +192,93 @@ def _read_pending_state(spark: SparkSession):
     return spark.read.schema(PENDING_SCHEMA).parquet(PENDING_STATE_LOCATION)
 
 
-def _write_pending_state(spark: SparkSession, remaining, batch_id: int) -> None:
-    final_path = spark._jvm.org.apache.hadoop.fs.Path(PENDING_STATE_LOCATION)
+def _write_state(
+    spark: SparkSession,
+    data,
+    location: str,
+    batch_id: int,
+    state_name: str,
+) -> None:
+    final_path = spark._jvm.org.apache.hadoop.fs.Path(location)
     temporary_path = spark._jvm.org.apache.hadoop.fs.Path(
-        f"{PENDING_STATE_LOCATION}.__tmp_{batch_id}"
+        f"{location}.__tmp_{batch_id}"
     )
-    backup_path = spark._jvm.org.apache.hadoop.fs.Path(
-        f"{PENDING_STATE_LOCATION}.__backup"
-    )
+    backup_path = spark._jvm.org.apache.hadoop.fs.Path(f"{location}.__backup")
     file_system = final_path.getFileSystem(spark._jsc.hadoopConfiguration())
 
     if file_system.exists(temporary_path):
         file_system.delete(temporary_path, True)
-    remaining.coalesce(1).write.mode("overwrite").parquet(temporary_path.toString())
+    data.coalesce(1).write.mode("overwrite").parquet(temporary_path.toString())
 
     if file_system.exists(backup_path):
         file_system.delete(backup_path, True)
     had_previous_state = file_system.exists(final_path)
     if had_previous_state and not file_system.rename(final_path, backup_path):
-        raise RuntimeError("Could not back up the pending issue state")
+        raise RuntimeError(f"Could not back up the {state_name} state")
     if not file_system.rename(temporary_path, final_path):
         if had_previous_state and file_system.exists(backup_path):
             file_system.rename(backup_path, final_path)
-        raise RuntimeError("Could not publish the pending issue state")
+        raise RuntimeError(f"Could not publish the {state_name} state")
     if file_system.exists(backup_path):
         file_system.delete(backup_path, True)
+
+
+def _write_pending_state(spark: SparkSession, remaining, batch_id: int) -> None:
+    _write_state(
+        spark,
+        remaining,
+        PENDING_STATE_LOCATION,
+        batch_id,
+        "pending issue",
+    )
+
+
+def _read_attempt_state(spark: SparkSession):
+    hadoop_path = spark._jvm.org.apache.hadoop.fs.Path(ATTEMPT_STATE_LOCATION)
+    backup_path = spark._jvm.org.apache.hadoop.fs.Path(
+        f"{ATTEMPT_STATE_LOCATION}.__backup"
+    )
+    file_system = hadoop_path.getFileSystem(spark._jsc.hadoopConfiguration())
+    if not file_system.exists(hadoop_path) and file_system.exists(backup_path):
+        if not file_system.rename(backup_path, hadoop_path):
+            raise RuntimeError("Could not recover the issue attempt state")
+    if not _path_exists(spark, ATTEMPT_STATE_LOCATION):
+        return spark.createDataFrame([], schema=ATTEMPT_SCHEMA)
+    return spark.read.schema(ATTEMPT_SCHEMA).parquet(ATTEMPT_STATE_LOCATION)
+
+
+def _write_attempt_state(spark: SparkSession, attempts, batch_id: int) -> None:
+    _write_state(
+        spark,
+        attempts,
+        ATTEMPT_STATE_LOCATION,
+        batch_id,
+        "issue attempt",
+    )
+
+
+def _read_discarded_state(spark: SparkSession):
+    hadoop_path = spark._jvm.org.apache.hadoop.fs.Path(DISCARDED_STATE_LOCATION)
+    backup_path = spark._jvm.org.apache.hadoop.fs.Path(
+        f"{DISCARDED_STATE_LOCATION}.__backup"
+    )
+    file_system = hadoop_path.getFileSystem(spark._jsc.hadoopConfiguration())
+    if not file_system.exists(hadoop_path) and file_system.exists(backup_path):
+        if not file_system.rename(backup_path, hadoop_path):
+            raise RuntimeError("Could not recover the discarded article state")
+    if not _path_exists(spark, DISCARDED_STATE_LOCATION):
+        return spark.createDataFrame([], schema=DISCARDED_SCHEMA)
+    return spark.read.schema(DISCARDED_SCHEMA).parquet(DISCARDED_STATE_LOCATION)
+
+
+def _write_discarded_state(spark: SparkSession, discarded, batch_id: int) -> None:
+    _write_state(
+        spark,
+        discarded,
+        DISCARDED_STATE_LOCATION,
+        batch_id,
+        "discarded article",
+    )
 
 
 def _jdbc_query(spark: SparkSession, query: str):
@@ -213,7 +320,21 @@ def _to_article(row) -> UnclassifiedArticle:
     )
 
 
+def _to_attempt(row) -> ClusterAttempt:
+    article_ids = tuple(sorted(row.article_ids))
+    return ClusterAttempt(
+        # Recompute the exact-membership key so state written by the previous
+        # evolving-lineage policy migrates automatically on its next write.
+        lineage_id=cluster_membership_key(row.theme_id, article_ids),
+        theme_id=row.theme_id,
+        article_ids=article_ids,
+        attempted_at=row.attempted_at,
+    )
+
+
 def write_cluster_batch(batch_df, batch_id: int) -> None:
+    global _gms_blocked_until
+
     spark = batch_df.sparkSession
     parsed_rows = batch_df.selectExpr(
         "CAST(key AS STRING) AS key",
@@ -225,12 +346,31 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
     incoming_theme_ids = [
         row.theme_id for row in incoming.select("theme_id").distinct().collect()
     ]
-    pending_rows = (
+    active_discarded_rows = (
+        _read_discarded_state(spark)
+        .filter(
+            F.to_timestamp("discarded_at")
+            >= F.expr(
+                f"current_timestamp() - INTERVAL {ISSUE_CLUSTER_WINDOW_HOURS} HOURS"
+            )
+        )
+        .collect()
+    )
+    active_discarded = spark.createDataFrame(
+        active_discarded_rows, schema=DISCARDED_SCHEMA
+    )
+    pending_source = (
         _read_pending_state(spark)
         .unionByName(incoming)
         .dropDuplicates(["article_id"])
-        .rdd.persist(StorageLevel.MEMORY_AND_DISK)
     )
+    if active_discarded_rows:
+        pending_source = pending_source.join(
+            F.broadcast(active_discarded.select("article_id")),
+            on="article_id",
+            how="left_anti",
+        )
+    pending_rows = pending_source.rdd.persist(StorageLevel.MEMORY_AND_DISK)
 
     try:
         # DataFrame.cache()가 만드는 PartitionKeyedAccumulator는 Spark 4.2.0의
@@ -243,6 +383,21 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
                 f"current_timestamp() - INTERVAL {ISSUE_CLUSTER_WINDOW_HOURS} HOURS"
             )
         )
+        attempt_rows = (
+            _read_attempt_state(spark)
+            .filter(
+                F.to_timestamp("attempted_at")
+                >= F.expr(
+                    "current_timestamp() - INTERVAL "
+                    f"{ISSUE_CLUSTER_ATTEMPT_TTL_HOURS} HOURS"
+                )
+            )
+            .collect()
+        )
+        attempts_by_lineage = {
+            attempt.lineage_id: attempt
+            for attempt in (_to_attempt(row) for row in attempt_rows)
+        }
 
         triggered_theme_ids = [
             row.theme_id
@@ -256,12 +411,28 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
             .collect()
         ]
         assigned_article_ids: set[str] = set()
+        discarded_articles: dict[
+            str, tuple[UnclassifiedArticle, str, str]
+        ] = {}
         event_rows: list[tuple[str, str]] = []
         generated_candidates = []
+        gms_candidate_count = 0
+        gms_halt_reason: str | None = None
 
-        if triggered_theme_ids:
+        if time.time() < _gms_blocked_until:
+            gms_halt_reason = "rate_limit_cooldown"
+            print(
+                "Skipped GMS generation during rate-limit cooldown: "
+                f"batch_id={batch_id} "
+                f"remaining_seconds={max(0, int(_gms_blocked_until - time.time()))}",
+                flush=True,
+            )
+
+        if triggered_theme_ids and gms_halt_reason is None:
             theme_names = _load_theme_names(spark, triggered_theme_ids)
             for theme_id in sorted(triggered_theme_ids):
+                if gms_halt_reason is not None:
+                    break
                 theme_name = theme_names.get(theme_id)
                 if theme_name is None:
                     raise RuntimeError(f"Theme {theme_id} does not exist")
@@ -285,11 +456,48 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
                     min_centroid_similarity=ISSUE_CLUSTER_MIN_CENTROID_SIMILARITY,
                 )
                 for cluster in clusters:
+                    retry_decision = decide_cluster_attempt(
+                        cluster,
+                        attempts_by_lineage,
+                    )
+                    if not retry_decision.should_attempt:
+                        print(
+                            "Skipped previously attempted issue cluster: "
+                            f"batch_id={batch_id} "
+                            f"theme_id={theme_id} "
+                            f"article_count={len(cluster.articles)} "
+                            f"reason={retry_decision.reason}",
+                            flush=True,
+                        )
+                        continue
+
+                    gms_candidate_count += 1
+                    attempted_at = datetime.now(timezone.utc).isoformat()
                     try:
                         decision = generate_issue(GMS_CONFIG, theme_name, cluster)
-                    except GmsIssueGenerationError as exc:
+                    except GmsRateLimitError as exc:
+                        cooldown_seconds = (
+                            exc.retry_after_seconds
+                            if exc.retry_after_seconds is not None
+                            else GMS_RATE_LIMIT_COOLDOWN_SECONDS
+                        )
+                        _gms_blocked_until = max(
+                            _gms_blocked_until,
+                            time.time() + max(1.0, cooldown_seconds),
+                        )
+                        gms_halt_reason = "rate_limited"
                         print(
-                            f"Skipped issue generation: "
+                            "Stopped GMS generation after rate limit: "
+                            f"batch_id={batch_id} "
+                            f"theme_id={theme_id} "
+                            f"article_count={len(cluster.articles)} "
+                            f"cooldown_seconds={max(1, int(cooldown_seconds))}",
+                            flush=True,
+                        )
+                        break
+                    except GmsTransientError as exc:
+                        print(
+                            "Skipped issue generation after transient failure: "
                             f"batch_id={batch_id} "
                             f"theme_id={theme_id} "
                             f"article_count={len(cluster.articles)} "
@@ -297,6 +505,34 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
                             flush=True,
                         )
                         continue
+                    except GmsIssueGenerationError as exc:
+                        attempt = record_cluster_attempt(
+                            cluster,
+                            attempted_at,
+                        )
+                        attempts_by_lineage[attempt.lineage_id] = attempt
+                        print(
+                            "Skipped issue generation after response validation: "
+                            f"batch_id={batch_id} "
+                            f"theme_id={theme_id} "
+                            f"article_count={len(cluster.articles)} "
+                            f"reason={exc}",
+                            flush=True,
+                        )
+                        continue
+
+                    attempt = record_cluster_attempt(cluster, attempted_at)
+                    attempts_by_lineage[attempt.lineage_id] = attempt
+                    articles_by_id = {
+                        article.article_id: article for article in cluster.articles
+                    }
+                    source_cluster_id = cluster_event_key(cluster)
+                    for article_id in decision.discarded_article_ids:
+                        discarded_articles[article_id] = (
+                            articles_by_id[article_id],
+                            attempted_at,
+                            source_cluster_id,
+                        )
 
                     filtered_cluster = filter_cluster_articles(
                         cluster,
@@ -341,11 +577,37 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
                 .save()
             )
 
+        discarded_values = [
+            (
+                article.article_id,
+                article.theme_id,
+                list(article.embedding),
+                article.title,
+                article.summary,
+                article.published_at,
+                article.unclassified_at,
+                discarded_at,
+                "no_concrete_event",
+                source_cluster_id,
+            )
+            for article, discarded_at, source_cluster_id in sorted(
+                discarded_articles.values(), key=lambda item: item[0].article_id
+            )
+        ]
+        new_discarded = spark.createDataFrame(
+            discarded_values, schema=DISCARDED_SCHEMA
+        )
+        discarded_state = active_discarded.unionByName(new_discarded).dropDuplicates(
+            ["article_id"]
+        )
+        _write_discarded_state(spark, discarded_state, batch_id)
+
         materialized_remaining = pending
         remaining_rows = None
-        if assigned_article_ids:
+        removed_article_ids = assigned_article_ids | set(discarded_articles)
+        if removed_article_ids:
             processed_df = spark.createDataFrame(
-                [(article_id,) for article_id in sorted(assigned_article_ids)],
+                [(article_id,) for article_id in sorted(removed_article_ids)],
                 schema=StructType(
                     [StructField("article_id", StringType(), nullable=False)]
                 ),
@@ -365,9 +627,26 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
         finally:
             if remaining_rows is not None:
                 remaining_rows.unpersist()
+
+        attempt_values = [
+            (
+                attempt.lineage_id,
+                attempt.theme_id,
+                list(attempt.article_ids),
+                attempt.attempted_at,
+            )
+            for attempt in sorted(
+                attempts_by_lineage.values(), key=lambda item: item.lineage_id
+            )
+        ]
+        attempt_state = spark.createDataFrame(attempt_values, schema=ATTEMPT_SCHEMA)
+        _write_attempt_state(spark, attempt_state, batch_id)
         print(
             f"Completed unclassified cluster batch {batch_id}: "
-            f"events={len(event_rows)} assigned={len(assigned_article_ids)}"
+            f"events={len(event_rows)} assigned={len(assigned_article_ids)} "
+            f"discarded={len(discarded_articles)} "
+            f"gms_candidates={gms_candidate_count} "
+            f"gms_halt_reason={gms_halt_reason or 'none'}"
         )
     finally:
         pending_rows.unpersist()
@@ -395,6 +674,8 @@ def _validate_config() -> None:
         raise ValueError("GMS_TIMEOUT_SECONDS must be positive")
     if GMS_CONFIG.max_attempts < 1:
         raise ValueError("GMS_MAX_ATTEMPTS must be positive")
+    if GMS_RATE_LIMIT_COOLDOWN_SECONDS <= 0:
+        raise ValueError("GMS_RATE_LIMIT_COOLDOWN_SECONDS must be positive")
     if not 0.0 <= ISSUE_CLUSTER_MIN_MEMBER_CONFIDENCE <= 1.0:
         raise ValueError(
             "ISSUE_CLUSTER_MIN_MEMBER_CONFIDENCE must be between 0 and 1"

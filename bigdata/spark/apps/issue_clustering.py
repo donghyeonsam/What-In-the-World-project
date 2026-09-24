@@ -8,7 +8,7 @@ import math
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Iterable, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 
 ISSUE_CREATE = "ISSUE_CREATE"
@@ -41,7 +41,6 @@ class ClusterCandidate:
 @dataclass(frozen=True)
 class GeneratedIssue:
     name: str
-    summary: str
 
 
 @dataclass(frozen=True)
@@ -49,6 +48,24 @@ class GeneratedIssueDecision:
     issue: GeneratedIssue
     included_article_ids: tuple[str, ...]
     excluded_article_ids: tuple[str, ...]
+    discarded_article_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ClusterAttempt:
+    """One exact article-membership set already submitted to GMS."""
+
+    lineage_id: str
+    theme_id: int
+    article_ids: tuple[str, ...]
+    attempted_at: str
+
+
+@dataclass(frozen=True)
+class ClusterAttemptDecision:
+    should_attempt: bool
+    previous: ClusterAttempt | None
+    reason: str
 
 
 def normalize_issue_name(name: str) -> str:
@@ -139,6 +156,38 @@ def cosine_similarity(left: Iterable[float], right: Iterable[float]) -> float | 
     if left_norm == 0.0 or right_norm == 0.0:
         return None
     return max(-1.0, min(1.0, dot_product / (left_norm * right_norm)))
+
+
+def decide_cluster_attempt(
+    cluster: ClusterCandidate,
+    attempts_by_id: Mapping[str, ClusterAttempt],
+) -> ClusterAttemptDecision:
+    """Block only an exact article-membership set already submitted to GMS."""
+
+    cluster_id = cluster_event_key(cluster)
+    previous = attempts_by_id.get(cluster_id)
+    article_ids = tuple(sorted(article.article_id for article in cluster.articles))
+    if (
+        previous is not None
+        and previous.theme_id == cluster.theme_id
+        and previous.article_ids == article_ids
+    ):
+        return ClusterAttemptDecision(False, previous, "exact_cluster_already_attempted")
+    return ClusterAttemptDecision(True, None, "new_cluster")
+
+
+def record_cluster_attempt(
+    cluster: ClusterCandidate,
+    attempted_at: str,
+) -> ClusterAttempt:
+    """Record an exact cluster after a real semantic GMS attempt."""
+
+    return ClusterAttempt(
+        lineage_id=cluster_event_key(cluster),
+        theme_id=cluster.theme_id,
+        article_ids=tuple(sorted(article.article_id for article in cluster.articles)),
+        attempted_at=attempted_at,
+    )
 
 
 def _normalized_centroid(embeddings: Sequence[tuple[float, ...]]) -> tuple[float, ...]:
@@ -391,19 +440,25 @@ def merge_generated_issue_candidates(
             representatives=representatives,
             membership_confidence=confidence_total / confidence_weight,
         )
-        merged_issue = GeneratedIssue(
-            name=normalized_name,
-            summary=group[0][1].summary,
-        )
+        merged_issue = GeneratedIssue(name=normalized_name)
         merged.append((merged_cluster, merged_issue))
 
     return tuple(merged)
 
 
+def cluster_membership_key(theme_id: int, article_ids: Iterable[str]) -> str:
+    """Build a deterministic key for one exact article-membership set."""
+
+    normalized_ids = "\n".join(sorted(article_ids))
+    digest = hashlib.sha256(normalized_ids.encode("utf-8")).hexdigest()[:24]
+    return f"issue-cluster:{theme_id}:{digest}"
+
+
 def cluster_event_key(cluster: ClusterCandidate) -> str:
-    article_ids = "\n".join(sorted(article.article_id for article in cluster.articles))
-    digest = hashlib.sha256(article_ids.encode("utf-8")).hexdigest()[:24]
-    return f"issue-cluster:{cluster.theme_id}:{digest}"
+    return cluster_membership_key(
+        cluster.theme_id,
+        (article.article_id for article in cluster.articles),
+    )
 
 
 def build_issue_events(
