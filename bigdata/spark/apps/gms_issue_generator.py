@@ -105,11 +105,10 @@ def validate_generated_issue_decision(
     required_fields = {
         "name",
         "included_refs",
-        "discard_refs",
     }
     if set(value) != required_fields:
         raise GmsIssueGenerationError(
-            "GMS content must contain exactly name, included_refs, and discard_refs"
+            "GMS content must contain exactly name and included_refs"
         )
     name = value.get("name")
 
@@ -135,29 +134,14 @@ def validate_generated_issue_decision(
         )
 
     included_ref_set = set(included_refs)
-    discard_refs = value.get("discard_refs")
-    if not isinstance(discard_refs, list) or any(
-        isinstance(ref, bool) or not isinstance(ref, int) for ref in discard_refs
-    ):
-        raise GmsIssueGenerationError("discard_refs must be an array of integers")
-    if len(set(discard_refs)) != len(discard_refs):
-        raise GmsIssueGenerationError("discard_refs must not contain duplicates")
-
-    discarded_ref_set = set(discard_refs)
     expected_refs = set(range(len(article_ids_by_ref)))
-    unknown_refs = (included_ref_set | discarded_ref_set) - expected_refs
+    unknown_refs = included_ref_set - expected_refs
     if unknown_refs:
         raise GmsIssueGenerationError(
-            "included_refs or discard_refs contains unknown refs: "
+            "included_refs contains unknown refs: "
             + ", ".join(str(ref) for ref in sorted(unknown_refs))
         )
-    overlapping_refs = included_ref_set & discarded_ref_set
-    if overlapping_refs:
-        raise GmsIssueGenerationError(
-            "included_refs and discard_refs must not overlap: "
-            + ", ".join(str(ref) for ref in sorted(overlapping_refs))
-        )
-    excluded_ref_set = expected_refs - included_ref_set - discarded_ref_set
+    excluded_ref_set = expected_refs - included_ref_set
 
     return GeneratedIssueDecision(
         issue=GeneratedIssue(name=normalized_name),
@@ -166,9 +150,6 @@ def validate_generated_issue_decision(
         ),
         excluded_article_ids=tuple(
             article_ids_by_ref[ref] for ref in sorted(excluded_ref_set)
-        ),
-        discarded_article_ids=tuple(
-            article_ids_by_ref[ref] for ref in sorted(discarded_ref_set)
         ),
     )
 
@@ -217,20 +198,14 @@ def _response_schema() -> dict[str, Any]:
                 "type": "ARRAY",
                 "items": {"type": "INTEGER"},
             },
-            "discard_refs": {
-                "type": "ARRAY",
-                "items": {"type": "INTEGER"},
-            },
         },
         "required": [
             "name",
             "included_refs",
-            "discard_refs",
         ],
         "propertyOrdering": [
             "name",
             "included_refs",
-            "discard_refs",
         ],
     }
 
@@ -272,11 +247,10 @@ def _request_body(
     user_prompt = (
         "가장 많은 기사가 직접 보도하는 동일 사건 하나를 고르고 모든 기사를 개별 "
         "판정하라. 배경·전망·후속 반응과 키워드만 같은 별도 사건은 제외한다. 동일 "
-        "사건의 ref만 included_refs에 넣어라. name은 주체·대상·행동이나 결과가 드러나는 "
-        "8~50자 한국어 명사구로 작성하라. 제목과 요약만으로 어떤 구체적 사건도 "
-        "식별할 수 없는 기사만 discard_refs에 넣어라. 단지 선택한 사건과 다르거나, "
-        "다른 구체적 사건·후속 반응·배경을 다룬다는 이유로 버리지 마라. 두 목록에 "
-        "없는 ref는 다른 사건 후보로 남긴다.\n"
+        "사건의 ref만 included_refs에 넣어라. 동일한 구체적 사건을 직접 보도하는 기사가 "
+        "8건 이상일 때만 선택하고, 8건 미만이면 included_refs를 빈 배열로 반환하라. "
+        "선택되지 않은 모든 기사는 다른 사건 후보로 남는다. name은 주체·대상·행동이나 "
+        "결과가 드러나는 8~50자 한국어 명사구로 작성하라.\n"
         + json.dumps(input_value, ensure_ascii=False, separators=(",", ":"))
     )
     return json.dumps(

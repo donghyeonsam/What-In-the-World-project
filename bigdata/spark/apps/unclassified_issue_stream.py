@@ -19,7 +19,6 @@ from issue_clustering import (
     UnclassifiedArticle,
     build_issue_events,
     cluster_articles,
-    cluster_event_key,
     cluster_membership_key,
     decide_cluster_attempt,
     filter_cluster_articles,
@@ -93,10 +92,6 @@ ATTEMPT_STATE_LOCATION = os.getenv(
     "ISSUE_CLUSTER_ATTEMPT_STATE_LOCATION",
     "hdfs://namenode:9000/checkpoints/unclassified-issue-attempt-state-v1",
 )
-DISCARDED_STATE_LOCATION = os.getenv(
-    "ISSUE_CLUSTER_DISCARDED_STATE_LOCATION",
-    "hdfs://namenode:9000/checkpoints/unclassified-issue-discarded-state-v1",
-)
 SPARK_STARTING_OFFSETS = os.getenv("ISSUE_CLUSTER_STARTING_OFFSETS", "earliest")
 
 _gms_blocked_until = 0.0
@@ -133,16 +128,6 @@ ATTEMPT_SCHEMA = StructType(
         StructField("attempted_at", StringType(), nullable=False),
     ]
 )
-
-DISCARDED_SCHEMA = StructType(
-    PENDING_SCHEMA.fields
-    + [
-        StructField("discarded_at", StringType(), nullable=False),
-        StructField("discard_reason", StringType(), nullable=False),
-        StructField("source_cluster_id", StringType(), nullable=False),
-    ]
-)
-
 
 def _parse_partition(rows):
     for row in rows:
@@ -257,30 +242,6 @@ def _write_attempt_state(spark: SparkSession, attempts, batch_id: int) -> None:
     )
 
 
-def _read_discarded_state(spark: SparkSession):
-    hadoop_path = spark._jvm.org.apache.hadoop.fs.Path(DISCARDED_STATE_LOCATION)
-    backup_path = spark._jvm.org.apache.hadoop.fs.Path(
-        f"{DISCARDED_STATE_LOCATION}.__backup"
-    )
-    file_system = hadoop_path.getFileSystem(spark._jsc.hadoopConfiguration())
-    if not file_system.exists(hadoop_path) and file_system.exists(backup_path):
-        if not file_system.rename(backup_path, hadoop_path):
-            raise RuntimeError("Could not recover the discarded article state")
-    if not _path_exists(spark, DISCARDED_STATE_LOCATION):
-        return spark.createDataFrame([], schema=DISCARDED_SCHEMA)
-    return spark.read.schema(DISCARDED_SCHEMA).parquet(DISCARDED_STATE_LOCATION)
-
-
-def _write_discarded_state(spark: SparkSession, discarded, batch_id: int) -> None:
-    _write_state(
-        spark,
-        discarded,
-        DISCARDED_STATE_LOCATION,
-        batch_id,
-        "discarded article",
-    )
-
-
 def _jdbc_query(spark: SparkSession, query: str):
     return (
         spark.read.format("jdbc")
@@ -346,30 +307,11 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
     incoming_theme_ids = [
         row.theme_id for row in incoming.select("theme_id").distinct().collect()
     ]
-    active_discarded_rows = (
-        _read_discarded_state(spark)
-        .filter(
-            F.to_timestamp("discarded_at")
-            >= F.expr(
-                f"current_timestamp() - INTERVAL {ISSUE_CLUSTER_WINDOW_HOURS} HOURS"
-            )
-        )
-        .collect()
-    )
-    active_discarded = spark.createDataFrame(
-        active_discarded_rows, schema=DISCARDED_SCHEMA
-    )
     pending_source = (
         _read_pending_state(spark)
         .unionByName(incoming)
         .dropDuplicates(["article_id"])
     )
-    if active_discarded_rows:
-        pending_source = pending_source.join(
-            F.broadcast(active_discarded.select("article_id")),
-            on="article_id",
-            how="left_anti",
-        )
     pending_rows = pending_source.rdd.persist(StorageLevel.MEMORY_AND_DISK)
 
     try:
@@ -411,9 +353,6 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
             .collect()
         ]
         assigned_article_ids: set[str] = set()
-        discarded_articles: dict[
-            str, tuple[UnclassifiedArticle, str, str]
-        ] = {}
         event_rows: list[tuple[str, str]] = []
         generated_candidates = []
         gms_candidate_count = 0
@@ -523,17 +462,6 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
 
                     attempt = record_cluster_attempt(cluster, attempted_at)
                     attempts_by_lineage[attempt.lineage_id] = attempt
-                    articles_by_id = {
-                        article.article_id: article for article in cluster.articles
-                    }
-                    source_cluster_id = cluster_event_key(cluster)
-                    for article_id in decision.discarded_article_ids:
-                        discarded_articles[article_id] = (
-                            articles_by_id[article_id],
-                            attempted_at,
-                            source_cluster_id,
-                        )
-
                     filtered_cluster = filter_cluster_articles(
                         cluster,
                         decision.included_article_ids,
@@ -577,37 +505,11 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
                 .save()
             )
 
-        discarded_values = [
-            (
-                article.article_id,
-                article.theme_id,
-                list(article.embedding),
-                article.title,
-                article.summary,
-                article.published_at,
-                article.unclassified_at,
-                discarded_at,
-                "no_concrete_event",
-                source_cluster_id,
-            )
-            for article, discarded_at, source_cluster_id in sorted(
-                discarded_articles.values(), key=lambda item: item[0].article_id
-            )
-        ]
-        new_discarded = spark.createDataFrame(
-            discarded_values, schema=DISCARDED_SCHEMA
-        )
-        discarded_state = active_discarded.unionByName(new_discarded).dropDuplicates(
-            ["article_id"]
-        )
-        _write_discarded_state(spark, discarded_state, batch_id)
-
         materialized_remaining = pending
         remaining_rows = None
-        removed_article_ids = assigned_article_ids | set(discarded_articles)
-        if removed_article_ids:
+        if assigned_article_ids:
             processed_df = spark.createDataFrame(
-                [(article_id,) for article_id in sorted(removed_article_ids)],
+                [(article_id,) for article_id in sorted(assigned_article_ids)],
                 schema=StructType(
                     [StructField("article_id", StringType(), nullable=False)]
                 ),
@@ -644,7 +546,6 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
         print(
             f"Completed unclassified cluster batch {batch_id}: "
             f"events={len(event_rows)} assigned={len(assigned_article_ids)} "
-            f"discarded={len(discarded_articles)} "
             f"gms_candidates={gms_candidate_count} "
             f"gms_halt_reason={gms_halt_reason or 'none'}"
         )

@@ -68,6 +68,23 @@ class ClusterAttemptDecision:
     reason: str
 
 
+@dataclass(frozen=True)
+class ClusterAttempt:
+    """One exact article-membership set already submitted to GMS."""
+
+    lineage_id: str
+    theme_id: int
+    article_ids: tuple[str, ...]
+    attempted_at: str
+
+
+@dataclass(frozen=True)
+class ClusterAttemptDecision:
+    should_attempt: bool
+    previous: ClusterAttempt | None
+    reason: str
+
+
 def normalize_issue_name(name: str) -> str:
     """Normalize harmless Unicode and whitespace differences before deduplication."""
 
