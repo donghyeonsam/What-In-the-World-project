@@ -551,7 +551,6 @@ services:
       ISSUE_CLUSTER_CHECKPOINT_LOCATION: ${ISSUE_CLUSTER_CHECKPOINT_LOCATION:-hdfs://namenode:9000/checkpoints/unclassified-issue-stream-v1}
       ISSUE_CLUSTER_STATE_LOCATION: ${ISSUE_CLUSTER_STATE_LOCATION:-hdfs://namenode:9000/checkpoints/unclassified-issue-state-v1}
       ISSUE_CLUSTER_ATTEMPT_STATE_LOCATION: ${ISSUE_CLUSTER_ATTEMPT_STATE_LOCATION:-hdfs://namenode:9000/checkpoints/unclassified-issue-attempt-state-v1}
-      ISSUE_CLUSTER_DISCARDED_STATE_LOCATION: ${ISSUE_CLUSTER_DISCARDED_STATE_LOCATION:-hdfs://namenode:9000/checkpoints/unclassified-issue-discarded-state-v1}
       ISSUE_CLUSTER_STARTING_OFFSETS: ${ISSUE_CLUSTER_STARTING_OFFSETS:-earliest}
 
     volumes:

@@ -28,7 +28,6 @@ class GmsIssueGeneratorTest(unittest.TestCase):
         self.valid = {
             "name": "미국 대중국 반도체 수출 규제 확대",
             "included_refs": [0, 1],
-            "discard_refs": [],
         }
 
     def test_accepts_fenced_json_for_gateway_compatibility(self):
@@ -113,10 +112,14 @@ class GmsIssueGeneratorTest(unittest.TestCase):
         )
         self.assertEqual(
             set(request["generationConfig"]["responseSchema"]["required"]),
-            {"name", "included_refs", "discard_refs"},
+            {"name", "included_refs"},
         )
         self.assertIn(
-            "어떤 구체적 사건도 식별할 수 없는 기사만 discard_refs",
+            "8건 미만이면 included_refs를 빈 배열로 반환",
+            request["contents"][0]["parts"][0]["text"],
+        )
+        self.assertNotIn(
+            "discard_refs",
             request["contents"][0]["parts"][0]["text"],
         )
 
@@ -128,7 +131,7 @@ class GmsIssueGeneratorTest(unittest.TestCase):
                         "content": {
                             "parts": [
                                 {"text": '{"name":"새로운 구체적 이슈",'},
-                                {"text": '"included_refs":[0],"discard_refs":[]}'},
+                                {"text": '"included_refs":[0]}'},
                             ]
                         }
                     }
@@ -168,15 +171,14 @@ class GmsIssueGeneratorTest(unittest.TestCase):
         self.assertEqual(mocked.call_count, 1)
         self.assertEqual(raised.exception.retry_after_seconds, 17.0)
 
-    def test_validates_issue_metadata_and_exact_article_partition(self):
+    def test_validates_issue_metadata_and_keeps_all_unselected_articles(self):
         decision = validate_generated_issue_decision(
-            dict(self.valid, discard_refs=[3]),
+            self.valid,
             ("a-1", "a-2", "a-3", "a-4"),
         )
         self.assertEqual(decision.issue.name, "미국 대중국 반도체 수출 규제 확대")
         self.assertEqual(decision.included_article_ids, ("a-1", "a-2"))
-        self.assertEqual(decision.excluded_article_ids, ("a-3",))
-        self.assertEqual(decision.discarded_article_ids, ("a-4",))
+        self.assertEqual(decision.excluded_article_ids, ("a-3", "a-4"))
 
     def test_rejects_the_expanded_noncanonical_contract(self):
         value = {
@@ -202,7 +204,6 @@ class GmsIssueGeneratorTest(unittest.TestCase):
                 {
                     "name": "사이버보안 관련 이슈",
                     "included_refs": [0],
-                    "discard_refs": [],
                 },
                 ("a-1",),
             )
@@ -226,8 +227,8 @@ class GmsIssueGeneratorTest(unittest.TestCase):
                 ("a-1", "a-2", "a-3"),
             )
 
-    def test_rejects_overlapping_included_and_discarded_refs(self):
-        with self.assertRaisesRegex(GmsIssueGenerationError, "overlap"):
+    def test_rejects_removed_discard_refs_field(self):
+        with self.assertRaisesRegex(GmsIssueGenerationError, "exactly"):
             validate_generated_issue_decision(
                 dict(self.valid, discard_refs=[1]),
                 ("a-1", "a-2", "a-3"),
