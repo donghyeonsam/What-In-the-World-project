@@ -17,9 +17,11 @@ from issue_clustering import (  # noqa: E402
     build_issue_events,
     cluster_articles,
     cluster_event_key,
+    decide_cluster_attempt,
     filter_cluster_articles,
     merge_generated_issue_candidates,
     parse_unclassified_message,
+    record_cluster_attempt,
 )
 
 
@@ -95,10 +97,7 @@ class IssueEventTest(unittest.TestCase):
         )
 
     def test_new_issue_event_is_deterministic_and_attaches_all_articles(self):
-        generated = GeneratedIssue(
-            name="미국의 대중국 반도체 규제 확대",
-            summary="요약",
-        )
+        generated = GeneratedIssue(name="미국의 대중국 반도체 규제 확대")
         key, raw_event = build_issue_events(
             self.cluster, generated, "2026-09-03T06:50:00Z"
         )[0]
@@ -133,8 +132,8 @@ class IssueEventTest(unittest.TestCase):
 
         merged = merge_generated_issue_candidates(
             (
-                (first, GeneratedIssue("부동산  시장 동향", "첫 요약")),
-                (second, GeneratedIssue("부동산 시장 동향", "둘째 요약")),
+                (first, GeneratedIssue("부동산  시장 동향")),
+                (second, GeneratedIssue("부동산 시장 동향")),
             )
         )
 
@@ -163,8 +162,8 @@ class IssueEventTest(unittest.TestCase):
 
         merged = merge_generated_issue_candidates(
             (
-                (first, GeneratedIssue("같은 이름", "첫 요약")),
-                (second, GeneratedIssue("같은 이름", "둘째 요약")),
+                (first, GeneratedIssue("같은 이름")),
+                (second, GeneratedIssue("같은 이름")),
             )
         )
 
@@ -240,6 +239,85 @@ class IssueEventTest(unittest.TestCase):
         )
 
         self.assertIsNone(filtered)
+
+
+class ClusterAttemptPolicyTest(unittest.TestCase):
+    @staticmethod
+    def _cluster(*article_ids, centroid=(1.0, 0.0)):
+        articles = tuple(article(article_id, centroid) for article_id in article_ids)
+        return ClusterCandidate(
+            theme_id=12,
+            articles=articles,
+            centroid=centroid,
+            representatives=articles[:1],
+            membership_confidence=0.95,
+        )
+
+    @staticmethod
+    def _attempts(*attempts):
+        return {attempt.lineage_id: attempt for attempt in attempts}
+
+    def test_new_cluster_is_attempted(self):
+        decision = decide_cluster_attempt(
+            self._cluster("a", "b", "c", "d"), {}
+        )
+
+        self.assertTrue(decision.should_attempt)
+        self.assertEqual(decision.reason, "new_cluster")
+
+    def test_exact_article_set_is_skipped_regardless_of_order(self):
+        original = self._cluster("a", "b", "c", "d")
+        attempt = record_cluster_attempt(
+            original, "2026-09-03T04:00:00+00:00"
+        )
+
+        decision = decide_cluster_attempt(
+            self._cluster("d", "c", "b", "a"),
+            self._attempts(attempt),
+        )
+
+        self.assertFalse(decision.should_attempt)
+        self.assertEqual(decision.reason, "exact_cluster_already_attempted")
+
+    def test_one_changed_article_is_a_new_cluster(self):
+        attempt = record_cluster_attempt(
+            self._cluster("a", "b", "c", "d"),
+            "2026-09-03T04:00:00+00:00",
+        )
+
+        decision = decide_cluster_attempt(
+            self._cluster("a", "b", "c", "e"),
+            self._attempts(attempt),
+        )
+
+        self.assertTrue(decision.should_attempt)
+        self.assertEqual(decision.reason, "new_cluster")
+
+    def test_centroid_is_ignored_when_article_set_is_exact(self):
+        attempt = record_cluster_attempt(
+            self._cluster("a", "b", "c", "d", centroid=(1.0, 0.0)),
+            "2026-09-03T04:00:00+00:00",
+        )
+
+        decision = decide_cluster_attempt(
+            self._cluster("a", "b", "c", "d", centroid=(0.0, 1.0)),
+            self._attempts(attempt),
+        )
+
+        self.assertFalse(decision.should_attempt)
+
+    def test_record_uses_deterministic_exact_cluster_id(self):
+        first = record_cluster_attempt(
+            self._cluster("a", "b", "c", "d"),
+            "2026-09-03T04:00:00+00:00",
+        )
+        second = record_cluster_attempt(
+            self._cluster("d", "c", "b", "a"),
+            "2026-09-03T05:00:00+00:00",
+        )
+
+        self.assertEqual(first.lineage_id, second.lineage_id)
+        self.assertEqual(first.article_ids, ("a", "b", "c", "d"))
 
 
 class HdbscanTransformationTest(unittest.TestCase):
