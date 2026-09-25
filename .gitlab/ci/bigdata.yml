@@ -71,7 +71,7 @@ validate-bigdata:
         - bigdata/**/*
         - .gitlab-ci.yml
         - .gitlab/ci/bigdata.yml
-    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "master"'
       changes:
         - bigdata/**/*
         - .gitlab-ci.yml
@@ -204,7 +204,7 @@ deploy-bigdata:
     - docker logs --tail 50 news-hdfs-exporter
 
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "master"'
+    - if: '$CI_COMMIT_BRANCH == "master"'
       changes:
         - bigdata/**/*
         - .gitlab-ci.yml
