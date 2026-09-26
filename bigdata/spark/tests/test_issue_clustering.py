@@ -2,6 +2,7 @@ import json
 import sys
 import types
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -22,6 +23,7 @@ from issue_clustering import (  # noqa: E402
     merge_generated_issue_candidates,
     parse_unclassified_message,
     record_cluster_attempt,
+    should_trigger_theme_clustering,
 )
 
 
@@ -318,6 +320,66 @@ class ClusterAttemptPolicyTest(unittest.TestCase):
 
         self.assertEqual(first.lineage_id, second.lineage_id)
         self.assertEqual(first.article_ids, ("a", "b", "c", "d"))
+
+
+class ThemeClusteringTriggerTest(unittest.TestCase):
+    NOW = datetime(2026, 9, 25, 15, 0, tzinfo=timezone.utc)
+
+    def test_first_run_requires_fifty_pending_articles(self):
+        self.assertFalse(
+            should_trigger_theme_clustering(49, 0, None, now=self.NOW)
+        )
+        self.assertTrue(
+            should_trigger_theme_clustering(50, 0, None, now=self.NOW)
+        )
+
+    def test_retriggers_immediately_after_fifty_new_articles(self):
+        self.assertTrue(
+            should_trigger_theme_clustering(
+                50,
+                50,
+                "2026-09-25T14:59:00+00:00",
+                now=self.NOW,
+            )
+        )
+
+    def test_retriggers_after_ten_new_articles_and_sixty_minutes(self):
+        self.assertTrue(
+            should_trigger_theme_clustering(
+                10,
+                10,
+                "2026-09-25T14:00:00Z",
+                now=self.NOW,
+            )
+        )
+
+    def test_does_not_retrigger_before_delayed_thresholds_are_both_met(self):
+        self.assertFalse(
+            should_trigger_theme_clustering(
+                49,
+                9,
+                "2026-09-25T13:00:00+00:00",
+                now=self.NOW,
+            )
+        )
+        self.assertFalse(
+            should_trigger_theme_clustering(
+                49,
+                10,
+                "2026-09-25T14:00:01+00:00",
+                now=self.NOW,
+            )
+        )
+
+    def test_does_not_retrigger_without_enough_current_pending_articles(self):
+        self.assertFalse(
+            should_trigger_theme_clustering(
+                7,
+                50,
+                "2026-09-25T13:00:00+00:00",
+                now=self.NOW,
+            )
+        )
 
 
 class HdbscanTransformationTest(unittest.TestCase):

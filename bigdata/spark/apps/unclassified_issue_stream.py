@@ -1,4 +1,4 @@
-"""Spark stream: news.unclassified.v1 -> clustered issue events."""
+""" Spark stream: news.unclassified.v1 -> clustered issue events."""
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ from issue_clustering import (
     merge_generated_issue_candidates,
     parse_unclassified_message,
     record_cluster_attempt,
+    should_trigger_theme_clustering,
 )
 from streaming_metrics import register_streaming_metrics
 from pyspark import StorageLevel
@@ -50,6 +51,9 @@ POSTGRESQL_PASSWORD = os.getenv("POSTGRESQL_PASSWORD", "")
 
 # MVP에서 모든 환경이 동일한 이슈 형성 기준을 사용하도록 코드 상수로 고정한다.
 ISSUE_CLUSTER_TRIGGER_COUNT = 50
+ISSUE_CLUSTER_IMMEDIATE_RETRIGGER_COUNT = 50
+ISSUE_CLUSTER_DELAYED_RETRIGGER_COUNT = 10
+ISSUE_CLUSTER_DELAYED_RETRIGGER_MINUTES = 60
 ISSUE_CLUSTER_MIN_SIZE = 8
 ISSUE_CLUSTER_MIN_SAMPLES = 4
 ISSUE_CLUSTER_MIN_MEMBER_CONFIDENCE = 0.80
@@ -92,6 +96,10 @@ ATTEMPT_STATE_LOCATION = os.getenv(
     "ISSUE_CLUSTER_ATTEMPT_STATE_LOCATION",
     "hdfs://namenode:9000/checkpoints/unclassified-issue-attempt-state-v1",
 )
+TRIGGER_STATE_LOCATION = os.getenv(
+    "ISSUE_CLUSTER_TRIGGER_STATE_LOCATION",
+    "hdfs://namenode:9000/checkpoints/unclassified-issue-trigger-state-v1",
+)
 SPARK_STARTING_OFFSETS = os.getenv("ISSUE_CLUSTER_STARTING_OFFSETS", "earliest")
 
 _gms_blocked_until = 0.0
@@ -128,6 +136,16 @@ ATTEMPT_SCHEMA = StructType(
         StructField("attempted_at", StringType(), nullable=False),
     ]
 )
+
+TRIGGER_STATE_SCHEMA = StructType(
+    [
+        StructField("theme_id", LongType(), nullable=False),
+        StructField("new_since_last_cluster", LongType(), nullable=False),
+        StructField("last_clustered_at", StringType(), nullable=True),
+        StructField("last_counted_batch_id", LongType(), nullable=False),
+    ]
+)
+
 
 def _parse_partition(rows):
     for row in rows:
@@ -242,6 +260,30 @@ def _write_attempt_state(spark: SparkSession, attempts, batch_id: int) -> None:
     )
 
 
+def _read_trigger_state(spark: SparkSession):
+    hadoop_path = spark._jvm.org.apache.hadoop.fs.Path(TRIGGER_STATE_LOCATION)
+    backup_path = spark._jvm.org.apache.hadoop.fs.Path(
+        f"{TRIGGER_STATE_LOCATION}.__backup"
+    )
+    file_system = hadoop_path.getFileSystem(spark._jsc.hadoopConfiguration())
+    if not file_system.exists(hadoop_path) and file_system.exists(backup_path):
+        if not file_system.rename(backup_path, hadoop_path):
+            raise RuntimeError("Could not recover the issue trigger state")
+    if not _path_exists(spark, TRIGGER_STATE_LOCATION):
+        return spark.createDataFrame([], schema=TRIGGER_STATE_SCHEMA)
+    return spark.read.schema(TRIGGER_STATE_SCHEMA).parquet(TRIGGER_STATE_LOCATION)
+
+
+def _write_trigger_state(spark: SparkSession, triggers, batch_id: int) -> None:
+    _write_state(
+        spark,
+        triggers,
+        TRIGGER_STATE_LOCATION,
+        batch_id,
+        "issue trigger",
+    )
+
+
 def _jdbc_query(spark: SparkSession, query: str):
     return (
         spark.read.format("jdbc")
@@ -304,9 +346,6 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
         "offset",
     ).rdd.mapPartitions(_parse_partition).persist(StorageLevel.MEMORY_AND_DISK)
     incoming = spark.createDataFrame(parsed_rows, schema=PENDING_SCHEMA)
-    incoming_theme_ids = [
-        row.theme_id for row in incoming.select("theme_id").distinct().collect()
-    ]
     pending_source = (
         _read_pending_state(spark)
         .unionByName(incoming)
@@ -341,22 +380,67 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
             for attempt in (_to_attempt(row) for row in attempt_rows)
         }
 
-        triggered_theme_ids = [
-            row.theme_id
-            for row in pending.groupBy("theme_id")
+        trigger_rows = _read_trigger_state(spark).collect()
+        trigger_state_by_theme = {
+            int(row.theme_id): {
+                "new_since_last_cluster": int(row.new_since_last_cluster),
+                "last_clustered_at": row.last_clustered_at,
+                "last_counted_batch_id": int(row.last_counted_batch_id),
+            }
+            for row in trigger_rows
+        }
+        if len(trigger_state_by_theme) != len(trigger_rows):
+            raise RuntimeError("Issue trigger state contains duplicate theme ids")
+
+        incoming_counts = (
+            incoming.dropDuplicates(["article_id"])
+            .groupBy("theme_id")
             .count()
-            .filter(
-                (F.col("count") >= ISSUE_CLUSTER_TRIGGER_COUNT)
-                & F.col("theme_id").isin(incoming_theme_ids)
-            )
-            .select("theme_id")
             .collect()
-        ]
+        )
+        for row in incoming_counts:
+            theme_id = int(row.theme_id)
+            state = trigger_state_by_theme.setdefault(
+                theme_id,
+                {
+                    "new_since_last_cluster": 0,
+                    "last_clustered_at": None,
+                    "last_counted_batch_id": -1,
+                },
+            )
+            if batch_id > state["last_counted_batch_id"]:
+                state["new_since_last_cluster"] += int(row["count"])
+                state["last_counted_batch_id"] = batch_id
+
+        pending_counts = pending.groupBy("theme_id").count().collect()
+        trigger_evaluated_at = datetime.now(timezone.utc)
+        triggered_theme_ids = sorted(
+            int(row.theme_id)
+            for row in pending_counts
+            if should_trigger_theme_clustering(
+                int(row["count"]),
+                int(
+                    trigger_state_by_theme.get(int(row.theme_id), {}).get(
+                        "new_since_last_cluster", 0
+                    )
+                ),
+                trigger_state_by_theme.get(int(row.theme_id), {}).get(
+                    "last_clustered_at"
+                ),
+                now=trigger_evaluated_at,
+                initial_trigger_count=ISSUE_CLUSTER_TRIGGER_COUNT,
+                minimum_pending_count=ISSUE_CLUSTER_MIN_SIZE,
+                immediate_retrigger_count=ISSUE_CLUSTER_IMMEDIATE_RETRIGGER_COUNT,
+                delayed_retrigger_count=ISSUE_CLUSTER_DELAYED_RETRIGGER_COUNT,
+                delayed_retrigger_minutes=ISSUE_CLUSTER_DELAYED_RETRIGGER_MINUTES,
+            )
+        )
         assigned_article_ids: set[str] = set()
         event_rows: list[tuple[str, str]] = []
         generated_candidates = []
         gms_candidate_count = 0
         gms_halt_reason: str | None = None
+        completed_theme_ids: set[int] = set()
 
         if time.time() < _gms_blocked_until:
             gms_halt_reason = "rate_limit_cooldown"
@@ -489,6 +573,8 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
                     assigned_article_ids.update(
                         article.article_id for article in filtered_cluster.articles
                     )
+                if gms_halt_reason is None:
+                    completed_theme_ids.add(theme_id)
 
         for cluster, generated in merge_generated_issue_candidates(
             generated_candidates,
@@ -543,9 +629,38 @@ def write_cluster_batch(batch_df, batch_id: int) -> None:
         ]
         attempt_state = spark.createDataFrame(attempt_values, schema=ATTEMPT_SCHEMA)
         _write_attempt_state(spark, attempt_state, batch_id)
+
+        clustered_at = datetime.now(timezone.utc).isoformat()
+        for theme_id in completed_theme_ids:
+            state = trigger_state_by_theme.setdefault(
+                theme_id,
+                {
+                    "new_since_last_cluster": 0,
+                    "last_clustered_at": None,
+                    "last_counted_batch_id": batch_id,
+                },
+            )
+            state["new_since_last_cluster"] = 0
+            state["last_clustered_at"] = clustered_at
+        trigger_values = [
+            (
+                theme_id,
+                state["new_since_last_cluster"],
+                state["last_clustered_at"],
+                state["last_counted_batch_id"],
+            )
+            for theme_id, state in sorted(
+                trigger_state_by_theme.items()
+            )
+        ]
+        materialized_trigger_state = spark.createDataFrame(
+            trigger_values, schema=TRIGGER_STATE_SCHEMA
+        )
+        _write_trigger_state(spark, materialized_trigger_state, batch_id)
         print(
             f"Completed unclassified cluster batch {batch_id}: "
             f"events={len(event_rows)} assigned={len(assigned_article_ids)} "
+            f"triggered_themes={len(triggered_theme_ids)} "
             f"gms_candidates={gms_candidate_count} "
             f"gms_halt_reason={gms_halt_reason or 'none'}"
         )
@@ -561,6 +676,16 @@ def _validate_config() -> None:
         raise RuntimeError("GMS_API_KEY is required")
     if ISSUE_CLUSTER_TRIGGER_COUNT < 2:
         raise ValueError("ISSUE_CLUSTER_TRIGGER_COUNT must be at least 2")
+    if ISSUE_CLUSTER_IMMEDIATE_RETRIGGER_COUNT < ISSUE_CLUSTER_DELAYED_RETRIGGER_COUNT:
+        raise ValueError(
+            "Immediate retrigger count must be at least the delayed retrigger count"
+        )
+    if ISSUE_CLUSTER_DELAYED_RETRIGGER_COUNT < ISSUE_CLUSTER_MIN_SIZE:
+        raise ValueError(
+            "Delayed retrigger count must be at least the minimum cluster size"
+        )
+    if ISSUE_CLUSTER_DELAYED_RETRIGGER_MINUTES < 1:
+        raise ValueError("Delayed retrigger minutes must be positive")
     if not 2 <= ISSUE_CLUSTER_MIN_SIZE <= ISSUE_CLUSTER_TRIGGER_COUNT:
         raise ValueError(
             "ISSUE_CLUSTER_MIN_SIZE must be between 2 and the trigger count"
