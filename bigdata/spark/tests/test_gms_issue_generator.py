@@ -73,8 +73,10 @@ class GmsIssueGeneratorTest(unittest.TestCase):
         )
 
         request = json.loads(_request_body(config, "국제", cluster).decode("utf-8"))
+        system_prompt = request["systemInstruction"]["parts"][0]["text"]
+        user_prompt = request["contents"][0]["parts"][0]["text"]
         prompt_payload = json.loads(
-            request["contents"][0]["parts"][0]["text"].split("\n", maxsplit=1)[1]
+            user_prompt.split("\n", maxsplit=1)[1]
         )
 
         self.assertEqual(
@@ -114,13 +116,22 @@ class GmsIssueGeneratorTest(unittest.TestCase):
             set(request["generationConfig"]["responseSchema"]["required"]),
             {"name", "included_refs"},
         )
+        self.assertIn("theme은 후보를 모은 상위 분류", system_prompt)
+        self.assertIn("특정 개수를 채우려고 인접 사건을 섞지 마라", system_prompt)
+        self.assertIn("타파추라 소치밀코 지구 주택 총격", system_prompt)
+        self.assertIn("칸쿤에서 마약 소량 유통 혐의 9명 기소", system_prompt)
         self.assertIn(
-            "8건 미만이면 included_refs를 빈 배열로 반환",
-            request["contents"][0]["parts"][0]["text"],
+            "included_refs는 [0,1,2,3,4,5,6,7]",
+            system_prompt,
         )
+        self.assertIn("7개 ref를 그대로 반환", system_prompt)
+        self.assertIn("선택된 기사 수와 무관하게", user_prompt)
+        self.assertNotIn("8건", system_prompt)
+        self.assertNotIn("8건", user_prompt)
+        self.assertIn("판정 과정이나 설명은 출력하지 마라", user_prompt)
         self.assertNotIn(
             "discard_refs",
-            request["contents"][0]["parts"][0]["text"],
+            user_prompt,
         )
 
     def test_extracts_text_from_gemini_candidate_parts(self):
