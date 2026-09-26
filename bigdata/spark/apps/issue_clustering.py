@@ -197,11 +197,11 @@ def should_trigger_theme_clustering(
     last_clustered_at: str | None,
     *,
     now: datetime | None = None,
-    initial_trigger_count: int = 50,
+    initial_trigger_count: int = 25,
     minimum_pending_count: int = 8,
-    immediate_retrigger_count: int = 50,
+    immediate_retrigger_count: int = 25,
     delayed_retrigger_count: int = 10,
-    delayed_retrigger_minutes: int = 60,
+    delayed_retrigger_minutes: int = 30,
 ) -> bool:
     """Decide whether one theme is due for another clustering pass.
 
