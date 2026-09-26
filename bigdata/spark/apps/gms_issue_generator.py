@@ -21,7 +21,7 @@ from issue_clustering import (
 
 
 class GmsIssueGenerationError(RuntimeError):
-    """Raised when GMS does not return a valid issue decision."""
+    """ Raised when GMS does not return a valid issue decision."""
 
 
 class GmsRateLimitError(GmsIssueGenerationError):

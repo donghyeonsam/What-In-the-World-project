@@ -7,7 +7,7 @@ import json
 import math
 import unicodedata
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Mapping, Sequence
 
 
@@ -48,7 +48,23 @@ class GeneratedIssueDecision:
     issue: GeneratedIssue
     included_article_ids: tuple[str, ...]
     excluded_article_ids: tuple[str, ...]
-    discarded_article_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ClusterAttempt:
+    """One exact article-membership set already submitted to GMS."""
+
+    lineage_id: str
+    theme_id: int
+    article_ids: tuple[str, ...]
+    attempted_at: str
+
+
+@dataclass(frozen=True)
+class ClusterAttemptDecision:
+    should_attempt: bool
+    previous: ClusterAttempt | None
+    reason: str
 
 
 @dataclass(frozen=True)
@@ -173,6 +189,77 @@ def cosine_similarity(left: Iterable[float], right: Iterable[float]) -> float | 
     if left_norm == 0.0 or right_norm == 0.0:
         return None
     return max(-1.0, min(1.0, dot_product / (left_norm * right_norm)))
+
+
+def should_trigger_theme_clustering(
+    pending_count: int,
+    new_since_last_cluster: int,
+    last_clustered_at: str | None,
+    *,
+    now: datetime | None = None,
+    initial_trigger_count: int = 50,
+    minimum_pending_count: int = 8,
+    immediate_retrigger_count: int = 50,
+    delayed_retrigger_count: int = 10,
+    delayed_retrigger_minutes: int = 60,
+) -> bool:
+    """Decide whether one theme is due for another clustering pass.
+
+    A theme is first evaluated after it accumulates the initial threshold. After
+    that watermark is recorded, it is evaluated again either after a large
+    arrival burst or after a smaller burst has waited long enough.
+    """
+
+    counts = (
+        pending_count,
+        new_since_last_cluster,
+        initial_trigger_count,
+        minimum_pending_count,
+        immediate_retrigger_count,
+        delayed_retrigger_count,
+        delayed_retrigger_minutes,
+    )
+    if any(isinstance(value, bool) or not isinstance(value, int) for value in counts):
+        raise ValueError("clustering trigger counts must be integers")
+    if pending_count < 0 or new_since_last_cluster < 0:
+        raise ValueError("article counts must not be negative")
+    if (
+        initial_trigger_count < 1
+        or minimum_pending_count < 1
+        or immediate_retrigger_count < 1
+        or delayed_retrigger_count < 1
+        or delayed_retrigger_minutes < 1
+    ):
+        raise ValueError("clustering trigger thresholds must be positive")
+    if delayed_retrigger_count > immediate_retrigger_count:
+        raise ValueError(
+            "delayed retrigger count must not exceed immediate retrigger count"
+        )
+
+    if last_clustered_at is None:
+        return pending_count >= initial_trigger_count
+    if pending_count < minimum_pending_count:
+        return False
+
+    try:
+        last_clustered = datetime.fromisoformat(
+            last_clustered_at.replace("Z", "+00:00")
+        )
+    except ValueError as exc:
+        raise ValueError("last_clustered_at must be an ISO-8601 timestamp") from exc
+    if last_clustered.tzinfo is None:
+        raise ValueError("last_clustered_at must include a timezone")
+
+    evaluated_at = now or datetime.now(timezone.utc)
+    if evaluated_at.tzinfo is None:
+        raise ValueError("now must include a timezone")
+    if new_since_last_cluster >= immediate_retrigger_count:
+        return True
+    return (
+        new_since_last_cluster >= delayed_retrigger_count
+        and evaluated_at - last_clustered
+        >= timedelta(minutes=delayed_retrigger_minutes)
+    )
 
 
 def decide_cluster_attempt(
