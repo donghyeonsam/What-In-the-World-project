@@ -325,30 +325,30 @@ class ClusterAttemptPolicyTest(unittest.TestCase):
 class ThemeClusteringTriggerTest(unittest.TestCase):
     NOW = datetime(2026, 9, 25, 15, 0, tzinfo=timezone.utc)
 
-    def test_first_run_requires_fifty_pending_articles(self):
+    def test_first_run_requires_twenty_five_pending_articles(self):
         self.assertFalse(
-            should_trigger_theme_clustering(49, 0, None, now=self.NOW)
+            should_trigger_theme_clustering(24, 0, None, now=self.NOW)
         )
         self.assertTrue(
-            should_trigger_theme_clustering(50, 0, None, now=self.NOW)
+            should_trigger_theme_clustering(25, 0, None, now=self.NOW)
         )
 
-    def test_retriggers_immediately_after_fifty_new_articles(self):
+    def test_retriggers_immediately_after_twenty_five_new_articles(self):
         self.assertTrue(
             should_trigger_theme_clustering(
-                50,
-                50,
+                25,
+                25,
                 "2026-09-25T14:59:00+00:00",
                 now=self.NOW,
             )
         )
 
-    def test_retriggers_after_ten_new_articles_and_sixty_minutes(self):
+    def test_retriggers_after_ten_new_articles_and_thirty_minutes(self):
         self.assertTrue(
             should_trigger_theme_clustering(
                 10,
                 10,
-                "2026-09-25T14:00:00Z",
+                "2026-09-25T14:30:00Z",
                 now=self.NOW,
             )
         )
@@ -366,7 +366,7 @@ class ThemeClusteringTriggerTest(unittest.TestCase):
             should_trigger_theme_clustering(
                 49,
                 10,
-                "2026-09-25T14:00:01+00:00",
+                "2026-09-25T14:30:01+00:00",
                 now=self.NOW,
             )
         )
