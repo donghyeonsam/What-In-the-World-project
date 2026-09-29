@@ -1,0 +1,42 @@
+name: witw-static-shard-benchmark
+
+services:
+  benchmark-worker:
+    image: ${BENCHMARK_IMAGE:-witw-clustering-benchmark:1}
+    cpus: ${WORKER_CPUS:-2}
+    mem_limit: ${WORKER_MEMORY:-4g}
+    environment:
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
+    volumes:
+      - ${BENCHMARK_DATA_DIR:?BENCHMARK_DATA_DIR must be set}:/benchmark/input:ro
+      - ${BENCHMARK_RESULTS_DIR:?BENCHMARK_RESULTS_DIR must be set}:/benchmark/results
+    command:
+      - python3
+      - /opt/benchmark/worker.py
+      - --node-id
+      - ${NODE_ID:?NODE_ID must be set}
+      - --mode
+      - ${MODE:?MODE must be set}
+      - --expected-rows
+      - ${ROWS:?ROWS must be set}
+      - --assignment
+      - /benchmark/input/${ASSIGNMENT_FILE:?ASSIGNMENT_FILE must be set}
+      - --input
+      - /benchmark/input/${INPUT_FILE:?INPUT_FILE must be set}
+      - --output
+      - /benchmark/results/${MODE:?MODE must be set}-${ROWS:?ROWS must be set}-${RUN_ID:?RUN_ID must be set}-${NODE_ID:?NODE_ID must be set}.json
+      - --start-at
+      - ${START_AT:?START_AT must be set}
+      - --processes
+      - ${WORKER_PROCESSES:-2}
+      - --min-cluster-size
+      - ${MIN_CLUSTER_SIZE:-8}
+      - --min-samples
+      - ${MIN_SAMPLES:-4}
+      - --min-membership-confidence
+      - ${MIN_MEMBERSHIP_CONFIDENCE:-0.8}
+      - --min-centroid-similarity
+      - ${MIN_CENTROID_SIMILARITY:-0.92}
