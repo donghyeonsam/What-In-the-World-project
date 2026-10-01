@@ -14,8 +14,12 @@ export function selectDatePart(date, step, value, today) {
   const [min, max] = datePartBounds(date, step, today);
   if (value < min || value > max) return date;
   const parts = date.split('-').map(Number);
+  const previousMonth = parts[1];
   parts[step] = value;
-  parts[2] = Math.min(parts[2], new Date(parts[0], parts[1], 0).getDate());
+  const lastDayOfMonth = new Date(parts[0], parts[1], 0).getDate();
+  parts[2] = step === 1 && value < previousMonth
+    ? lastDayOfMonth
+    : Math.min(parts[2], lastDayOfMonth);
   const next = parts.map((part, index) => String(part).padStart(index === 0 ? 4 : 2, '0')).join('-');
   return next < SELECTABLE_FIRST_DATE ? SELECTABLE_FIRST_DATE : next > today ? today : next;
 }

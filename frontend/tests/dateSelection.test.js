@@ -14,9 +14,15 @@ test('ruler disables dates before September 19 and after today', () => {
   assert.equal(selectDatePart(today, 0, 2025, today), today);
 });
 
-test('changing a month or year clamps the day to valid calendar and selection bounds', () => {
+test('moving to an earlier month starts at its last day, within selection bounds', () => {
+  assert.equal(selectDatePart('2026-10-01', 1, 9, '2026-10-01'), '2026-09-30');
   assert.equal(selectDatePart('2026-10-31', 1, 9, '2026-11-01'), '2026-09-30');
-  assert.equal(selectDatePart('2026-10-01', 1, 9, '2026-11-01'), '2026-09-19');
+  assert.equal(selectDatePart('2027-03-01', 1, 2, '2027-03-01'), '2027-02-28');
+  assert.equal(selectDatePart('2028-03-01', 1, 2, '2028-03-01'), '2028-02-29');
+});
+
+test('changing to a later month or year keeps the day within calendar and selection bounds', () => {
+  assert.equal(selectDatePart('2026-09-19', 1, 10, '2026-10-31'), '2026-10-19');
   assert.equal(selectDatePart('2027-01-01', 0, 2026, '2027-06-10'), '2026-09-19');
   assert.equal(selectDatePart('2026-12-31', 0, 2027, '2027-06-10'), '2027-06-10');
   assert.equal(selectDatePart('2028-02-29', 0, 2027, '2028-03-01'), '2027-02-28');
