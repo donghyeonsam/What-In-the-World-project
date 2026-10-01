@@ -1,6 +1,5 @@
 const DEFAULT_AUTHORIZE_URL = 'https://project.ssafy.com/oauth/sso-check';
 const SSAFY_CLIENT_ID = '86976ec9-cbb3-4768-a339-e03ce05e2e39';
-const SSAFY_REDIRECT_URI = 'https://dev.witw.kro.kr/auth/ssafy/callback';
 const STATE_KEY = 'witw_ssafy_oauth_state';
 const RETURN_KEY = 'witw_ssafy_oauth_return';
 
@@ -11,7 +10,7 @@ export function createSsafyAuthorizeUrl(location, storage, randomUUID) {
 
   const url = new URL(import.meta.env?.VITE_SSAFY_AUTHORIZE_URL || DEFAULT_AUTHORIZE_URL);
   url.searchParams.set('client_id', SSAFY_CLIENT_ID);
-  url.searchParams.set('redirect_uri', SSAFY_REDIRECT_URI);
+  url.searchParams.set('redirect_uri', `${location.origin}/auth/ssafy/callback`);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('state', state);
   return url.toString();
