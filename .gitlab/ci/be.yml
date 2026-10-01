@@ -25,6 +25,8 @@ validate-backend:
     - cd "$CI_PROJECT_DIR/backend"
     - bash ./gradlew test --no-daemon
   rules:
+    # 운영 환경변수 변경 후 New pipeline에서 master를 선택해 재배포할 수 있다.
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == "master"'
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
       changes:
         - backend/docker-compose.dev.yml
@@ -103,6 +105,8 @@ deploy-backend:
     - docker compose --env-file "$BACKEND_ENV_FILE" -p "$BACKEND_COMPOSE_PROJECT" -f "$BACKEND_COMPOSE_FILE" ps
     - timeout 5 bash -c "</dev/tcp/127.0.0.1/$BACKEND_HOST_PORT"
   rules:
+    # 수동 파이프라인에서도 검증 성공 후 운영 백엔드를 배포한다.
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == "master"'
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "master"'
       changes:
         - backend/src/**/*
