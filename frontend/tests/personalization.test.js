@@ -132,10 +132,23 @@ test('SSAFY callback validates state once and restores the pre-login URL', () =>
   assert.throws(() => readSsafyCallback('?code=replayed&state=safe-state', storage), /확인할 수 없습니다/);
 });
 
-test('SSAFY authorization uses the registered callback URI', () => {
+test('SSAFY authorization uses the current origin for its callback', () => {
   const storage = { setItem: () => {} };
-  const url = new URL(createSsafyAuthorizeUrl({
-    pathname: '/', search: '', hash: '',
-  }, storage, () => 'safe-state'));
-  assert.equal(url.searchParams.get('redirect_uri'), 'https://dev.witw.kro.kr/auth/ssafy/callback');
+
+  for (const origin of [
+    'https://witw.kro.kr',
+    'https://dev.witw.kro.kr',
+  ]) {
+    const url = new URL(createSsafyAuthorizeUrl({
+      origin,
+      pathname: '/',
+      search: '',
+      hash: '',
+    }, storage, () => 'safe-state'));
+
+    assert.equal(
+        url.searchParams.get('redirect_uri'),
+        `${origin}/auth/ssafy/callback`,
+    );
+  }
 });
